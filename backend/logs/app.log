@@ -1,0 +1,616 @@
+2026-06-10 13:42:13 DEBUG    asyncio — Using proactor: IocpProactor
+2026-06-10 13:49:50 INFO     main — Auto-created templates from drawing 1 / page 1: {'AC': 2}
+2026-06-10 13:56:23 INFO     main — Auto-created templates from drawing 2 / page 1: {'AIS': 2}
+2026-06-10 15:45:45 DEBUG    asyncio — Using proactor: IocpProactor
+2026-06-10 15:48:07 DEBUG    watchfiles.main — 5 changes detected: {(<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\f6086641f7ad4531bef3104320fcb10b\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\f6086641f7ad4531bef3104320fcb10b'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\f6086641f7ad4531bef3104320fcb10b'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\f6086641f7ad4531bef3104320fcb10b\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 15:48:09 DEBUG    watchfiles.main — 5 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\02e93add16374da18b2a0a04807d9762'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\02e93add16374da18b2a0a04807d9762'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\02e93add16374da18b2a0a04807d9762\\page-1.png'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\02e93add16374da18b2a0a04807d9762\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 15:48:11 DEBUG    watchfiles.main — 5 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\ff98b02718d14492a74cf74a3819bd2a'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\ff98b02718d14492a74cf74a3819bd2a'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\ff98b02718d14492a74cf74a3819bd2a\\drawing.pdf'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\ff98b02718d14492a74cf74a3819bd2a\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 15:48:17 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2b964d03d04944b492a214eae6493432'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2b964d03d04944b492a214eae6493432\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 15:48:18 DEBUG    watchfiles.main — 1 change detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2b964d03d04944b492a214eae6493432\\page-1.png')}
+2026-06-10 15:48:19 DEBUG    watchfiles.main — 2 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2b964d03d04944b492a214eae6493432'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2b964d03d04944b492a214eae6493432\\page-1.png')}
+2026-06-10 15:57:32 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 16:06:30 DEBUG    PIL.Image — Importing PngImagePlugin
+2026-06-10 16:06:30 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-10 16:06:30 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-10 16:06:30 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-10 16:06:31 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 16:06:39 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\bf473018883c43b7a5e4912923069326'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\bf473018883c43b7a5e4912923069326\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 16:06:39 DEBUG    watchfiles.main — 1 change detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\bf473018883c43b7a5e4912923069326\\page-1.png')}
+2026-06-10 16:06:41 DEBUG    watchfiles.main — 2 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\bf473018883c43b7a5e4912923069326\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\bf473018883c43b7a5e4912923069326')}
+2026-06-10 16:10:53 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 16:10:55 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 16:11:45 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 16:13:07 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-10 16:13:07 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-10 16:13:07 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-10 16:13:07 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 16:13:10 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 16:13:13 DEBUG    watchfiles.main — 4 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c6b72d5aea824843862cb311a8f51515\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c6b72d5aea824843862cb311a8f51515'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 16:13:14 DEBUG    watchfiles.main — 1 change detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c6b72d5aea824843862cb311a8f51515\\page-1.png')}
+2026-06-10 16:13:15 DEBUG    watchfiles.main — 2 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c6b72d5aea824843862cb311a8f51515\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c6b72d5aea824843862cb311a8f51515')}
+2026-06-10 16:17:28 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 16:37:29 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\main.py')}
+2026-06-10 16:37:29 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\logs\\app.log')}
+2026-06-10 16:37:31 DEBUG    watchfiles.main — 5 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc.2422767776816'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc.2422767776816')}
+2026-06-10 16:37:35 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\logs\\app.log')}
+2026-06-10 16:42:31 DEBUG    asyncio — Using proactor: IocpProactor
+2026-06-10 16:51:05 DEBUG    asyncio — Using proactor: IocpProactor
+2026-06-10 16:52:06 DEBUG    asyncio — Using proactor: IocpProactor
+2026-06-10 17:04:27 DEBUG    asyncio — Using proactor: IocpProactor
+2026-06-10 17:28:41 INFO     main — Migrated: added global_templates.threshold_override
+2026-06-10 17:28:41 DEBUG    asyncio — Using proactor: IocpProactor
+2026-06-10 17:31:18 DEBUG    asyncio — Using proactor: IocpProactor
+2026-06-10 17:31:18 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\logs\\app.log')}
+2026-06-10 17:33:25 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\main.py')}
+2026-06-10 17:33:26 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\logs\\app.log')}
+2026-06-10 17:33:26 DEBUG    watchfiles.main — 5 changes detected: {(<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc.2144294810672'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc.2144294810672')}
+2026-06-10 17:33:28 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\logs\\app.log')}
+2026-06-10 17:34:02 DEBUG    asyncio — Using proactor: IocpProactor
+2026-06-10 17:34:50 DEBUG    watchfiles.main — 2 changes detected: {(<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates\\9f040494a1d34d0587b18f87393a6fd4.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-10 17:34:56 DEBUG    watchfiles.main — 5 changes detected: {(<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\cae0c202e9d54f59ad6124d244f5e08b\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\cae0c202e9d54f59ad6124d244f5e08b'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\cae0c202e9d54f59ad6124d244f5e08b'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\cae0c202e9d54f59ad6124d244f5e08b\\page-1.png')}
+2026-06-10 17:35:03 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\049d7a47d2a841449646f1e50bb08f5f\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\049d7a47d2a841449646f1e50bb08f5f'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads')}
+2026-06-10 17:35:13 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\ac33a7b1eb584f37a25fce9ea2886201'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\ac33a7b1eb584f37a25fce9ea2886201\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads')}
+2026-06-10 17:35:23 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\afd10ab080c7445c9a68b57bdfa3e5bc'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\afd10ab080c7445c9a68b57bdfa3e5bc\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads')}
+2026-06-11 08:52:43 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\main.py')}
+2026-06-11 08:52:45 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\logs\\app.log')}
+2026-06-11 08:52:47 DEBUG    watchfiles.main — 5 changes detected: {(<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc.1281337865264'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\__pycache__\\main.cpython-314.pyc.1281337865264')}
+2026-06-11 08:52:53 DEBUG    watchfiles.main — 3 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\logs\\app.log'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads')}
+2026-06-11 08:54:02 DEBUG    watchfiles.main — 5 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\bf473018883c43b7a5e4912923069326\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\bf473018883c43b7a5e4912923069326'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\bf473018883c43b7a5e4912923069326'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\bf473018883c43b7a5e4912923069326\\drawing.pdf')}
+2026-06-11 08:54:07 DEBUG    watchfiles.main — 4 changes detected: {(<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\049d7a47d2a841449646f1e50bb08f5f\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\049d7a47d2a841449646f1e50bb08f5f'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\049d7a47d2a841449646f1e50bb08f5f'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:54:10 DEBUG    watchfiles.main — 3 changes detected: {(<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\ac33a7b1eb584f37a25fce9ea2886201\\drawing.pdf'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\ac33a7b1eb584f37a25fce9ea2886201'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:54:12 DEBUG    watchfiles.main — 4 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\afd10ab080c7445c9a68b57bdfa3e5bc'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\afd10ab080c7445c9a68b57bdfa3e5bc'), (<Change.deleted: 3>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\afd10ab080c7445c9a68b57bdfa3e5bc\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:54:21 DEBUG    watchfiles.main — 4 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\938c8942edc0451babe331ae7bf0969a\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\938c8942edc0451babe331ae7bf0969a'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:54:21 DEBUG    watchfiles.main — 1 change detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\938c8942edc0451babe331ae7bf0969a\\page-1.png')}
+2026-06-11 08:54:23 DEBUG    watchfiles.main — 2 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\938c8942edc0451babe331ae7bf0969a\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\938c8942edc0451babe331ae7bf0969a')}
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing PngImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-11 08:54:49 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-11 08:54:49 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing AvifImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing BlpImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing BmpImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing BufrStubImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing CurImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing DcxImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing DdsImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing EpsImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing FitsImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing FliImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing FpxImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Image: failed to import FpxImagePlugin: No module named 'olefile'
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing FtexImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing GbrImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing GifImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing GribStubImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing Hdf5StubImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing IcnsImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing IcoImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing ImImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing ImtImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing IptcImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing JpegImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing Jpeg2KImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing McIdasImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing MicImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Image: failed to import MicImagePlugin: No module named 'olefile'
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing MpegImagePlugin
+2026-06-11 08:54:49 DEBUG    PIL.Image — Importing MpoImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing MspImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing PalmImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing PcdImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing PcxImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing PdfImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing PixarImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing PngImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing PpmImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing PsdImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing QoiImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing SgiImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing SpiderImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing SunImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing TgaImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing TiffImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing WebPImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing WmfImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing XbmImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing XpmImagePlugin
+2026-06-11 08:54:50 DEBUG    PIL.Image — Importing XVThumbImagePlugin
+2026-06-11 08:54:50 INFO     main — PDF export: drawing 1 (1 pages)
+2026-06-11 08:55:06 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:55:34 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:55:38 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:55:40 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:56:02 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:56:05 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:56:20 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:56:23 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:56:30 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:56:35 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:56:38 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:56:54 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:57:09 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-11 08:57:09 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-11 08:57:09 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-11 08:57:09 DEBUG    watchfiles.main — 1 change detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates\\auto_8cf0546cdc854c599f01c3b13b56598e.png')}
+2026-06-11 08:57:10 INFO     main — Auto-created templates from drawing 2 / page 1: {'AC': 3}
+2026-06-11 08:57:10 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates\\auto_b349d763b59745029c6e6f3b2f3e5313.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates\\auto_47712b1c01ea4e9c991e72b62de4d7bd.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:57:19 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\7c44d2e0d5794264930ac97149c2db7f'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\7c44d2e0d5794264930ac97149c2db7f\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 08:57:19 DEBUG    watchfiles.main — 1 change detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\7c44d2e0d5794264930ac97149c2db7f\\page-1.png')}
+2026-06-11 08:57:21 DEBUG    watchfiles.main — 2 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\7c44d2e0d5794264930ac97149c2db7f\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\7c44d2e0d5794264930ac97149c2db7f')}
+2026-06-11 08:58:47 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 09:56:09 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 09:58:45 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-11 09:58:45 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-11 09:58:45 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-11 09:58:45 DEBUG    watchfiles.main — 2 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates\\auto_2ca18c1e47344f01baf8ce01d3974af9.png')}
+2026-06-11 09:58:45 INFO     main — Auto-created templates from drawing 3 / page 1: {'CCTV_Fixed': 2}
+2026-06-11 09:58:45 DEBUG    watchfiles.main — 3 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates\\auto_96280dc621064bb18cdcc39021ecf39a.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 09:58:53 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\fbe8fbc6374d4650ba93d206358cb7ef'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\fbe8fbc6374d4650ba93d206358cb7ef\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 09:58:54 DEBUG    watchfiles.main — 1 change detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\fbe8fbc6374d4650ba93d206358cb7ef\\page-1.png')}
+2026-06-11 09:58:55 DEBUG    watchfiles.main — 2 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\fbe8fbc6374d4650ba93d206358cb7ef'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\fbe8fbc6374d4650ba93d206358cb7ef\\page-1.png')}
+2026-06-11 10:00:39 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:01:06 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:01:08 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:01:35 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:03:01 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-11 10:03:01 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-11 10:03:01 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-11 10:03:01 DEBUG    watchfiles.main — 2 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates\\auto_48c28ea52cb94f42b10f86634071ccf5.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates')}
+2026-06-11 10:03:01 INFO     main — Auto-created templates from drawing 4 / page 1: {'CCTV_Fixed': 2}
+2026-06-11 10:03:01 DEBUG    watchfiles.main — 3 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\templates\\auto_e24d131ad03f4c619b373d4e31626531.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:04:21 DEBUG    watchfiles.main — 32 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\a89a23f55760465bacb42aadb83d8834'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c04f68a89bcc4661bc0aecc827ed9294'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\6b9f1b55f88f45ac95241d7425d4a041\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\afbe9170c41f4c82845cc624e5fd3f97'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\f9a216179f73450b8a8989ed649f5c30\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\17f841ff553742b193d8097e8461c3a5\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\9b10eafa81fb4acf8317d0f22656e8ae\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\d2eea9c21f1c41a1866acbe855bf13a0'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c04f68a89bcc4661bc0aecc827ed9294\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\61080f075c934011b39afdf897608e8a'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\b5eebb382de943368528594f867b9f05'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\9b10eafa81fb4acf8317d0f22656e8ae'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\17f841ff553742b193d8097e8461c3a5'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\6b9f1b55f88f45ac95241d7425d4a041'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\f9a216179f73450b8a8989ed649f5c30'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\b5eebb382de943368528594f867b9f05\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c005b4ce3dc546548310764939c71545\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2e4e6050b559489491b0a10260a531f7'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\12a6e9fda66541e3b188993ee6c22c56'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\ba0ed818a76e463db9283828517f9cf5'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2e4e6050b559489491b0a10260a531f7\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\afbe9170c41f4c82845cc624e5fd3f97\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\a89a23f55760465bacb42aadb83d8834\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\61080f075c934011b39afdf897608e8a\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\506c1600f77e492494186648b917a38e'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\ba0ed818a76e463db9283828517f9cf5\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\12a6e9fda66541e3b188993ee6c22c56\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\506c1600f77e492494186648b917a38e\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\d2eea9c21f1c41a1866acbe855bf13a0\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c005b4ce3dc546548310764939c71545')}
+2026-06-11 10:04:21 DEBUG    watchfiles.main — 7 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c005b4ce3dc546548310764939c71545\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\9b10eafa81fb4acf8317d0f22656e8ae\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\6b9f1b55f88f45ac95241d7425d4a041\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\d2eea9c21f1c41a1866acbe855bf13a0\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\a89a23f55760465bacb42aadb83d8834\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\b5eebb382de943368528594f867b9f05\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\12a6e9fda66541e3b188993ee6c22c56\\page-1.png')}
+2026-06-11 10:04:22 DEBUG    watchfiles.main — 7 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\afbe9170c41f4c82845cc624e5fd3f97\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\17f841ff553742b193d8097e8461c3a5\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\506c1600f77e492494186648b917a38e\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c04f68a89bcc4661bc0aecc827ed9294\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\f9a216179f73450b8a8989ed649f5c30\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\61080f075c934011b39afdf897608e8a\\page-1.png'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2e4e6050b559489491b0a10260a531f7\\page-1.png')}
+2026-06-11 10:04:23 DEBUG    watchfiles.main — 2 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c005b4ce3dc546548310764939c71545'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c005b4ce3dc546548310764939c71545\\page-1.png')}
+2026-06-11 10:04:24 DEBUG    watchfiles.main — 10 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\6b9f1b55f88f45ac95241d7425d4a041'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\6b9f1b55f88f45ac95241d7425d4a041\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\d2eea9c21f1c41a1866acbe855bf13a0\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\b5eebb382de943368528594f867b9f05\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\12a6e9fda66541e3b188993ee6c22c56'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\b5eebb382de943368528594f867b9f05'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\a89a23f55760465bacb42aadb83d8834\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\d2eea9c21f1c41a1866acbe855bf13a0'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\12a6e9fda66541e3b188993ee6c22c56\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\a89a23f55760465bacb42aadb83d8834')}
+2026-06-11 10:04:24 DEBUG    watchfiles.main — 6 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\f9a216179f73450b8a8989ed649f5c30'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\9b10eafa81fb4acf8317d0f22656e8ae\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\f9a216179f73450b8a8989ed649f5c30\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\9b10eafa81fb4acf8317d0f22656e8ae'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c04f68a89bcc4661bc0aecc827ed9294'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\c04f68a89bcc4661bc0aecc827ed9294\\page-1.png')}
+2026-06-11 10:04:25 DEBUG    watchfiles.main — 8 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2e4e6050b559489491b0a10260a531f7'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\61080f075c934011b39afdf897608e8a\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2e4e6050b559489491b0a10260a531f7\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\17f841ff553742b193d8097e8461c3a5\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\506c1600f77e492494186648b917a38e\\page-1.png'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\61080f075c934011b39afdf897608e8a'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\506c1600f77e492494186648b917a38e'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\17f841ff553742b193d8097e8461c3a5')}
+2026-06-11 10:04:25 DEBUG    watchfiles.main — 2 changes detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\afbe9170c41f4c82845cc624e5fd3f97'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\afbe9170c41f4c82845cc624e5fd3f97\\page-1.png')}
+2026-06-11 10:04:51 ERROR    main — Detection error for drawing 19
+Traceback (most recent call last):
+  File "C:\SymbolCounter\symbol-counter\backend\main.py", line 1221, in _run_detection
+    d = db.query(models.Drawing).filter(models.Drawing.id == drawing_id).first()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\query.py", line 2766, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\query.py", line 2864, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+        params,
+        ^^^^^^^
+        execution_options={"_sa_orm_load_options": self.load_options},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2372, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2260, in _execute_internal
+    conn = self._connection_for_bind(bind)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2112, in _connection_for_bind
+    return trans._connection_for_bind(engine, execution_options)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 2, in _connection_for_bind
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 1191, in _connection_for_bind
+    conn = bind.connect()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 3295, in connect
+    return self._connection_cls(self)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 144, in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 3319, in raw_connection
+    return self.pool.connect()
+           ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 448, in connect
+    return _ConnectionFairy._checkout(self)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 1272, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 712, in checkout
+    rec = pool._do_get()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\impl.py", line 167, in _do_get
+    raise exc.TimeoutError(
+    ...<4 lines>...
+    )
+sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached, connection timed out, timeout 30.00 (Background on this error at: https://sqlalche.me/e/20/3o7r)
+2026-06-11 10:05:22 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\8948943012d0408299797e8615f5a614\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\8948943012d0408299797e8615f5a614'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:05:52 ERROR    main — Detection error for drawing 20
+Traceback (most recent call last):
+  File "C:\SymbolCounter\symbol-counter\backend\main.py", line 1221, in _run_detection
+    d = db.query(models.Drawing).filter(models.Drawing.id == drawing_id).first()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\query.py", line 2766, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\query.py", line 2864, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+        params,
+        ^^^^^^^
+        execution_options={"_sa_orm_load_options": self.load_options},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2372, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2260, in _execute_internal
+    conn = self._connection_for_bind(bind)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2112, in _connection_for_bind
+    return trans._connection_for_bind(engine, execution_options)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 2, in _connection_for_bind
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 1191, in _connection_for_bind
+    conn = bind.connect()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 3295, in connect
+    return self._connection_cls(self)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 144, in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 3319, in raw_connection
+    return self.pool.connect()
+           ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 448, in connect
+    return _ConnectionFairy._checkout(self)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 1272, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 712, in checkout
+    rec = pool._do_get()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\impl.py", line 167, in _do_get
+    raise exc.TimeoutError(
+    ...<4 lines>...
+    )
+sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached, connection timed out, timeout 30.00 (Background on this error at: https://sqlalche.me/e/20/3o7r)
+2026-06-11 10:06:22 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\32bc85d0c2954532891e1f0695af7a88\\drawing.pdf'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\32bc85d0c2954532891e1f0695af7a88'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:06:52 ERROR    main — Detection error for drawing 21
+Traceback (most recent call last):
+  File "C:\SymbolCounter\symbol-counter\backend\main.py", line 1221, in _run_detection
+    d = db.query(models.Drawing).filter(models.Drawing.id == drawing_id).first()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\query.py", line 2766, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\query.py", line 2864, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+        params,
+        ^^^^^^^
+        execution_options={"_sa_orm_load_options": self.load_options},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2372, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2260, in _execute_internal
+    conn = self._connection_for_bind(bind)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2112, in _connection_for_bind
+    return trans._connection_for_bind(engine, execution_options)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 2, in _connection_for_bind
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 1191, in _connection_for_bind
+    conn = bind.connect()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 3295, in connect
+    return self._connection_cls(self)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 144, in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 3319, in raw_connection
+    return self.pool.connect()
+           ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 448, in connect
+    return _ConnectionFairy._checkout(self)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 1272, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 712, in checkout
+    rec = pool._do_get()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\impl.py", line 167, in _do_get
+    raise exc.TimeoutError(
+    ...<4 lines>...
+    )
+sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached, connection timed out, timeout 30.00 (Background on this error at: https://sqlalche.me/e/20/3o7r)
+2026-06-11 10:07:22 DEBUG    watchfiles.main — 4 changes detected: {(<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2f5037fe2ce647b68f11ed7492960c6f'), (<Change.added: 1>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads\\2f5037fe2ce647b68f11ed7492960c6f\\drawing.pdf'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\uploads'), (<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:07:52 ERROR    main — Detection error for drawing 22
+Traceback (most recent call last):
+  File "C:\SymbolCounter\symbol-counter\backend\main.py", line 1221, in _run_detection
+    d = db.query(models.Drawing).filter(models.Drawing.id == drawing_id).first()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\query.py", line 2766, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\query.py", line 2864, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+        params,
+        ^^^^^^^
+        execution_options={"_sa_orm_load_options": self.load_options},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2372, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2260, in _execute_internal
+    conn = self._connection_for_bind(bind)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 2112, in _connection_for_bind
+    return trans._connection_for_bind(engine, execution_options)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 2, in _connection_for_bind
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\session.py", line 1191, in _connection_for_bind
+    conn = bind.connect()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 3295, in connect
+    return self._connection_cls(self)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 144, in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\engine\base.py", line 3319, in raw_connection
+    return self.pool.connect()
+           ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 448, in connect
+    return _ConnectionFairy._checkout(self)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 1272, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\base.py", line 712, in checkout
+    rec = pool._do_get()
+  File "C:\Users\LiamFoy\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\pool\impl.py", line 167, in _do_get
+    raise exc.TimeoutError(
+    ...<4 lines>...
+    )
+sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached, connection timed out, timeout 30.00 (Background on this error at: https://sqlalche.me/e/20/3o7r)
+2026-06-11 10:12:10 WARNING  detection.pipeline — Detection cap hit for code CCTV_Fixed (41 matches) — template may be too generic; raise its threshold or delete it.
+2026-06-11 10:12:12 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:13 WARNING  detection.pipeline — Detection cap hit for code CCTV_Fixed (41 matches) — template may be too generic; raise its threshold or delete it.
+2026-06-11 10:12:14 WARNING  detection.pipeline — Detection cap hit for code CCTV_Fixed (41 matches) — template may be too generic; raise its threshold or delete it.
+2026-06-11 10:12:18 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:22 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:24 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:25 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:26 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:29 WARNING  detection.pipeline — Detection cap hit for code CCTV_Fixed (41 matches) — template may be too generic; raise its threshold or delete it.
+2026-06-11 10:12:29 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:29 WARNING  detection.pipeline — Detection cap hit for code CCTV_Fixed (41 matches) — template may be too generic; raise its threshold or delete it.
+2026-06-11 10:12:29 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:33 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:34 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:34 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:35 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:35 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-11 10:12:36 DEBUG    watchfiles.main — 1 change detected: {(<Change.modified: 2>, 'C:\\SymbolCounter\\symbol-counter\\backend\\symbol_counter.db-wal')}
+2026-06-12 08:33:33 DEBUG    asyncio — Using proactor: IocpProactor
+2026-06-12 08:36:47 DEBUG    PIL.Image — Importing PngImagePlugin
+2026-06-12 08:36:47 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:36:47 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:36:47 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:38:01 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:38:01 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:38:01 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:38:19 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:38:19 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:38:19 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:39:25 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:39:25 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:39:25 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:40:27 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:40:27 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:40:27 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:41:41 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:41:41 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:41:41 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:42:13 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:42:13 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:42:13 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:42:38 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:42:38 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:42:38 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:43:20 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:43:20 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:43:20 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:43:49 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:43:49 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:43:49 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:45:20 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:45:20 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:45:20 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:45:20 INFO     main — Auto-created templates from drawing 15 / page 1: {'AIS': 1}
+2026-06-12 08:45:52 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:45:52 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:45:52 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:46:05 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:46:05 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:46:05 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:46:31 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:46:31 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:46:31 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:51:26 WARNING  detection.pipeline — Detection cap hit for code CCTV_Fixed (41 matches) — template may be too generic; raise its threshold or delete it.
+2026-06-12 08:52:22 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:52:22 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:52:22 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:52:46 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:52:46 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:52:46 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:53:09 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:53:09 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:53:09 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-06-12 08:53:21 DEBUG    PIL.PngImagePlugin — STREAM b'IHDR' 16 13
+2026-06-12 08:53:21 DEBUG    PIL.PngImagePlugin — STREAM b'pHYs' 41 9
+2026-06-12 08:53:21 DEBUG    PIL.PngImagePlugin — STREAM b'IDAT' 62 8192
+2026-07-02 12:25:08 DEBUG    asyncio — Using proactor: IocpProactor
+2026-07-02 12:29:49 ERROR    main — Detection error for drawing 27
+Traceback (most recent call last):
+  File "C:\Users\peace\Downloads\SymbolCounter\symbol-counter\backend\main.py", line 1225, in _run_detection
+    results = run_full_detection(
+        pdf_path, pages_dir,
+    ...<2 lines>...
+        drawing_firm=drawing_firm,
+    )
+  File "C:\Users\peace\Downloads\SymbolCounter\symbol-counter\backend\detection\pipeline.py", line 535, in run_full_detection
+    image_paths = render_pdf_pages(pdf_path, pages_dir)
+  File "C:\Users\peace\Downloads\SymbolCounter\symbol-counter\backend\detection\pipeline.py", line 64, in render_pdf_pages
+    subprocess.run(
+    ~~~~~~~~~~~~~~^
+        ["pdftoppm", "-r", str(dpi), "-png", pdf_path, base],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        check=True, capture_output=True, timeout=120
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\peace\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 554, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\peace\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1039, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\peace\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1554, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+                             # no special security
+                             ^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+                             cwd,
+                             ^^^^
+                             startupinfo)
+                             ^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+2026-07-08 15:32:17 DEBUG    asyncio — Using proactor: IocpProactor
+2026-07-14 12:31:34 DEBUG    asyncio — Using proactor: IocpProactor
+2026-07-14 12:34:05 ERROR    main — Detection error for drawing 28
+Traceback (most recent call last):
+  File "C:\Users\peace\Downloads\SymbolCounter\symbol-counter\backend\main.py", line 1225, in _run_detection
+    results = run_full_detection(
+        pdf_path, pages_dir,
+    ...<2 lines>...
+        drawing_firm=drawing_firm,
+    )
+  File "C:\Users\peace\Downloads\SymbolCounter\symbol-counter\backend\detection\pipeline.py", line 535, in run_full_detection
+    image_paths = render_pdf_pages(pdf_path, pages_dir)
+  File "C:\Users\peace\Downloads\SymbolCounter\symbol-counter\backend\detection\pipeline.py", line 64, in render_pdf_pages
+    subprocess.run(
+    ~~~~~~~~~~~~~~^
+        ["pdftoppm", "-r", str(dpi), "-png", pdf_path, base],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        check=True, capture_output=True, timeout=120
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\peace\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 554, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\peace\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1039, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\peace\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1554, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+                             # no special security
+                             ^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+                             cwd,
+                             ^^^^
+                             startupinfo)
+                             ^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
+2026-07-14 12:36:11 ERROR    main — Detection error for drawing 29
+Traceback (most recent call last):
+  File "C:\Users\peace\Downloads\SymbolCounter\symbol-counter\backend\main.py", line 1225, in _run_detection
+    results = run_full_detection(
+        pdf_path, pages_dir,
+    ...<2 lines>...
+        drawing_firm=drawing_firm,
+    )
+  File "C:\Users\peace\Downloads\SymbolCounter\symbol-counter\backend\detection\pipeline.py", line 535, in run_full_detection
+    image_paths = render_pdf_pages(pdf_path, pages_dir)
+  File "C:\Users\peace\Downloads\SymbolCounter\symbol-counter\backend\detection\pipeline.py", line 64, in render_pdf_pages
+    subprocess.run(
+    ~~~~~~~~~~~~~~^
+        ["pdftoppm", "-r", str(dpi), "-png", pdf_path, base],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        check=True, capture_output=True, timeout=120
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\peace\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 554, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\peace\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1039, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\peace\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1554, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+                             # no special security
+                             ^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+                             cwd,
+                             ^^^^
+                             startupinfo)
+                             ^^^^^^^^^^^^
+FileNotFoundError: [WinError 2] The system cannot find the file specified
