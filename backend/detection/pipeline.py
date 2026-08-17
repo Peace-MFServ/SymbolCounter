@@ -526,6 +526,7 @@ def run_full_detection(
     symbol_codes: list = None,
     stored_templates: list = None,   # GlobalTemplate ORM objects
     drawing_firm: str = "",
+    image_paths: list = None,        # pre-rendered page images; skips rendering
 ) -> dict:
     """
     Full pipeline per page:
@@ -537,7 +538,8 @@ def run_full_detection(
 
     pdftotext is called ONCE per page and shared between steps 2 and 5.
     """
-    image_paths = render_pdf_pages(pdf_path, pages_dir)
+    if image_paths is None:
+        image_paths = render_pdf_pages(pdf_path, pages_dir)
     active_codes = set(symbol_codes) if symbol_codes else set()
 
     # Load stored templates (firm-aware ranking)

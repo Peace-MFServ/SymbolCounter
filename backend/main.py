@@ -37,7 +37,8 @@ from pydantic import BaseModel, EmailStr
 
 import models, auth
 from database import engine, get_db, Base
-from detection.pipeline import run_full_detection, crop_template_from_page, find_door_references
+from detection.pipeline import (run_full_detection, crop_template_from_page,
+                                find_door_references, render_pdf_pages)
 
 logger = logging.getLogger(__name__)
 
@@ -1359,24 +1360,38 @@ def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
         if not d: return
         d.status = "processing"; db.commit()
 
+        # Render pages FIRST and commit them so the drawing is viewable
+        # immediately — detection (the slow part) fills markers in afterwards.
+        image_paths = render_pdf_pages(pdf_path, pages_dir)
+        d.total_pages = len(image_paths)
+        for i, img_path in enumerate(image_paths, start=1):
+            db.add(models.DrawingPage(
+                page_number=i, image_path=img_path,
+                detections=[], original_detections=[],
+                drawing_id=drawing_id,
+            ))
+        db.commit()
+
         results = run_full_detection(
             pdf_path, pages_dir,
             symbol_codes=symbol_codes,
             stored_templates=stored_tmpls,
             drawing_firm=drawing_firm,
+            image_paths=image_paths,
         )
-        d.total_pages = results["total_pages"]
+        pages_by_num = {
+            p.page_number: p
+            for p in db.query(models.DrawingPage)
+                       .filter(models.DrawingPage.drawing_id == drawing_id).all()
+        }
         for pr in results["page_results"]:
+            page = pages_by_num.get(pr["page"])
+            if page is None:
+                continue
             # Store deep copies so original_detections stays immutable
             dets = copy.deepcopy(pr["detections"])
-            page = models.DrawingPage(
-                page_number=pr["page"],
-                image_path=pr["image_path"],
-                detections=dets,
-                original_detections=copy.deepcopy(dets),
-                drawing_id=drawing_id,
-            )
-            db.add(page)
+            page.detections = dets
+            page.original_detections = copy.deepcopy(dets)
         d.status = "detected"; db.commit()
 
     except Exception as e:

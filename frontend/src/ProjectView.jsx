@@ -170,7 +170,7 @@ export function ProjectView({ id, onNavigate }) {
             <>
               <button className="btn btn-ghost" onClick={exportExcel}>⬇ Excel</button>
               <button className="btn btn-ghost" onClick={exportJSON}>⬇ JSON</button>
-              <button className="btn btn-ghost" onClick={exportProjectPDF}>⬇ PDF (all)</button>
+              <button className="btn btn-ghost" onClick={exportProjectPDF}>PDF (all)</button>
             </>
           )}
           <button className="btn btn-primary" onClick={() => fileRef.current.click()} disabled={uploading}>
@@ -253,7 +253,7 @@ export function ProjectView({ id, onNavigate }) {
               )}
               <button className="btn btn-ghost btn-sm" title="Download annotated PDF"
                       onClick={e => exportDrawingPDF(e, d.id, d.level || d.original_name)}>
-                ⬇ PDF
+                PDF
               </button>
               <button className="btn btn-ghost btn-sm"
                       onClick={e => { e.stopPropagation(); onNavigate('verify', { drawingId: d.id, projectId: id }) }}>

@@ -44,7 +44,34 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
   const [wizardPreview, setWizardPreview] = useState(null)  // { url } after snip
   const wizardDismissedRef = useRef(false)
 
-  // ── Initial data load ─────────────────────────────────────────────────────
+  // ── Data load (also used by the detection poll) ───────────────────────────
+  const applyPages = useCallback((ps, preserveManual = false) => {
+    const detMap = {}
+    ;(ps || []).forEach(p => {
+      // IDs are assigned server-side; assign extra client IDs for any missing
+      detMap[p.page_number] = (p.detections || []).map(det => ({
+        ...det,
+        id: det.id ?? nextIdRef.current++,
+      }))
+    })
+    let maxId = 0
+    Object.values(detMap).forEach(dets => dets.forEach(d => { if ((d.id || 0) > maxId) maxId = d.id }))
+    // Markers the user placed while detection was still running survive the refresh
+    if (preserveManual) {
+      Object.entries(detectionsRef.current || {}).forEach(([pn, dets]) => {
+        dets.filter(d => d.method === 'manual').forEach(d => {
+          detMap[pn] = [...(detMap[pn] || []), { ...d, id: ++maxId }]
+        })
+      })
+    }
+    nextIdRef.current = maxId + 1
+    setPages(ps || [])
+    setDetections(detMap)
+  }, [])
+
+  const detectionsRef = useRef({})
+  useEffect(() => { detectionsRef.current = detections }, [detections])
+
   useEffect(() => {
     Promise.all([
       apiFetch(`/drawings/${drawingId}`),
@@ -52,26 +79,41 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
       symTypes.length ? Promise.resolve(symTypes) : apiFetch(`/projects/${projectId}/symbol-types`),
     ]).then(([d, ps, st]) => {
       setDrawing(d)
-      setPages(ps || [])
-      const detMap = {}
-      ;(ps || []).forEach(p => {
-        // IDs are now assigned server-side; assign extra client IDs for any missing
-        detMap[p.page_number] = (p.detections || []).map((det, i) => ({
-          ...det,
-          id: det.id ?? nextIdRef.current++,
-        }))
-      })
-      // Advance nextIdRef past the highest ID already assigned by the server
-      // so manually-added detections never collide with server-assigned IDs
-      let maxId = 0
-      Object.values(detMap).forEach(dets => dets.forEach(d => { if ((d.id || 0) > maxId) maxId = d.id }))
-      nextIdRef.current = maxId + 1
-      setDetections(detMap)
+      applyPages(ps)
       const types = st || []
       setSymTypes(types)
       if (types.length > 0) setActiveType(types[0].code)
     }).catch(err => showToast(err.message, 'error'))
   }, [drawingId])
+
+  // ── Detection poll ────────────────────────────────────────────────────────
+  // While the background task runs, pages render immediately and markers
+  // arrive when detection finishes — no manual refresh needed.
+  useEffect(() => {
+    if (!drawing || !['uploaded', 'processing'].includes(drawing.status)) return
+    const t = setInterval(async () => {
+      try {
+        const d = await apiFetch(`/drawings/${drawingId}`)
+        if (!d) return
+        if (pagesRef.current.length === 0) {
+          const ps = await apiFetch(`/drawings/${drawingId}/pages`)
+          if (ps && ps.length) applyPages(ps, true)
+        }
+        if (d.status !== drawing.status) {
+          setDrawing(d)
+          if (['detected', 'error'].includes(d.status)) {
+            const ps = await apiFetch(`/drawings/${drawingId}/pages`)
+            applyPages(ps, true)
+            if (d.status === 'detected') showToast('Detection finished — markers loaded', 'success')
+          }
+        }
+      } catch { /* transient poll failure — next tick retries */ }
+    }, 3500)
+    return () => clearInterval(t)
+  }, [drawing?.status, drawingId])
+
+  const pagesRef = useRef([])
+  useEffect(() => { pagesRef.current = pages }, [pages])
 
   const curPage = pages[pageIdx]
   const curDets = detections[curPage?.page_number] || []
@@ -610,100 +652,90 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
         <div id="verify-sidebar">
           {/* Symbol type selector */}
           <div className="vsec">
-            <div className="vsec-title">Symbol Type</div>
+            <div className="vsec-title">Symbols</div>
             {snipMode && (
-              <div style={{ padding: '6px 8px', background: '#1e3a1e', borderRadius: 6,
-                            fontSize: 11, color: 'var(--ok)', marginBottom: 6, textAlign: 'center' }}>
-                {snipSaving ? 'Saving…' : 'Snip active — drag a box around one example'}
-                <button style={{ float: 'right', background: 'none', border: 'none',
-                                 color: 'var(--ok)', cursor: 'pointer', fontSize: 13 }}
+              <div className="snip-note">
+                {snipSaving ? 'Saving…' : 'Drag a box around one clear example on the drawing'}
+                <button className="snip-note-close"
                         onClick={() => { setSnipMode(null); setSnipRect(null) }}>×</button>
               </div>
             )}
-            {symTypes.map((st, i) => (
-              <div key={st.id} style={{ display: 'flex', gap: 4, marginBottom: 5, alignItems: 'center' }}>
+            {symTypes.map(st => (
+              <div key={st.id} className="sym-row">
                 <button className={`sym-btn${activeType === st.code ? ' active' : ''}`}
-                        style={{ flex: 1, color: st.color, margin: 0,
-                                 borderColor: activeType === st.code ? st.color : 'transparent' }}
                         onClick={() => { setActiveType(st.code); setSnipMode(null) }}>
-                  <span className="dot" style={{ background: st.color }} />
-                  <span style={{ flex: 1, textAlign: 'left', fontSize: 11 }}>{st.name}</span>
-                  {(st.template_count === 0) && (
-                    <span title="No templates yet — detections use text fallback. Snip an example or save a verified page to auto-create one."
-                          style={{ fontSize: 9, background: '#78350f', color: '#fdba74',
-                                   borderRadius: 3, padding: '1px 4px', marginRight: 2 }}>
-                      no tmpl
-                    </span>
-                  )}
-                  <span style={{ fontFamily: 'monospace', fontSize: 10, opacity: .5, marginRight: 2 }}>[{i + 1}]</span>
+                  <span className="dot"
+                        title={st.template_count === 0
+                          ? 'No examples yet — snip one to improve detection'
+                          : undefined}
+                        style={{ background: st.template_count === 0 ? 'transparent' : st.color,
+                                 border: `2px solid ${st.color}` }} />
+                  <span style={{ flex: 1, textAlign: 'left' }}>{st.name}</span>
                   <span className="cnt">{countByType(st.code)}</span>
                 </button>
-                <button title={`Snip template for ${st.name}`}
-                        onClick={() => { setSnipMode(snipMode === st.id ? null : st.id); setSnipRect(null) }}
-                        style={{ padding: '5px 7px', borderRadius: 5, border: '1px solid var(--border)',
-                                 background: snipMode === st.id ? st.color + '33' : 'var(--bg3)',
-                                 color: snipMode === st.id ? st.color : 'var(--text3)',
-                                 cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>Snip</button>
+                <button className={`snip-btn${snipMode === st.id ? ' active' : ''}`}
+                        title={`Snip an example of ${st.name} from the drawing`}
+                        onClick={() => { setSnipMode(snipMode === st.id ? null : st.id); setSnipRect(null) }}>
+                  Snip
+                </button>
               </div>
             ))}
+            <p className="hint" style={{ marginTop: 8 }}>
+              Hollow dot = no example yet. Press <kbd>1</kbd>–<kbd>9</kbd> to switch.
+            </p>
           </div>
 
-          {/* Bulk actions */}
-          <div className="vsec">
-            <div className="vsec-title">Bulk Actions (this page)</div>
-            {symTypes.map(st => {
-              const count = countByType(st.code)
-              if (count === 0) return null
-              return (
-                <div key={st.id} style={{ display: 'flex', gap: 4, marginBottom: 4, alignItems: 'center' }}>
-                  <span style={{ flex: 1, fontSize: 11, color: st.color }}>{st.name} ({count})</span>
-                  <button className="btn btn-ghost btn-sm" style={{ padding: '3px 6px', fontSize: 10 }}
-                          onClick={() => acceptAllOfType(st.code)} title="Mark all as correct">Keep</button>
-                  <button className="btn btn-ghost btn-sm"
-                          style={{ padding: '3px 6px', fontSize: 10, color: 'var(--red)' }}
-                          onClick={() => removeAllOfType(st.code)} title="Remove all">×</button>
-                </div>
-              )
-            })}
-            {symTypes.every(st => countByType(st.code) === 0) && (
-              <p style={{ fontSize: 11, color: 'var(--text3)' }}>No detections on this page</p>
-            )}
-          </div>
+          {/* Bulk actions — only when this page has detections */}
+          {symTypes.some(st => countByType(st.code) > 0) && (
+            <div className="vsec">
+              <div className="vsec-title">This Page</div>
+              {symTypes.map(st => {
+                const count = countByType(st.code)
+                if (count === 0) return null
+                return (
+                  <div key={st.id} className="bulk-row">
+                    <span className="dot" style={{ background: st.color }} />
+                    <span className="bulk-name">{st.name}</span>
+                    <span className="bulk-count">{count}</span>
+                    <button className="snip-btn" onClick={() => acceptAllOfType(st.code)}
+                            title="Mark all as correct">Keep</button>
+                    <button className="snip-btn danger" onClick={() => removeAllOfType(st.code)}
+                            title="Remove all">Clear</button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
           {/* All-pages totals */}
           <div className="vsec">
-            <div className="vsec-title">All Pages Totals</div>
+            <div className="vsec-title">Totals — All Pages</div>
             {symTypes.map(st => (
               <div key={st.id} className="total-row">
-                <span style={{ color: st.color, fontSize: 11 }}>{st.name}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span className="dot" style={{ background: st.color }} />
+                  {st.name}
+                </span>
                 <strong>{totalByType(st.code)}</strong>
               </div>
             ))}
           </div>
 
-          {/* Controls */}
+          {/* Controls — essentials visible, the rest folded away */}
           <div className="vsec">
-            <div className="vsec-title">Controls</div>
             <p className="hint">
-              <strong>Double-click</strong> → place marker<br />
-              <strong>Click</strong> marker → select it<br />
-              <strong>Drag</strong> → pan canvas<br />
-              <strong>Drag marker</strong> → move it<br />
-              <strong>Right-click</strong> marker → correct it<br />
-              <strong>Snip</strong> → teach detection<br />
-              <kbd>Del</kbd> remove &nbsp; <kbd>Esc</kbd> deselect<br />
-              <kbd>1</kbd>–<kbd>9</kbd> switch type &nbsp; <kbd>Ctrl+S</kbd> save<br />
-              <kbd>Scroll</kbd> zoom
+              <strong>Double-click</strong> places a marker · <strong>right-click</strong> corrects one
             </p>
-          </div>
-
-          {/* Learning loop hint */}
-          <div className="vsec">
-            <div className="vsec-title">Teach Detection</div>
-            <p className="hint">
-              Click <strong>Snip</strong> next to any symbol type, then drag a box around a clear example.
-              Each snip improves future detection across all projects.
-            </p>
+            <details className="v-details">
+              <summary>All controls</summary>
+              <p className="hint">
+                <strong>Click</strong> marker → select<br />
+                <strong>Drag</strong> → pan · <strong>drag marker</strong> → move<br />
+                <strong>Snip</strong> → teach detection from this drawing<br />
+                <kbd>Del</kbd> remove &nbsp; <kbd>Esc</kbd> deselect<br />
+                <kbd>Ctrl+S</kbd> save &nbsp; <kbd>Scroll</kbd> zoom
+              </p>
+            </details>
           </div>
         </div>
 
@@ -729,7 +761,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
               Remove — false positive
             </CtxItem>
             <CtxItem color="var(--text2)" onClick={() => openDoorRefEditor(ctxMenu.det, ctxMenu.pn)}>
-              🚪 Correct door reference
+              Correct door reference
             </CtxItem>
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
             {symTypes.filter(st => st.code !== ctxMenu.det.type).map(st => (
@@ -797,13 +829,13 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
 
           return (
             <div style={{
-              position: 'absolute', top: 12, right: 12, zIndex: 150,
-              width: 280, background: 'var(--bg2)', border: '1px solid var(--border)',
-              borderRadius: 10, padding: 16, boxShadow: '0 4px 16px #0008',
+              position: 'absolute', top: 16, right: 16, zIndex: 150,
+              width: 290, background: 'var(--bg2)', border: '2px solid var(--ink)',
+              borderRadius: 'var(--radius)', padding: 18,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
-                  🎯 Symbol Setup
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600 }}>
+                  Symbol Setup
                 </span>
                 <div style={{ flex: 1 }} />
                 <button className="btn btn-ghost btn-sm" onClick={closeWizard}
@@ -922,6 +954,11 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
             <span className="spinner spinner-lg" />
             <span style={{ color: 'var(--text2)', fontSize: 13 }}>Loading page…</span>
           </div>
+          {drawing && ['uploaded', 'processing'].includes(drawing.status) && curPage && (
+            <div className="canvas-note">
+              <span className="spinner" /> Detection running — markers will appear automatically
+            </div>
+          )}
           {!loadingPage && !image && (pageError || !curPage) && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
                           alignItems: 'center', justifyContent: 'center', gap: 10,
@@ -943,10 +980,10 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
             </div>
           )}
           {curDets.some(d => d.method === 'text_fallback') && (
-            <div style={{ position: 'absolute', bottom: 12, left: 12, background: '#78350f',
-                          color: '#fdba74', padding: '6px 12px', borderRadius: 6, fontSize: 12,
-                          border: '1px solid #92400e' }}>
-              ⚠ Orange dots = text-detected, positions approximate — please move to correct locations
+            <div style={{ position: 'absolute', bottom: 16, left: 16, background: 'var(--bg2)',
+                          color: 'var(--ink)', padding: '8px 14px', fontSize: 12, fontWeight: 600,
+                          border: '2px solid var(--ink)', borderLeft: '6px solid var(--accent)' }}>
+              Orange-flagged markers are text-detected — positions are approximate, drag them into place
             </div>
           )}
         </div>
