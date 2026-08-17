@@ -4,7 +4,7 @@ import { Topbar } from './Dashboard'
 import { showToast } from './toast'
 
 // ── Fetch a template image with auth and return an object URL ─────────────────
-function useAuthImage(imageUrl) {
+export function useAuthImage(imageUrl) {
   const [objectUrl, setObjectUrl] = useState(null)
   const urlRef = useRef(null)
 

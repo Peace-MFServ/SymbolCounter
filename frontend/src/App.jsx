@@ -4,6 +4,7 @@ import { Dashboard } from './Dashboard'
 import { ProjectView } from './ProjectView'
 import { VerifyView } from './VerifyView'
 import { TemplatesView } from './TemplatesView'
+import { AccuracyView } from './AccuracyView'
 
 export default function App() {
   const { user, loading } = useAuth()
@@ -48,6 +49,8 @@ export default function App() {
       )
     case 'templates':
       return <TemplatesView onNavigate={navigate} />
+    case 'accuracy':
+      return <AccuracyView onNavigate={navigate} />
     default:
       return <Dashboard onNavigate={navigate} />
   }

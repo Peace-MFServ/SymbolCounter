@@ -935,6 +935,102 @@ def export_project_pdf(pid: int, db: Session = Depends(get_db), cu=Depends(auth.
         headers={"Content-Disposition": f'attachment; filename="{safe_name}_all_drawings.pdf"'})
 
 
+# ── Accuracy scoreboard ───────────────────────────────────────────────────────
+@app.get("/api/accuracy")
+def accuracy_scoreboard(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """
+    Precision/recall computed from verification feedback.
+      confirm        = auto-detected and kept (true positive)
+      false_positive = auto-detected and deleted
+      missed         = manually added by the verifier (detector never saw it)
+      wrong_type     = right spot, wrong symbol type (hurts precision AND recall)
+    position_correction rows are position fixes, not classification signal — excluded.
+    """
+    rows = db.query(models.DetectionFeedback).all()
+
+    def _bucket():
+        return {"confirms": 0, "false_positives": 0, "missed": 0, "wrong_type": 0}
+
+    def _finish(b):
+        c, fp, m, wt = b["confirms"], b["false_positives"], b["missed"], b["wrong_type"]
+        det_total  = c + fp + wt   # everything the detector claimed
+        real_total = c + m  + wt   # everything actually on the drawings
+        b["precision"] = round(c / det_total, 3)  if det_total  else None
+        b["recall"]    = round(c / real_total, 3) if real_total else None
+        b["sample"]    = c + fp + m + wt
+        return b
+
+    kind_key = {"confirm": "confirms", "false_positive": "false_positives",
+                "missed": "missed", "wrong_type": "wrong_type"}
+    by_code, by_firm, by_method = {}, {}, {}
+    for r in rows:
+        key = kind_key.get(r.feedback_type)
+        if not key:
+            continue
+        by_code.setdefault(r.symbol_code or "?", _bucket())[key] += 1
+        firm = (r.drawing_firm or "").strip() or "Unknown firm"
+        by_firm.setdefault(firm, _bucket())[key] += 1
+        method = (r.original_method or "").strip()
+        if method in ("template", "text", "text_fallback"):
+            by_method.setdefault(method, _bucket())[key] += 1
+
+    name_map = {t["code"]: t["name"] for t in models.DEFAULT_SYMBOL_TYPES}
+    for st in db.query(models.ProjectSymbolType).all():
+        name_map.setdefault(st.code, st.name)
+
+    templates = []
+    for t in db.query(models.GlobalTemplate).all():
+        use  = t.use_count or 0
+        prec = round((t.confirm_count or 0) / use, 3) if use else None
+        if use == 0:
+            health = "untested"
+        elif use >= 30 and (prec or 0) < 0.15:
+            health = "toxic"
+        elif use >= 10 and (prec or 0) < 0.5:
+            health = "warning"
+        else:
+            health = "good"
+        override = getattr(t, "threshold_override", None)
+        templates.append({
+            "id": t.id, "symbol_code": t.symbol_code,
+            "symbol_name": t.symbol_name or name_map.get(t.symbol_code, t.symbol_code),
+            "firm": t.drawing_firm or "",
+            "use_count": use,
+            "confirm_count": t.confirm_count or 0,
+            "reject_count": t.reject_count or 0,
+            "precision": prec,
+            "effective_threshold": round(float(override) if override is not None
+                                         else t.effective_threshold, 3),
+            "health": health,
+            "image_url": (f"/api/files/templates/{os.path.basename(t.image_path)}"
+                          if t.image_path else None),
+        })
+    health_rank = {"toxic": 0, "warning": 1, "good": 2, "untested": 3}
+    templates.sort(key=lambda x: (health_rank[x["health"]], -x["use_count"]))
+
+    overall = _bucket()
+    for b in by_code.values():
+        for k in overall:
+            overall[k] += b[k]
+
+    return {
+        "overall": {
+            **_finish(overall),
+            "total_pages":       db.query(models.DrawingPage).count(),
+            "verified_pages":    db.query(models.DrawingPage)
+                                   .filter(models.DrawingPage.verified == True).count(),  # noqa: E712
+            "drawings":          db.query(models.Drawing).count(),
+            "approved_drawings": db.query(models.Drawing)
+                                   .filter(models.Drawing.status == "approved").count(),
+        },
+        "by_code":   [{"code": k, "name": name_map.get(k, k), **_finish(v)}
+                      for k, v in sorted(by_code.items())],
+        "by_firm":   [{"firm": k, **_finish(v)} for k, v in sorted(by_firm.items())],
+        "by_method": [{"method": k, **_finish(v)} for k, v in sorted(by_method.items())],
+        "templates": templates,
+    }
+
+
 @app.get("/api/admin/logs")
 def get_logs(lines: int = Query(default=500, le=2000), cu=Depends(auth.get_current_user)):
     """Return the last N lines of the application log file."""

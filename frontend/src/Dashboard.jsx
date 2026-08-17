@@ -17,13 +17,22 @@ export function Topbar({ title, onBack, onNavigate }) {
       {user && (
         <>
           {onNavigate && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => onNavigate('templates')}
-              title="Template Library"
-            >
-              🗂 Templates
-            </button>
+            <>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => onNavigate('accuracy')}
+                title="Detection accuracy scoreboard"
+              >
+                📊 Accuracy
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => onNavigate('templates')}
+                title="Template Library"
+              >
+                🗂 Templates
+              </button>
+            </>
           )}
           <span className="user-chip">{user.name}</span>
           <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
