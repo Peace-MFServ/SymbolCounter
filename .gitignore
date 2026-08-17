@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+frontend/node_modules/
+
+# Build output (rebuilt by `npm run build` / start.bat)
+frontend/dist/
+
+# Runtime data — never commit: live database, client drawings, logs, backups
+backend/symbol_counter.db
+backend/symbol_counter.db-shm
+backend/symbol_counter.db-wal
+backend/uploads/
+backend/logs/
+backend/backups/
+
+# Environment
+.env
