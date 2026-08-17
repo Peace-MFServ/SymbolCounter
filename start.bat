@@ -43,7 +43,7 @@ echo  [OK] Node.js found
 echo.
 echo  Installing Python dependencies...
 cd /d "%BACKEND%"
-pip install -r requirements.txt -q
+python -m pip install -r requirements.txt -q
 if errorlevel 1 (
     echo  ERROR: pip install failed.
     pause
