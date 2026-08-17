@@ -5,7 +5,7 @@ import { useAuthImage } from './TemplatesView'
 
 // Colour for a 0–1 rate: green when strong, amber when shaky, red when poor
 const rateColor = v =>
-  v == null ? 'var(--text3)' : v >= 0.85 ? '#4ade80' : v >= 0.6 ? '#fbbf24' : '#dc2626'
+  v == null ? 'var(--text3)' : v >= 0.85 ? 'var(--ok)' : v >= 0.6 ? '#B47E00' : 'var(--red)'
 
 const pct = v => (v == null ? '—' : `${Math.round(v * 100)}%`)
 
@@ -24,9 +24,9 @@ function RateBar({ value }) {
 }
 
 const HEALTH_STYLE = {
-  toxic:    { label: 'Toxic',    color: '#dc2626', hint: 'Almost every match is wrong — delete this template or snip a cleaner example.' },
-  warning:  { label: 'Weak',     color: '#fbbf24', hint: 'More misses than hits — consider re-snipping.' },
-  good:     { label: 'Good',     color: '#4ade80', hint: '' },
+  toxic:    { label: 'Toxic',    color: 'var(--red)', hint: 'Almost every match is wrong — delete this template or snip a cleaner example.' },
+  warning:  { label: 'Weak',     color: '#B47E00', hint: 'More misses than hits — consider re-snipping.' },
+  good:     { label: 'Good',     color: 'var(--ok)', hint: '' },
   untested: { label: 'Untested', color: 'var(--text3)', hint: 'No verified drawings have used this template yet.' },
 }
 
@@ -94,7 +94,7 @@ export function AccuracyView({ onNavigate }) {
           <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner spinner-lg" /></div>
         )}
         {error && (
-          <div className="card" style={{ padding: 24, color: '#dc2626' }}>
+          <div className="card" style={{ padding: 24, color: 'var(--red)' }}>
             Failed to load accuracy data: {error}
           </div>
         )}
@@ -192,7 +192,7 @@ export function AccuracyView({ onNavigate }) {
               <div style={{ padding: '14px 20px', fontWeight: 600 }}>
                 Template health
                 <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text3)', marginLeft: 10 }}>
-                  manage in 🗂 Templates
+                  manage in Templates
                 </span>
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -221,7 +221,7 @@ export function AccuracyView({ onNavigate }) {
                   ))}
                   {data.templates.length === 0 && (
                     <tr><td style={{ ...TD, color: 'var(--text3)' }} colSpan={9}>
-                      No templates yet — snip some with the ✂ tool in the verify canvas.
+                      No templates yet — snip some with the Snip tool in the verify canvas.
                     </td></tr>
                   )}
                 </tbody>

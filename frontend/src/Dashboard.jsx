@@ -23,14 +23,14 @@ export function Topbar({ title, onBack, onNavigate }) {
                 onClick={() => onNavigate('accuracy')}
                 title="Detection accuracy scoreboard"
               >
-                📊 Accuracy
+                Accuracy
               </button>
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={() => onNavigate('templates')}
-                title="Template Library"
+                title="Template library"
               >
-                🗂 Templates
+                Templates
               </button>
             </>
           )}
@@ -61,6 +61,9 @@ export function Dashboard({ onNavigate }) {
     showToast('Project deleted', 'info')
   }
 
+  const totalDrawings = projects.reduce((s, p) => s + (p.drawing_count || 0), 0)
+  const totalVerified = projects.reduce((s, p) => s + (p.verified_count || 0), 0)
+
   return (
     <>
       <Topbar onNavigate={onNavigate} />
@@ -68,58 +71,80 @@ export function Dashboard({ onNavigate }) {
         <div className="page-header">
           <div>
             <h1>Projects</h1>
-            <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
-              Manage your drawing sets and symbol counts
-            </p>
+            <p className="lede">Drawing sets and device counts for every job, in one ledger.</p>
           </div>
-          <div className="spacer" />
-          <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New Project</button>
         </div>
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner spinner-lg" /></div>
-        ) : projects.length === 0 ? (
-          <div className="card" style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text3)' }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>📁</div>
-            <p style={{ fontSize: 15, marginBottom: 8, color: 'var(--text2)' }}>No projects yet</p>
-            <p style={{ marginBottom: 20 }}>Create a project to start uploading drawings</p>
-            <button className="btn btn-primary" onClick={() => setShowNew(true)}>Create your first project</button>
-          </div>
         ) : (
-          <div className="projects-grid">
-            {projects.map(p => (
-              <div key={p.id} className="project-card"
-                   onClick={() => onNavigate('project', { id: p.id })}>
-                <h3>{p.name}</h3>
-                <div className="meta">
-                  {p.client && <span>{p.client}</span>}
-                  {p.client && p.site && <span> · </span>}
-                  {p.site && <span>{p.site}</span>}
-                  {!p.client && !p.site && <span style={{ color: 'var(--text3)' }}>No client / site set</span>}
+          <div className="split">
+            <div>
+              {projects.length === 0 ? (
+                <div className="empty-state">
+                  <h2>No projects yet.</h2>
+                  <p>
+                    A project holds the floor plan drawings for one job — create one,
+                    drop the PDFs in, and detection starts on its own.
+                  </p>
+                  <button className="btn btn-primary" onClick={() => setShowNew(true)}>
+                    Create your first project
+                  </button>
                 </div>
-                <div className="stats">
-                  <div className="stat">
-                    <div className="num">{p.drawing_count}</div>
-                    <div className="lbl">Drawings</div>
-                  </div>
-                  {p.verified_count > 0 && (
-                    <div className="stat">
-                      <div className="num" style={{ color: '#4ade80' }}>{p.verified_count}</div>
-                      <div className="lbl">Verified</div>
-                    </div>
-                  )}
-                </div>
-                {p.drawing_firm && (
-                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)' }}>
-                    🏢 {p.drawing_firm}
-                  </div>
-                )}
-                <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
-                  <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }}
-                          onClick={e => deleteProject(e, p.id)}>Delete</button>
+              ) : (
+                <table className="ledger">
+                  <thead>
+                    <tr>
+                      <th>Project</th>
+                      <th>Drawing firm</th>
+                      <th style={{ textAlign: 'right' }}>Drawings</th>
+                      <th style={{ textAlign: 'right' }}>Verified</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects.map(p => (
+                      <tr key={p.id} onClick={() => onNavigate('project', { id: p.id })}>
+                        <td>
+                          <div className="proj-name">{p.name}</div>
+                          <div className="proj-meta">
+                            {[p.client, p.site].filter(Boolean).join(' · ') || 'No client / site set'}
+                          </div>
+                        </td>
+                        <td style={{ fontSize: 13, color: 'var(--text2)' }}>{p.drawing_firm || '—'}</td>
+                        <td className="count-num">{p.drawing_count}</td>
+                        <td className="count-num" style={{ color: p.verified_count ? 'var(--ok)' : 'var(--text3)' }}>
+                          {p.verified_count}
+                        </td>
+                        <td style={{ textAlign: 'right', width: 90 }}>
+                          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }}
+                                  onClick={e => deleteProject(e, p.id)}>Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <aside className="rail">
+              <button className="btn btn-primary btn-lg" onClick={() => setShowNew(true)}>
+                New Project
+              </button>
+              <div className="rail-panel">
+                <h3>At a glance</h3>
+                <div className="total-row"><span>Projects</span><strong>{projects.length}</strong></div>
+                <div className="total-row"><span>Drawings</span><strong>{totalDrawings}</strong></div>
+                <div className="total-row" style={{ borderBottom: 0 }}><span>Verified</span><strong>{totalVerified}</strong></div>
+              </div>
+              <div className="rail-panel">
+                <h3>Tools</h3>
+                <div className="rail-links">
+                  <a onClick={() => onNavigate('accuracy')}>Accuracy scoreboard</a>
+                  <a onClick={() => onNavigate('templates')}>Template library</a>
                 </div>
               </div>
-            ))}
+            </aside>
           </div>
         )}
       </div>

@@ -140,9 +140,9 @@ function TemplateCard({ tmpl, onDelete, onEnlarge }) {
 
   const total      = (tmpl.confirm_count || 0) + (tmpl.reject_count || 0)
   const qualityPct = Math.round((tmpl.quality_score || 0) * 100)
-  const qualityColor = (tmpl.quality_score || 0) >= 0.7 ? '#22c55e'
+  const qualityColor = (tmpl.quality_score || 0) >= 0.7 ? 'var(--ok)'
                      : (tmpl.quality_score || 0) >= 0.4 ? '#f59e0b'
-                     : total === 0 ? 'var(--text3)' : '#ef4444'
+                     : total === 0 ? 'var(--text3)' : 'var(--red)'
 
   return (
     <div style={{
@@ -163,9 +163,9 @@ function TemplateCard({ tmpl, onDelete, onEnlarge }) {
         {total > 0 ? (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#22c55e' }}>✓ {tmpl.confirm_count}</span>
-              <span style={{ color: tmpl.reject_count > 0 ? '#ef4444' : 'var(--text3)' }}>
-                ✗ {tmpl.reject_count}
+              <span style={{ color: 'var(--ok)' }}>Kept {tmpl.confirm_count}</span>
+              <span style={{ color: tmpl.reject_count > 0 ? 'var(--red)' : 'var(--text3)' }}>
+                Rejected {tmpl.reject_count}
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>

@@ -156,9 +156,9 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
   }, [symTypes])
 
   const snipTypeColor = useCallback(() => {
-    if (!snipMode) return '#22c55e'
+    if (!snipMode) return 'var(--ok)'
     const st = symTypes.find(t => t.id === snipMode)
-    return st ? st.color : '#22c55e'
+    return st ? st.color : 'var(--ok)'
   }, [snipMode, symTypes])
 
   // ── Redraw ────────────────────────────────────────────────────────────────
@@ -461,7 +461,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
             }),
           })
           if (result) {
-            showToast(`Template saved for ${result.symbol_code} ✓`, 'success')
+            showToast(`Template saved for ${result.symbol_code}`, 'success')
             // Update template_count in local symTypes state
             setSymTypes(prev => prev.map(st =>
               st.code === result.symbol_code
@@ -512,7 +512,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
         method: 'PUT',
         body: JSON.stringify({ page_number: pn, detections: detections[pn] || [] }),
       })
-      showToast(`Page ${pn} saved ✓`, 'success')
+      showToast(`Page ${pn} saved`, 'success')
       // Navigate back to project overview after saving
       setTimeout(() => onNavigate('project', { id: projectId }), 600)
     } catch (err) { showToast(err.message, 'error') }
@@ -602,7 +602,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
         )}
         <div style={{ flex: 1 }} />
         <button className="btn btn-success btn-sm" onClick={savePage} disabled={saving}>
-          {saving ? <span className="spinner" /> : '💾 Save Page'}
+          {saving ? <span className="spinner" /> : 'Save Page'}
         </button>
       </div>
 
@@ -613,11 +613,11 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
             <div className="vsec-title">Symbol Type</div>
             {snipMode && (
               <div style={{ padding: '6px 8px', background: '#1e3a1e', borderRadius: 6,
-                            fontSize: 11, color: '#4ade80', marginBottom: 6, textAlign: 'center' }}>
-                {snipSaving ? '⏳ Saving…' : '✂ Drag box around one example'}
+                            fontSize: 11, color: 'var(--ok)', marginBottom: 6, textAlign: 'center' }}>
+                {snipSaving ? 'Saving…' : 'Snip active — drag a box around one example'}
                 <button style={{ float: 'right', background: 'none', border: 'none',
-                                 color: '#4ade80', cursor: 'pointer', fontSize: 13 }}
-                        onClick={() => { setSnipMode(null); setSnipRect(null) }}>✕</button>
+                                 color: 'var(--ok)', cursor: 'pointer', fontSize: 13 }}
+                        onClick={() => { setSnipMode(null); setSnipRect(null) }}>×</button>
               </div>
             )}
             {symTypes.map((st, i) => (
@@ -643,7 +643,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                         style={{ padding: '5px 7px', borderRadius: 5, border: '1px solid var(--border)',
                                  background: snipMode === st.id ? st.color + '33' : 'var(--bg3)',
                                  color: snipMode === st.id ? st.color : 'var(--text3)',
-                                 cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>✂</button>
+                                 cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>Snip</button>
               </div>
             ))}
           </div>
@@ -658,10 +658,10 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                 <div key={st.id} style={{ display: 'flex', gap: 4, marginBottom: 4, alignItems: 'center' }}>
                   <span style={{ flex: 1, fontSize: 11, color: st.color }}>{st.name} ({count})</span>
                   <button className="btn btn-ghost btn-sm" style={{ padding: '3px 6px', fontSize: 10 }}
-                          onClick={() => acceptAllOfType(st.code)} title="Mark all as correct">✓</button>
+                          onClick={() => acceptAllOfType(st.code)} title="Mark all as correct">Keep</button>
                   <button className="btn btn-ghost btn-sm"
                           style={{ padding: '3px 6px', fontSize: 10, color: 'var(--red)' }}
-                          onClick={() => removeAllOfType(st.code)} title="Remove all">✕</button>
+                          onClick={() => removeAllOfType(st.code)} title="Remove all">×</button>
                 </div>
               )
             })}
@@ -690,7 +690,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
               <strong>Drag</strong> → pan canvas<br />
               <strong>Drag marker</strong> → move it<br />
               <strong>Right-click</strong> marker → correct it<br />
-              <strong>✂</strong> → snip template<br />
+              <strong>Snip</strong> → teach detection<br />
               <kbd>Del</kbd> remove &nbsp; <kbd>Esc</kbd> deselect<br />
               <kbd>1</kbd>–<kbd>9</kbd> switch type &nbsp; <kbd>Ctrl+S</kbd> save<br />
               <kbd>Scroll</kbd> zoom
@@ -701,7 +701,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
           <div className="vsec">
             <div className="vsec-title">Teach Detection</div>
             <p className="hint">
-              Click <strong>✂</strong> next to any symbol type, then drag a box around a clear example.
+              Click <strong>Snip</strong> next to any symbol type, then drag a box around a clear example.
               Each snip improves future detection across all projects.
             </p>
           </div>
@@ -726,7 +726,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
               setCtxMenu(null)
               showToast('Marked as false positive — will improve detection', 'info')
             }}>
-              ✗ False positive — remove
+              Remove — false positive
             </CtxItem>
             <CtxItem color="var(--text2)" onClick={() => openDoorRefEditor(ctxMenu.det, ctxMenu.pn)}>
               🚪 Correct door reference
@@ -807,12 +807,12 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                 </span>
                 <div style={{ flex: 1 }} />
                 <button className="btn btn-ghost btn-sm" onClick={closeWizard}
-                        title="Skip setup — can run snips manually later">✕</button>
+                        title="Skip setup — can run snips manually later">×</button>
               </div>
 
               {allDone ? (
-                <p style={{ fontSize: 12, color: '#4ade80' }}>
-                  ✓ All symbols have examples. Detection will be much better now!
+                <p style={{ fontSize: 12, color: 'var(--ok)' }}>
+                  All symbol types have examples — detection improves from here.
                 </p>
               ) : (
                 <>
@@ -846,7 +846,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                         <button className="btn btn-ghost btn-sm" style={{ flex: 1 }}
                                 onClick={startSnip}>↩ Redo</button>
                         <button className="btn btn-success btn-sm" style={{ flex: 1 }}
-                                onClick={confirmSnip}>✓ Confirm</button>
+                                onClick={confirmSnip}>Confirm</button>
                       </div>
                     </>
                   ) : snipMode === current?.id ? (
@@ -863,7 +863,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                         Find a clear <strong>{current?.name}</strong> on the drawing and snip it as a template example.
                       </p>
                       <button className="btn btn-primary btn-sm" style={{ width: '100%', marginBottom: 6 }}
-                              onClick={startSnip}>✂ Snip {current?.name}</button>
+                              onClick={startSnip}>Snip {current?.name}</button>
                       <button className="btn btn-ghost btn-sm" style={{ width: '100%' }}
                               onClick={skipCurrent}>Skip →</button>
                     </>
@@ -874,7 +874,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                     {wizardTypes.map((_, i) => (
                       <span key={i} style={{
                         width: 6, height: 6, borderRadius: '50%',
-                        background: i < wizardStep ? '#22c55e' : i === wizardStep ? '#3b82f6' : 'var(--border)',
+                        background: i < wizardStep ? 'var(--ok)' : i === wizardStep ? 'var(--link)' : 'var(--border)',
                       }} />
                     ))}
                   </div>
@@ -926,7 +926,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
                           alignItems: 'center', justifyContent: 'center', gap: 10,
                           textAlign: 'center', padding: 32, pointerEvents: 'none' }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#dc2626' }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--red)' }}>
                 {pageError ? 'Page image failed to load'
                   : drawing?.status === 'error' ? 'Detection failed for this drawing'
                   : drawing?.status === 'processing' || drawing?.status === 'uploaded'

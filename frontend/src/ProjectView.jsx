@@ -120,8 +120,8 @@ export function ProjectView({ id, onNavigate }) {
       uploaded:   ['badge-grey',   'Uploaded'],
       processing: ['badge-orange', 'Processing…'],
       detected:   ['badge-blue',   'Detected'],
-      verified:   ['badge-green',  'Verified ✓'],
-      approved:   ['badge-green',  'Approved ✓✓'],
+      verified:   ['badge-green',  'Verified'],
+      approved:   ['badge-green',  'Approved'],
       error:      ['badge-red',    'Error'],
     }
     const [cls, label] = map[s] || ['badge-grey', s]
@@ -133,7 +133,7 @@ export function ProjectView({ id, onNavigate }) {
     const pct = Math.round((d.verified_pages / d.total_pages_count) * 100)
     return (
       <div style={{ width: 60, height: 4, background: 'var(--bg3)', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? '#22c55e' : '#3b82f6',
+        <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? 'var(--ok)' : 'var(--link)',
                       transition: 'width .3s' }} />
       </div>
     )
@@ -185,9 +185,9 @@ export function ProjectView({ id, onNavigate }) {
           <div style={{ display: 'flex', gap: 20, marginBottom: 20, padding: '12px 16px',
                         background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
             <Stat label="Total" value={drawings.length} />
-            <Stat label="Detected" value={drawings.filter(d => ['detected','verified','approved'].includes(d.status)).length} color="#3b82f6" />
-            <Stat label="Verified" value={verifiedCount} color="#22c55e" />
-            <Stat label="Approved" value={approvedCount} color="#4ade80" />
+            <Stat label="Detected" value={drawings.filter(d => ['detected','verified','approved'].includes(d.status)).length} color="var(--link)" />
+            <Stat label="Verified" value={verifiedCount} color="var(--ok)" />
+            <Stat label="Approved" value={approvedCount} color="var(--ok)" />
           </div>
         )}
 
@@ -241,14 +241,14 @@ export function ProjectView({ id, onNavigate }) {
               </div>
               {statusBadge(d.status)}
               {d.status === 'error' && d.error_message && (
-                <span style={{ fontSize: 11, color: '#dc2626' }} title={d.error_message}>
+                <span style={{ fontSize: 11, color: 'var(--red)' }} title={d.error_message}>
                   {d.error_message.length > 60 ? d.error_message.slice(0, 60) + '…' : d.error_message}
                 </span>
               )}
               {d.status === 'verified' && (
-                <button className="btn btn-ghost btn-sm" style={{ color: '#4ade80', fontSize: 11 }}
+                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--ok)', fontSize: 11 }}
                         onClick={e => approveDrawing(e, d.id)}>
-                  ✓ Approve
+                  Approve
                 </button>
               )}
               <button className="btn btn-ghost btn-sm" title="Download annotated PDF"
@@ -260,7 +260,7 @@ export function ProjectView({ id, onNavigate }) {
                 Review →
               </button>
               <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }}
-                      onClick={e => deleteDrawing(e, d.id)}>✕</button>
+                      onClick={e => deleteDrawing(e, d.id)}>×</button>
             </div>
           ))
         )}
@@ -305,11 +305,11 @@ function CountTable({ drawings, symTypes, onNavigate, id }) {
                 borderTop: '2px solid var(--border)', textAlign: 'center', fontSize: 13 }
 
   const sColor = s => {
-    if (s === 'approved')  return '#4ade80'
-    if (s === 'verified')  return '#22c55e'
-    if (s === 'detected')  return '#3b82f6'
-    if (s === 'processing')return '#f97316'
-    if (s === 'error')     return '#dc2626'
+    if (s === 'approved')  return 'var(--ok)'
+    if (s === 'verified')  return 'var(--ok)'
+    if (s === 'detected')  return 'var(--link)'
+    if (s === 'processing')return 'var(--accent)'
+    if (s === 'error')     return 'var(--red)'
     return '#8892a8'
   }
   const sLabel = s => {
@@ -367,7 +367,7 @@ function CountTable({ drawings, symTypes, onNavigate, id }) {
                                    background: sColor(d.status), marginRight: 6, verticalAlign: 'middle' }} />
                     <span style={{ fontSize: 12, color: 'var(--text2)' }}>{sLabel(d.status)}</span>
                     {d.status === 'error' && d.error_message && (
-                      <div style={{ fontSize: 11, color: '#dc2626', marginTop: 2,
+                      <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2,
                                     maxWidth: 240, whiteSpace: 'normal' }}>{d.error_message}</div>
                     )}
                   </td>
@@ -427,7 +427,7 @@ function RevisionDiffModal({ drawings, onClose }) {
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
           <h2 style={{ margin: 0 }}>Compare Drawing Revisions</h2>
           <div style={{ flex: 1 }} />
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>×</button>
         </div>
 
         <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
@@ -462,7 +462,7 @@ function RevisionDiffModal({ drawings, onClose }) {
 
         {result && (
           <div style={{ marginTop: 20 }}>
-            <div style={{ fontSize: 13, color: result.changed ? '#fb923c' : '#4ade80', marginBottom: 12, fontWeight: 600 }}>
+            <div style={{ fontSize: 13, color: result.changed ? '#fb923c' : 'var(--ok)', marginBottom: 12, fontWeight: 600 }}>
               {result.changed
                 ? `Changes detected: ${result.summary}`
                 : 'No changes between these drawings'}
@@ -489,7 +489,7 @@ function RevisionDiffModal({ drawings, onClose }) {
                         <td style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--text2)' }}>{before}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--text2)' }}>{after}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700,
-                                     color: delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : 'var(--text3)' }}>
+                                     color: delta > 0 ? 'var(--ok)' : delta < 0 ? 'var(--red)' : 'var(--text3)' }}>
                           {delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : '—'}
                         </td>
                       </tr>
@@ -499,12 +499,12 @@ function RevisionDiffModal({ drawings, onClose }) {
               </table>
             )}
             {result.spatial_added?.length > 0 && (
-              <div style={{ marginTop: 12, fontSize: 12, color: '#4ade80' }}>
+              <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ok)' }}>
                 {result.spatial_added.length} symbol{result.spatial_added.length !== 1 ? 's' : ''} added
               </div>
             )}
             {result.spatial_removed?.length > 0 && (
-              <div style={{ marginTop: 4, fontSize: 12, color: '#f87171' }}>
+              <div style={{ marginTop: 4, fontSize: 12, color: 'var(--red)' }}>
                 {result.spatial_removed.length} symbol{result.spatial_removed.length !== 1 ? 's' : ''} removed
               </div>
             )}

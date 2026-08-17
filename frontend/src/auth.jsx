@@ -59,6 +59,22 @@ export function useAuth() {
   return useContext(AuthContext)
 }
 
+// ── Shared hero (off-center editorial composition) ────────────────────────────
+function AuthHero() {
+  return (
+    <section className="auth-hero">
+      <div className="auth-brand">MF Services</div>
+      <h1>Every device.<br />Every drawing.<br /><em>Counted.</em></h1>
+      <div className="auth-rule" />
+      <p>
+        Symbol Counter reads security and fire-alarm devices off engineering
+        floor plans — detected automatically, verified by you, exported as
+        schedules you can price a job on.
+      </p>
+    </section>
+  )
+}
+
 // ── Login page ────────────────────────────────────────────────────────────────
 export function LoginPage({ onNavigate }) {
   const { login } = useAuth()
@@ -81,31 +97,31 @@ export function LoginPage({ onNavigate }) {
   }
 
   return (
-    <div className="auth-wrap">
-      <div className="auth-box">
-        <div className="logo">MF <span>Symbol Counter</span></div>
-        <div className="subtitle">Sign in to your account</div>
-        <div className="card">
+    <div className="auth-split">
+      <AuthHero />
+      <div className="auth-form-col">
+        <div className="auth-panel">
+          <h2>Sign in</h2>
           <form onSubmit={submit}>
             <div className="form-group">
               <label>Email</label>
-              <input className="form-control" type="email" placeholder="you@example.com"
+              <input className="form-control" type="email" placeholder="you@mfservices.ie"
                      value={email} onChange={e => setEmail(e.target.value)} required />
             </div>
             <div className="form-group">
               <label>Password</label>
-              <input className="form-control" type="password" placeholder="••••••••"
+              <input className="form-control" type="password" placeholder="Your password"
                      value={pass} onChange={e => setPass(e.target.value)} required />
             </div>
             <button className="btn btn-primary btn-lg" style={{ width: '100%' }}
                     type="submit" disabled={busy}>
-              {busy ? <span className="spinner" /> : 'Sign In'}
+              {busy ? <span className="spinner" /> : 'Sign in'}
             </button>
           </form>
         </div>
         <div className="auth-footer">
-          Don't have an account?{' '}
-          <a onClick={() => onNavigate('register')} style={{ cursor: 'pointer' }}>Register</a>
+          No account yet?{' '}
+          <a onClick={() => onNavigate('register')}>Create one</a>
         </div>
       </div>
     </div>
@@ -135,11 +151,11 @@ export function RegisterPage({ onNavigate }) {
   }
 
   return (
-    <div className="auth-wrap">
-      <div className="auth-box">
-        <div className="logo">MF <span>Symbol Counter</span></div>
-        <div className="subtitle">Create your account</div>
-        <div className="card">
+    <div className="auth-split">
+      <AuthHero />
+      <div className="auth-form-col">
+        <div className="auth-panel">
+          <h2>Create your account</h2>
           <form onSubmit={submit}>
             <div className="form-group">
               <label>Full Name</label>
@@ -148,23 +164,23 @@ export function RegisterPage({ onNavigate }) {
             </div>
             <div className="form-group">
               <label>Email</label>
-              <input className="form-control" type="email" placeholder="you@example.com"
+              <input className="form-control" type="email" placeholder="you@mfservices.ie"
                      value={email} onChange={e => setEmail(e.target.value)} required />
             </div>
             <div className="form-group">
               <label>Password</label>
-              <input className="form-control" type="password" placeholder="Min. 8 characters"
+              <input className="form-control" type="password" placeholder="Minimum 8 characters"
                      value={pass} onChange={e => setPass(e.target.value)} required minLength={8} />
             </div>
             <button className="btn btn-primary btn-lg" style={{ width: '100%' }}
                     type="submit" disabled={busy}>
-              {busy ? <span className="spinner" /> : 'Create Account'}
+              {busy ? <span className="spinner" /> : 'Create account'}
             </button>
           </form>
         </div>
         <div className="auth-footer">
           Already have an account?{' '}
-          <a onClick={() => onNavigate('login')} style={{ cursor: 'pointer' }}>Sign in</a>
+          <a onClick={() => onNavigate('login')}>Sign in</a>
         </div>
       </div>
     </div>

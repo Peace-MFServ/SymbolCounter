@@ -3,7 +3,7 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 
 const PRESET_COLORS = [
-  '#22c55e','#3b82f6','#f97316','#a78bfa','#f43f5e',
+  'var(--ok)','var(--link)','#f97316','#a78bfa','#f43f5e',
   '#06b6d4','#eab308','#ec4899','#14b8a6','#8b5cf6',
 ]
 
@@ -75,7 +75,7 @@ export function SymbolManagerModal({ projectId, onClose, onChanged }) {
           <button className="btn btn-ghost btn-sm" onClick={reset} style={{ marginRight: 8 }}>
             Reset to defaults
           </button>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>×</button>
         </div>
         <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 16 }}>
           Define what symbols this project should detect. The code is what appears on the drawing (e.g. "S" for Smoke Detector).
@@ -111,7 +111,7 @@ export function SymbolManagerModal({ projectId, onClose, onChanged }) {
                   <span style={{ fontSize: 11, color: 'var(--text3)' }}>{t.template_count} template{t.template_count !== 1 ? 's' : ''}</span>
                 )}
                 <button className="btn btn-ghost btn-sm" onClick={() => startEdit(t)}>Edit</button>
-                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => del(t.id)}>✕</button>
+                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => del(t.id)}>×</button>
               </div>
             ))}
           </div>
