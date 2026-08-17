@@ -43,6 +43,27 @@ MAX_DETECTIONS_PER_CODE = 40
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+def _word_box(el) -> tuple:
+    """
+    Read a pdftotext -bbox word's coordinates.
+    Older poppler emitted lowercase attributes (xmin); modern poppler emits
+    camelCase (xMin). Reading only lowercase silently returned 0 for every
+    word on current installs, degrading all text detection to the fallback
+    grid — so accept both.
+    """
+    def attr(lower, camel):
+        v = el.get(lower)
+        if v is None:
+            v = el.get(camel)
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    return (attr("xmin", "xMin"), attr("ymin", "yMin"),
+            attr("xmax", "xMax"), attr("ymax", "yMax"))
+
+
+
 def _rotate_image(img: np.ndarray, angle: int) -> np.ndarray:
     """Rotate image by angle degrees (0, 90, 180, 270 only)."""
     if angle == 0:
@@ -292,10 +313,7 @@ def find_text_positions_from_words(
     detections = []
 
     def cx_cy(word_el):
-        xmin = float(word_el.get("xmin", 0) or 0)
-        ymin = float(word_el.get("ymin", 0) or 0)
-        xmax = float(word_el.get("xmax", 0) or 0)
-        ymax = float(word_el.get("ymax", 0) or 0)
+        xmin, ymin, xmax, ymax = _word_box(word_el)
         return (xmin + xmax) / 2 / page_w, (ymin + ymax) / 2 / page_h
 
     def in_area(cx, cy):
@@ -324,10 +342,9 @@ def find_text_positions_from_words(
                 group = words[i:i + span]
                 key = tuple((w.text or "").strip() for w in group)
                 if key in multi_lookup:
-                    xs = [float(w.get("xmin", 0) or 0) for w in group] + \
-                         [float(w.get("xmax", 0) or 0) for w in group]
-                    ys = [float(w.get("ymin", 0) or 0) for w in group] + \
-                         [float(w.get("ymax", 0) or 0) for w in group]
+                    gboxes = [_word_box(w) for w in group]
+                    xs = [b[0] for b in gboxes] + [b[2] for b in gboxes]
+                    ys = [b[1] for b in gboxes] + [b[3] for b in gboxes]
                     cx = (min(xs) + max(xs)) / 2 / page_w
                     cy = (min(ys) + max(ys)) / 2 / page_h
                     add(multi_lookup[key], cx, cy)
@@ -388,6 +405,59 @@ def _text_fallback(pdf_path: str, page_num: int, symbol_codes: list = None) -> l
     return detections
 
 
+# ── Dynamic legend exclusion ──────────────────────────────────────────────────
+def find_legend_region(words, page_dims) -> Optional[tuple]:
+    """
+    Locate the drawing's legend block dynamically and return its normalised
+    bounding box (x1, y1, x2, y2), or None if it can't be found.
+
+    The static LEGEND_X_CUTOFF only covers legends on the left edge; firms
+    also run legends across the top or right of a sheet. Here we seed on the
+    word 'LEGEND' and flood-fill nearby words into a cluster — legend entries
+    are a dense block of labels, so the cluster's bbox is the legend extent.
+    """
+    if not words or page_dims is None:
+        return None
+    pw, ph = page_dims
+
+    boxes, seed = [], None
+    for w in words:
+        bx1, by1, bx2, by2 = _word_box(w)
+        boxes.append((bx1 / pw, by1 / ph, bx2 / pw, by2 / ph))
+        if seed is None and (w.text or "").strip().upper().rstrip(":") == "LEGEND":
+            seed = len(boxes) - 1
+    if seed is None:
+        return None
+
+    # Legend entries run in rows (symbol + label, often multiple columns), so
+    # allow a wider gap horizontally than vertically when growing the cluster.
+    GAP_X, GAP_Y = 0.03, 0.015
+    in_cluster = {seed}
+    bbox = list(boxes[seed])
+    changed = True
+    while changed:
+        changed = False
+        for i, b in enumerate(boxes):
+            if i in in_cluster:
+                continue
+            if (b[0] <= bbox[2] + GAP_X and b[2] >= bbox[0] - GAP_X and
+                    b[1] <= bbox[3] + GAP_Y and b[3] >= bbox[1] - GAP_Y):
+                in_cluster.add(i)
+                bbox[0] = min(bbox[0], b[0]); bbox[1] = min(bbox[1], b[1])
+                bbox[2] = max(bbox[2], b[2]); bbox[3] = max(bbox[3], b[3])
+                changed = True
+
+    area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+    if area > 0.5:
+        # Flood fill escaped into the drawing body — safer to exclude nothing
+        logger.warning("Legend region grew to %.0f%% of the page — ignoring it", area * 100)
+        return None
+
+    # Symbol glyphs sit to the LEFT of their labels: pad generously that side
+    return (max(0.0, bbox[0] - 0.05), max(0.0, bbox[1] - 0.02),
+            min(1.0, bbox[2] + 0.02), min(1.0, bbox[3] + 0.02))
+
+
 # ── Door reference extraction ─────────────────────────────────────────────────
 DOOR_PATTERN = re.compile(r'^D_[A-Z0-9]+(\.[A-Z0-9]+){1,3}$')
 
@@ -403,10 +473,7 @@ def find_door_references_from_words(words: list, page_dims: tuple) -> list[dict]
     for word in words:
         text = (word.text or "").strip()
         if DOOR_PATTERN.match(text):
-            xmin = float(word.get("xmin", 0) or 0)
-            ymin = float(word.get("ymin", 0) or 0)
-            xmax = float(word.get("xmax", 0) or 0)
-            ymax = float(word.get("ymax", 0) or 0)
+            xmin, ymin, xmax, ymax = _word_box(word)
             cx = (xmin + xmax) / 2 / page_w
             cy = (ymin + ymax) / 2 / page_h
             if LEGEND_X_CUTOFF <= cx <= 1.0 and 0.0 <= cy <= TITLE_Y_CUTOFF:
@@ -619,6 +686,22 @@ def run_full_detection(
                     )
 
         page_dets = dedup(page_dets)
+
+        # Drop anything inside the legend block, wherever it sits on the sheet.
+        # (The static x/y cutoffs only cover left-edge legends and bottom title
+        # blocks — legends across the top of a sheet were being counted.)
+        legend_bbox = find_legend_region(words, page_dims)
+        if legend_bbox:
+            lx1, ly1, lx2, ly2 = legend_bbox
+            before = len(page_dets)
+            page_dets = [
+                det for det in page_dets
+                if not (lx1 <= det["imgX"] <= lx2 and ly1 <= det["imgY"] <= ly2)
+            ]
+            if before != len(page_dets):
+                logger.info("Page %d: excluded %d detections inside legend region "
+                            "(%.2f,%.2f)-(%.2f,%.2f)", i, before - len(page_dets),
+                            lx1, ly1, lx2, ly2)
 
         # Enrich with nearest door reference (reuse already-parsed words)
         door_refs = find_door_references_from_words(words, page_dims)
