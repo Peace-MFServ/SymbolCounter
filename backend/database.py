@@ -3,7 +3,9 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./symbol_counter.db")
+# Default DB lives next to this file, regardless of where uvicorn was launched from
+_DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "symbol_counter.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///" + _DEFAULT_DB.replace("\\", "/"))
 
 engine = create_engine(
     DATABASE_URL,

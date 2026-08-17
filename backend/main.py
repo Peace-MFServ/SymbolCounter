@@ -41,6 +41,11 @@ from detection.pipeline import run_full_detection, crop_template_from_page, find
 
 logger = logging.getLogger(__name__)
 
+# Anchor the working directory to this file's folder so relative paths
+# (uploads/, stored image_path values) resolve no matter where uvicorn
+# was started from. Starting from the wrong folder used to strand all data.
+os.chdir(Path(__file__).resolve().parent)
+
 # ── File logging setup ────────────────────────────────────────────────────────
 _LOG_DIR  = Path(__file__).resolve().parent / "logs"
 _LOG_DIR.mkdir(exist_ok=True)
@@ -61,6 +66,21 @@ _console_handler.setLevel(logging.INFO)
 
 logging.basicConfig(level=logging.DEBUG, handlers=[_file_handler, _console_handler])
 
+# ── Environment check: Poppler is required for all PDF work ───────────────────
+POPPLER_OK = bool(shutil.which("pdftoppm") and shutil.which("pdftotext"))
+if not POPPLER_OK:
+    _poppler_msg = (
+        "Poppler is not installed or not on PATH — PDF rendering and detection "
+        "cannot work without it.\n"
+        "  Windows:  winget install poppler   (then close and reopen the terminal)\n"
+        "  Linux:    sudo apt install poppler-utils\n"
+        "Set SYMBOL_COUNTER_IGNORE_MISSING_POPPLER=1 to start anyway "
+        "(existing drawings stay viewable; new uploads are rejected)."
+    )
+    logger.critical(_poppler_msg)
+    if os.getenv("SYMBOL_COUNTER_IGNORE_MISSING_POPPLER") != "1":
+        raise SystemExit("\n\nSTARTUP ABORTED\n" + _poppler_msg + "\n")
+
 Base.metadata.create_all(bind=engine)
 
 # ── Lightweight column migrations (add new columns to existing tables) ────────
@@ -76,6 +96,13 @@ def _ensure_columns():
                     "ALTER TABLE global_templates ADD COLUMN threshold_override REAL"
                 ))
                 logger.info("Migrated: added global_templates.threshold_override")
+            drows = conn.execute(_sa.text("PRAGMA table_info(drawings)")).fetchall()
+            dexisting = {row[1] for row in drows}
+            if "error_message" not in dexisting:
+                conn.execute(_sa.text(
+                    "ALTER TABLE drawings ADD COLUMN error_message TEXT"
+                ))
+                logger.info("Migrated: added drawings.error_message")
     except Exception as exc:
         logger.error("Column migration failed: %s", exc)
 
@@ -138,6 +165,7 @@ class ProjectOut(BaseModel):
 class DrawingOut(BaseModel):
     id: int; original_name: str; block: str; level: str
     total_pages: int; status: str; revision: str = ""
+    error_message: Optional[str] = None
     total_counts: dict = {}
     verified_pages: int = 0; total_pages_count: int = 0
     class Config: from_attributes = True
@@ -451,6 +479,11 @@ async def upload_drawing(pid: int, background_tasks: BackgroundTasks,
 
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDF files accepted")
+
+    if not POPPLER_OK:
+        raise HTTPException(503,
+            "Cannot process PDFs: Poppler is not installed on the server. "
+            "Install it (winget install poppler), reopen the terminal, and restart the backend.")
 
     uid      = uuid.uuid4().hex
     save_dir = UPLOAD_DIR / uid
@@ -917,7 +950,14 @@ def get_logs(lines: int = Query(default=500, le=2000), cu=Depends(auth.get_curre
 
 
 @app.get("/api/health")
-def health(): return {"status": "ok", "version": "3.0.0"}
+def health():
+    return {
+        "status": "ok" if POPPLER_OK else "degraded",
+        "version": "3.0.0",
+        "poppler": POPPLER_OK,
+        "detail": None if POPPLER_OK else
+            "Poppler not found on PATH — uploads disabled. Install: winget install poppler",
+    }
 
 
 # ── Frontend catch-all ────────────────────────────────────────────────────────
@@ -958,6 +998,7 @@ def _drawing_out(d: models.Drawing) -> DrawingOut:
     return DrawingOut(
         id=d.id, original_name=d.original_name, block=d.block, level=d.level,
         total_pages=d.total_pages, status=d.status, revision=d.revision,
+        error_message=getattr(d, "error_message", None),
         total_counts=d.total_counts,
         verified_pages=vp, total_pages_count=len(d.pages),
     )
@@ -1246,7 +1287,10 @@ def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
         logger.exception("Detection error for drawing %d", drawing_id)
         try:
             d = db.query(models.Drawing).filter(models.Drawing.id == drawing_id).first()
-            if d: d.status = "error"; db.commit()
+            if d:
+                d.status = "error"
+                d.error_message = f"{type(e).__name__}: {e}"[:500]
+                db.commit()
         except Exception:
             pass
     finally:

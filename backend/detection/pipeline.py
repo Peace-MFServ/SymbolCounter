@@ -67,6 +67,11 @@ def render_pdf_pages(pdf_path: str, output_dir: str, dpi: int = 200) -> list[str
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError("PDF rendering timed out — file may be too large")
+    except FileNotFoundError:
+        raise RuntimeError(
+            "Poppler (pdftoppm) is not installed or not on PATH — "
+            "install it with 'winget install poppler' and restart the backend"
+        )
     pages = sorted(Path(output_dir).glob("page-*.png"))
     if not pages:
         pages = sorted(Path(output_dir).glob("page*.png"))

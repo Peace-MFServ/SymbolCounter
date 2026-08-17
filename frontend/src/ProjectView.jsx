@@ -240,6 +240,11 @@ export function ProjectView({ id, onNavigate }) {
                 })}
               </div>
               {statusBadge(d.status)}
+              {d.status === 'error' && d.error_message && (
+                <span style={{ fontSize: 11, color: '#dc2626' }} title={d.error_message}>
+                  {d.error_message.length > 60 ? d.error_message.slice(0, 60) + '…' : d.error_message}
+                </span>
+              )}
               {d.status === 'verified' && (
                 <button className="btn btn-ghost btn-sm" style={{ color: '#4ade80', fontSize: 11 }}
                         onClick={e => approveDrawing(e, d.id)}>
@@ -361,6 +366,10 @@ function CountTable({ drawings, symTypes, onNavigate, id }) {
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
                                    background: sColor(d.status), marginRight: 6, verticalAlign: 'middle' }} />
                     <span style={{ fontSize: 12, color: 'var(--text2)' }}>{sLabel(d.status)}</span>
+                    {d.status === 'error' && d.error_message && (
+                      <div style={{ fontSize: 11, color: '#dc2626', marginTop: 2,
+                                    maxWidth: 240, whiteSpace: 'normal' }}>{d.error_message}</div>
+                    )}
                   </td>
                   {symTypes.map(st => {
                     const v = c[st.code] || 0

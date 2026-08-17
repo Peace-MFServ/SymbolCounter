@@ -146,6 +146,7 @@ class Drawing(Base):
     total_pages    = Column(Integer, default=1)
     # Status: uploaded → processing → detected → verified → approved
     status         = Column(String, default="uploaded")
+    error_message  = Column(Text, nullable=True)   # populated when status == "error"
     verified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     verified_at    = Column(DateTime(timezone=True), nullable=True)
     approved_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)

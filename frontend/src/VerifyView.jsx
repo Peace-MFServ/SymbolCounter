@@ -13,6 +13,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
   const [selectedId,  setSelectedId] = useState(null)
   const [saving,      setSaving]     = useState(false)
   const [loadingPage, setLoadingPage] = useState(false)
+  const [pageError,   setPageError]   = useState(null)   // string when the page image failed to load
   // Snip mode
   const [snipMode,    setSnipMode]   = useState(null)    // null | symbol_type_id
   const [snipRect,    setSnipRect]   = useState(null)
@@ -80,12 +81,16 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
     if (!curPage) return
     setLoadingPage(true)
     setImage(null)
+    setPageError(null)
 
     const token = localStorage.getItem('token')
     fetch(curPage.image_url, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
-      .then(r => { if (!r.ok) throw new Error('Image load failed'); return r.blob() })
+      .then(r => {
+        if (!r.ok) throw new Error(`server responded ${r.status} ${r.statusText} for ${curPage.image_url}`)
+        return r.blob()
+      })
       .then(blob => {
         const url = URL.createObjectURL(blob)
         const img = new Image()
@@ -94,10 +99,17 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
           setLoadingPage(false)
           URL.revokeObjectURL(url)
         }
-        img.onerror = () => setLoadingPage(false)
+        img.onerror = () => {
+          setLoadingPage(false)
+          setPageError('the image file is corrupt or unreadable')
+          URL.revokeObjectURL(url)
+        }
         img.src = url
       })
-      .catch(() => setLoadingPage(false))
+      .catch(err => {
+        setLoadingPage(false)
+        setPageError(err.message)
+      })
   }, [curPage?.page_number, curPage?.image_url])
 
   // ── Canvas setup ──────────────────────────────────────────────────────────
@@ -910,6 +922,26 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
             <span className="spinner spinner-lg" />
             <span style={{ color: 'var(--text2)', fontSize: 13 }}>Loading page…</span>
           </div>
+          {!loadingPage && !image && (pageError || !curPage) && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                          alignItems: 'center', justifyContent: 'center', gap: 10,
+                          textAlign: 'center', padding: 32, pointerEvents: 'none' }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: '#dc2626' }}>
+                {pageError ? 'Page image failed to load'
+                  : drawing?.status === 'error' ? 'Detection failed for this drawing'
+                  : drawing?.status === 'processing' || drawing?.status === 'uploaded'
+                    ? 'This drawing is still being processed'
+                    : 'No pages available for this drawing'}
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text2)', maxWidth: 520 }}>
+                {pageError
+                  || drawing?.error_message
+                  || (drawing?.status === 'processing' || drawing?.status === 'uploaded'
+                      ? 'Detection runs in the background after upload — go back and retry in a moment.'
+                      : 'Check the backend log (backend/logs/app.log) for details.')}
+              </div>
+            </div>
+          )}
           {curDets.some(d => d.method === 'text_fallback') && (
             <div style={{ position: 'absolute', bottom: 12, left: 12, background: '#78350f',
                           color: '#fdba74', padding: '6px 12px', borderRadius: 6, fontSize: 12,
