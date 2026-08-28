@@ -39,7 +39,8 @@ CODE_ALIASES = {
 # Tokens that denote a *different device* when they appear beyond the alias:
 # "SMOKE DETECTOR BEACON SOUNDER" is a combined device, not a Smoke Detector,
 # so leftover device-words disqualify a match.
-DEVICE_WORDS = {"SOUNDER", "BEACON", "DETECTOR", "PANEL", "REPEATER", "INTERFACE"}
+DEVICE_WORDS = {"SOUNDER", "BEACON", "DETECTOR", "PANEL", "REPEATER", "INTERFACE",
+                "ASPIRATING"}
 
 _TOKEN_RE = re.compile(r"[A-Z0-9/]+")
 
@@ -200,6 +201,16 @@ def _trim_to_ink(crop: np.ndarray, band: tuple = None, pad: int = 5):
                 keep[labels == i] = 1
         if keep.any():
             mask = keep
+        # Prune detached elements far to the right — legend leader arrows
+        # and underlines are drawn beside the glyph but are not part of the
+        # symbol as it appears on the plan.
+        col_any = mask.any(axis=0)
+        occupied = np.where(col_any)[0]
+        if len(occupied) > 1:
+            gaps = np.where(np.diff(occupied) > max(10, int(mask.shape[0] * 0.6)))[0]
+            if len(gaps):
+                mask = mask.copy()
+                mask[:, occupied[gaps[0]] + 1:] = 0
 
     ys, xs = np.where(mask)
     if len(xs) == 0:

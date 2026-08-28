@@ -197,9 +197,19 @@ def match_templates_on_page(
                     # Small templates (letter-in-circle fire glyphs) match
                     # partial features everywhere at the base threshold —
                     # hold them to a stricter score.
-                    eff_thresh = max(thresh, 0.72) if min(rw, rh) < 35 else thresh
+                    # Truly tiny renderings still get a stricter bar, but the
+                    # full-res verification below is the main FP defence now —
+                    # a wide floor here was executing genuine thin symbols
+                    # (real cameras peak ~0.69 at plan scale).
+                    eff_thresh = max(thresh, 0.68) if min(rw, rh) < 28 else thresh
+                    # Two-stage matching: the half-res pass only nominates
+                    # candidates, so its bar sits BELOW the real threshold —
+                    # downscaling blurs thin-line glyphs and true matches can
+                    # score ~0.1 lower here than at full resolution. The
+                    # full-res verification below applies eff_thresh strictly.
+                    coarse = max(0.45, eff_thresh - 0.12)
                     result = cv2.matchTemplate(search_small, resized, cv2.TM_CCOEFF_NORMED)
-                    locs    = np.where(result >= eff_thresh)
+                    locs    = np.where(result >= coarse)
                     for pt in zip(*locs[::-1]):
                         candidates.append({
                             "score":       float(result[pt[1], pt[0]]),
@@ -208,7 +218,42 @@ def match_templates_on_page(
                             "mw":          rw,
                             "mh":          rh,
                             "template_id": tmpl["template_id"],
+                            "base":        base_img,
+                            "angle":       angle,
+                            "eff":         eff_thresh,
                         })
+
+        # Full-resolution verification: half-res search is fast but blurs
+        # thin-line glyphs into ambiguity — repetitive linework (hatching,
+        # tile patterns) then scores rhythmically above threshold. Every
+        # candidate must re-prove itself on the full-res image AND have an
+        # ink density comparable to the template's (a hatched band carries
+        # several times a symbol's ink — correlation alone can't tell).
+        verify_cache: dict = {}
+
+        def _verified(c) -> bool:
+            key = (id(c["base"]), c["angle"], c["mw"])
+            timg = verify_cache.get(key)
+            if timg is None:
+                timg = cv2.resize(_rotate_image(c["base"], c["angle"]), (c["mw"], c["mh"]))
+                verify_cache[key] = timg
+            pad = 4  # absorbs the downscale rounding error
+            x0 = max(0, c["x"] - c["mw"] // 2 - pad)
+            y0 = max(0, c["y"] - c["mh"] // 2 - pad)
+            window = search_gray[y0:y0 + c["mh"] + 2 * pad, x0:x0 + c["mw"] + 2 * pad]
+            if window.shape[0] < c["mh"] or window.shape[1] < c["mw"]:
+                return False
+            score = float(cv2.matchTemplate(window, timg, cv2.TM_CCOEFF_NORMED).max())
+            if score < c["eff"]:
+                return False
+            t_ink = float((timg < 200).mean())
+            w_ink = float((window < 200).mean())
+            # Sparse glyphs legitimately sit on busy wall linework, so allow
+            # generous headroom — hatched bands still land far beyond it.
+            if w_ink > max(3.5 * t_ink, t_ink + 0.18):
+                return False
+            c["score"] = score
+            return True
 
         # Non-maximum suppression
         candidates.sort(key=lambda c: -c["score"])
@@ -224,6 +269,8 @@ def match_templates_on_page(
                 abs(c["y"] - k["y"]) < k["mh"] * 0.5
                 for k in kept
             ):
+                if not _verified(c):
+                    continue
                 kept.append(c)
                 fx = (c["x"] + x_offset) / full_img_w
                 fy = c["y"] / full_img_h
