@@ -314,7 +314,24 @@ def update_project(pid: int, payload: ProjectCreate, db: Session = Depends(get_d
 
 @app.delete("/api/projects/{pid}", status_code=204)
 def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    p = _proj404(pid, cu.id, db); db.delete(p); db.commit()
+    p = _proj404(pid, cu.id, db)
+    drawing_ids = [d.id for d in p.drawings]
+    # Verification feedback and harvested templates outlive the project —
+    # detach their references so the FK doesn't block deletion (this was
+    # 500ing every project delete once anything had been verified).
+    if drawing_ids:
+        db.query(models.DetectionFeedback) \
+          .filter(models.DetectionFeedback.drawing_id.in_(drawing_ids)) \
+          .update({models.DetectionFeedback.drawing_id: None}, synchronize_session=False)
+    db.query(models.GlobalTemplate) \
+      .filter(models.GlobalTemplate.source_project_id == pid) \
+      .update({models.GlobalTemplate.source_project_id: None}, synchronize_session=False)
+    for d in p.drawings:
+        sd = UPLOAD_DIR / d.filename
+        if sd.exists():
+            shutil.rmtree(sd, ignore_errors=True)
+    db.delete(p)
+    db.commit()
 
 
 # ── Symbol types ──────────────────────────────────────────────────────────────
@@ -688,8 +705,10 @@ def record_position_feedback(did: int, payload: PositionCorrectionPayload,
 @app.delete("/api/drawings/{did}", status_code=204)
 def delete_drawing(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     d = _draw404(did, cu.id, db)
-    # Delete child rows first to satisfy FK constraints
-    db.query(models.DetectionFeedback).filter(models.DetectionFeedback.drawing_id == did).delete(synchronize_session=False)
+    # Detach feedback (it keeps its learning value without the drawing link)
+    # and delete pages first to satisfy FK constraints
+    db.query(models.DetectionFeedback).filter(models.DetectionFeedback.drawing_id == did) \
+      .update({models.DetectionFeedback.drawing_id: None}, synchronize_session=False)
     db.query(models.DrawingPage).filter(models.DrawingPage.drawing_id == did).delete(synchronize_session=False)
     sd = UPLOAD_DIR / d.filename
     if sd.exists(): shutil.rmtree(sd)
