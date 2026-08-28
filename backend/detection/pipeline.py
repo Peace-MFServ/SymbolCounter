@@ -606,6 +606,59 @@ def extract_legend_templates(img: np.ndarray, active_codes: set) -> dict[str, np
     return templates
 
 
+# ── Periodic-pattern rejection ────────────────────────────────────────────────
+def drop_periodic_runs(detections: list, min_run: int = 6,
+                       axis_tol: float = 0.006, gap_tol: float = 0.3,
+                       score_std_max: float = 0.015) -> list:
+    """
+    Drop template detections that form a long, evenly-spaced, same-type line
+    with near-identical confidence scores — the signature of a template
+    resonating with border ticks, hatching, or grid lines, not real devices.
+    Real device runs (e.g. corridor smoke detectors) vary in score because
+    their surroundings differ; texture matches all score the same, which is
+    why score uniformity is required before anything is dropped.
+    """
+    by_type: dict[str, list] = {}
+    for det in detections:
+        by_type.setdefault(det.get("type", ""), []).append(det)
+
+    dropped_ids = set()
+    for code, dets in by_type.items():
+        tmpl_dets = [d for d in dets if d.get("method") == "template"]
+        if len(tmpl_dets) < min_run:
+            continue
+        for axis, other in (("imgX", "imgY"), ("imgY", "imgX")):
+            arr = sorted(tmpl_dets, key=lambda d: d[axis])
+            cluster = [arr[0]]
+            clusters = []
+            for det in arr[1:]:
+                if det[axis] - cluster[-1][axis] <= axis_tol:
+                    cluster.append(det)
+                else:
+                    clusters.append(cluster)
+                    cluster = [det]
+            clusters.append(cluster)
+            for cl in clusters:
+                if len(cl) < min_run:
+                    continue
+                pos = sorted(d[other] for d in cl)
+                gaps = [b - a for a, b in zip(pos, pos[1:])]
+                mean_gap = sum(gaps) / len(gaps) if gaps else 0
+                if mean_gap <= 0 or any(abs(g - mean_gap) > gap_tol * mean_gap for g in gaps):
+                    continue
+                scores = [d.get("confidence", 0) for d in cl]
+                mean_s = sum(scores) / len(scores)
+                std_s = (sum((s - mean_s) ** 2 for s in scores) / len(scores)) ** 0.5
+                if std_s <= score_std_max:
+                    dropped_ids.update(id(d) for d in cl)
+                    logger.info("Dropped %d %s detections: evenly-spaced uniform-score "
+                                "line (grid/border artifact)", len(cl), code)
+
+    if not dropped_ids:
+        return detections
+    return [d for d in detections if id(d) not in dropped_ids]
+
+
 # ── Deduplication ─────────────────────────────────────────────────────────────
 def dedup(detections: list, min_dist: float = 0.008) -> list:
     # min_dist is normalised: 0.02 of a ~6600 px A1 page was ~130 px — it merged
@@ -757,6 +810,7 @@ def run_full_detection(
                     )
 
         page_dets = dedup(page_dets)
+        page_dets = drop_periodic_runs(page_dets)
 
         # Drop anything inside the legend block, wherever it sits on the sheet.
         # (The static x/y cutoffs only cover left-edge legends and bottom title

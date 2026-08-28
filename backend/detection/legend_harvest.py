@@ -49,6 +49,17 @@ def _tokens(text: str) -> set:
     return set(_TOKEN_RE.findall(text.upper()))
 
 
+def label_is_device_name(label: str) -> bool:
+    """
+    A legend label worth auto-creating a symbol type from must read like a
+    device name: at least two real words. This rejects merged runs of the
+    legend's single-letter code column ("S S D H H D"), which otherwise
+    became phantom device types with garbage templates.
+    """
+    toks = _TOKEN_RE.findall((label or "").upper())
+    return len(toks) >= 2 and sum(1 for t in toks if len(t) >= 3) >= 2
+
+
 def build_alias_map(symbol_types: list = None) -> dict:
     """
     Combine the static CODE_ALIASES with aliases derived from the project's
@@ -252,7 +263,7 @@ def harvest_legend_templates(pdf_path: str, page_image_path: str,
             continue
         code = match_label_to_code(label, aliases)
         if not code:
-            if not (include_unmatched and len(_tokens(label)) >= 2):
+            if not (include_unmatched and label_is_device_name(label)):
                 continue
 
         # Glyph cell: the symbol sits somewhere left of its label. Take a
