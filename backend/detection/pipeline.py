@@ -124,6 +124,9 @@ def load_templates(template_records: list, drawing_firm: str = "") -> dict[str, 
             "template_id":   rec.id,
             "quality_score": rec.quality_score,
             "firm_match":    firm_match,
+            # Legend-harvested glyphs are upright by definition — skipping the
+            # rotation search keeps matching fast with dozens of symbol types
+            "no_rotate":     os.path.basename(rec.image_path).startswith("legend_"),
         })
 
     # Sort: firm-matched templates first, then by quality score descending
@@ -155,13 +158,21 @@ def match_templates_on_page(
 
     detections = []
 
+    # Match at half resolution: ~4x faster with negligible accuracy loss at
+    # typical symbol sizes (40px+). Coordinates are mapped back to full-res.
+    # Essential now that legend harvesting can put dozens of symbol types on
+    # a project — full-res matching made uploads take tens of minutes.
+    DS = 2
+    search_small = cv2.resize(search_gray, (max(1, search_w // DS), max(1, search_h // DS)))
+
     for code, tmpl_list in templates_by_code.items():
         candidates = []
         for tmpl in tmpl_list[:8]:  # cap at 8 templates per code
             base_img = tmpl["image"]
             thresh   = tmpl["threshold"]
 
-            angles = ROTATION_ANGLES if use_rotations else [0]
+            angles = [0] if tmpl.get("no_rotate") else \
+                     (ROTATION_ANGLES if use_rotations else [0])
 
             for angle in angles:
                 img = _rotate_image(base_img, angle)
@@ -173,7 +184,7 @@ def match_templates_on_page(
                     # tiny templates match partial features everywhere (false positives).
                     if rw > search_w or rh > search_h or rw < 20 or rh < 20:
                         continue
-                    resized = cv2.resize(img, (rw, rh))
+                    resized = cv2.resize(img, (max(1, rw // DS), max(1, rh // DS)))
                     # NOTE on masked matching: a previous version used a binary
                     # mask with TM_CCORR_NORMED to ignore white background. That
                     # over-detected badly — CCORR_NORMED (no mean subtraction)
@@ -183,13 +194,17 @@ def match_templates_on_page(
                     # became far too permissive, and masked results can contain
                     # inf/NaN. TM_CCOEFF_NORMED does not support a mask in
                     # OpenCV, so we match unmasked with the calibrated method.
-                    result = cv2.matchTemplate(search_gray, resized, cv2.TM_CCOEFF_NORMED)
-                    locs    = np.where(result >= thresh)
+                    # Small templates (letter-in-circle fire glyphs) match
+                    # partial features everywhere at the base threshold —
+                    # hold them to a stricter score.
+                    eff_thresh = max(thresh, 0.72) if min(rw, rh) < 35 else thresh
+                    result = cv2.matchTemplate(search_small, resized, cv2.TM_CCOEFF_NORMED)
+                    locs    = np.where(result >= eff_thresh)
                     for pt in zip(*locs[::-1]):
                         candidates.append({
                             "score":       float(result[pt[1], pt[0]]),
-                            "x":           pt[0] + rw // 2,
-                            "y":           pt[1] + rh // 2,
+                            "x":           pt[0] * DS + rw // 2,
+                            "y":           pt[1] * DS + rh // 2,
                             "mw":          rw,
                             "mh":          rh,
                             "template_id": tmpl["template_id"],
@@ -429,9 +444,15 @@ def find_legend_region(words, page_dims) -> Optional[tuple]:
     if seed is None:
         return None
 
-    # Legend entries run in rows (symbol + label, often multiple columns), so
-    # allow a wider gap horizontally than vertically when growing the cluster.
-    GAP_X, GAP_Y = 0.03, 0.015
+    # Legend entries run in rows (symbol + label, often multiple widely-spaced
+    # columns). Top-strip legends need wide horizontal bridging to chain
+    # across their columns; legends elsewhere keep a tight gap so the fill
+    # can't creep into title blocks or the drawing body. A per-step area
+    # guard refuses any single expansion that would balloon the region.
+    seed_cy = (boxes[seed][1] + boxes[seed][3]) / 2
+    GAP_X = 0.055 if seed_cy < 0.30 else 0.03
+    GAP_Y = 0.015
+    MAX_AREA = 0.35
     in_cluster = {seed}
     bbox = list(boxes[seed])
     changed = True
@@ -442,9 +463,12 @@ def find_legend_region(words, page_dims) -> Optional[tuple]:
                 continue
             if (b[0] <= bbox[2] + GAP_X and b[2] >= bbox[0] - GAP_X and
                     b[1] <= bbox[3] + GAP_Y and b[3] >= bbox[1] - GAP_Y):
+                nb = [min(bbox[0], b[0]), min(bbox[1], b[1]),
+                      max(bbox[2], b[2]), max(bbox[3], b[3])]
+                if (nb[2] - nb[0]) * (nb[3] - nb[1]) > MAX_AREA:
+                    continue
                 in_cluster.add(i)
-                bbox[0] = min(bbox[0], b[0]); bbox[1] = min(bbox[1], b[1])
-                bbox[2] = max(bbox[2], b[2]); bbox[3] = max(bbox[3], b[3])
+                bbox = nb
                 changed = True
 
     area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])

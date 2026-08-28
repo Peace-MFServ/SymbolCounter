@@ -6,11 +6,19 @@ from database import Base
 
 # ── Default symbol types ───────────────────────────────────────────────────────
 DEFAULT_SYMBOL_TYPES = [
+    # Security
     {"name": "Audio Intercom",       "code": "AIS",        "color": "#22c55e", "sort_order": 0},
     {"name": "CCTV Dome Camera",     "code": "CCTV_Dome",  "color": "#3b82f6", "sort_order": 1},
     {"name": "CCTV Fixed Camera",    "code": "CCTV_Fixed", "color": "#60a5fa", "sort_order": 2},
     {"name": "Access Control Door",  "code": "AC",         "color": "#f97316", "sort_order": 3},
     {"name": "Input/Output Device",  "code": "I/O",        "color": "#a78bfa", "sort_order": 4},
+    # Fire alarm
+    {"name": "Smoke Detector",             "code": "S",    "color": "#e11d48", "sort_order": 5},
+    {"name": "Heat Detector",              "code": "H",    "color": "#b91c1c", "sort_order": 6},
+    {"name": "Manual Call Point",          "code": "MCP",  "color": "#dc2626", "sort_order": 7},
+    {"name": "Fire Alarm Sounder",         "code": "SND",  "color": "#d97706", "sort_order": 8},
+    {"name": "Fire Alarm Panel",           "code": "FAP",  "color": "#7c2d12", "sort_order": 9},
+    {"name": "Fire Alarm Repeater Panel",  "code": "FARP", "color": "#a16207", "sort_order": 10},
 ]
 
 

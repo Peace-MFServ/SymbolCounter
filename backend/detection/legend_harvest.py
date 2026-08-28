@@ -36,6 +36,11 @@ CODE_ALIASES = {
     "I/O":        [["INPUT", "OUTPUT"]],
 }
 
+# Tokens that denote a *different device* when they appear beyond the alias:
+# "SMOKE DETECTOR BEACON SOUNDER" is a combined device, not a Smoke Detector,
+# so leftover device-words disqualify a match.
+DEVICE_WORDS = {"SOUNDER", "BEACON", "DETECTOR", "PANEL", "REPEATER", "INTERFACE"}
+
 _TOKEN_RE = re.compile(r"[A-Z0-9/]+")
 
 
@@ -43,17 +48,43 @@ def _tokens(text: str) -> set:
     return set(_TOKEN_RE.findall(text.upper()))
 
 
+def build_alias_map(symbol_types: list = None) -> dict:
+    """
+    Combine the static CODE_ALIASES with aliases derived from the project's
+    own symbol type names, so any type configured in the Symbol Manager is
+    automatically harvestable from legends — fire alarm types included.
+    `symbol_types` is a list of (code, name) pairs.
+    """
+    m = {code: [list(a) for a in als] for code, als in CODE_ALIASES.items()}
+    for code, name in (symbol_types or []):
+        toks = sorted(_tokens(name or ""))
+        if toks:
+            m.setdefault(code, []).append(toks)
+    return m
+
+
 def match_label_to_code(label: str, aliases: dict = None) -> str | None:
-    """Return the symbol code a legend label describes, or None."""
+    """
+    Return the symbol code a legend label describes, or None.
+    A candidate alias must be fully contained in the label, with at most 3
+    leftover tokens, none of which name another device. The longest alias
+    wins; a tie between different codes is ambiguous and skipped.
+    """
     toks = _tokens(label)
     if not toks:
         return None
-    hits = []
+    candidates = []
     for code, alias_lists in (aliases or CODE_ALIASES).items():
-        if any(set(a) <= toks for a in alias_lists):
-            hits.append(code)
-    # Ambiguous labels (e.g. matching two codes) are safer skipped
-    return hits[0] if len(hits) == 1 else None
+        for a in alias_lists:
+            aset = set(a)
+            extras = toks - aset
+            if aset <= toks and len(extras) <= 3 and not (extras & DEVICE_WORDS):
+                candidates.append((len(aset), code))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    top_codes = {c for score, c in candidates if score == candidates[0][0]}
+    return top_codes.pop() if len(top_codes) == 1 else None
 
 
 def _label_segments(words, page_dims, legend_bbox):
@@ -109,6 +140,41 @@ def _segment_tuple(seg):
             max(b[3] for b in seg), max(b[4] for b in seg))
 
 
+def _merge_continuations(segs: list) -> list:
+    """
+    Merge wrapped label lines into their parent row. Continuation lines
+    share the label column's x-start but sit much closer vertically than
+    the column's normal row spacing ("...CV COMPLETE WITH REMOTE" /
+    "INDICATOR" is one label, not two).
+    """
+    if len(segs) < 3:
+        return segs
+    columns: list[tuple[float, list]] = []
+    for s in sorted(segs, key=lambda s: (s[1], s[2])):
+        for cx, items in columns:
+            if abs(s[1] - cx) < 0.008:
+                items.append(s)
+                break
+        else:
+            columns.append((s[1], [s]))
+
+    out = []
+    for _, items in columns:
+        items.sort(key=lambda s: s[2])
+        dys = sorted(b[2] - a[2] for a, b in zip(items, items[1:]) if b[2] > a[2])
+        med = dys[len(dys) // 2] if dys else None
+        merged = [items[0]]
+        for b in items[1:]:
+            a = merged[-1]
+            if med and (b[2] - a[2]) < 0.62 * med:
+                merged[-1] = (a[0] + " " + b[0], min(a[1], b[1]), a[2],
+                              max(a[3], b[3]), max(a[4], b[4]))
+            else:
+                merged.append(b)
+        out.extend(merged)
+    return out
+
+
 def _trim_to_ink(crop: np.ndarray, band: tuple = None, pad: int = 5):
     """
     Tighten a crop to its dark content; None if there is no real content.
@@ -146,10 +212,15 @@ def _trim_to_ink(crop: np.ndarray, band: tuple = None, pad: int = 5):
 
 
 def harvest_legend_templates(pdf_path: str, page_image_path: str,
-                             page_num: int = 1, aliases: dict = None) -> list[dict]:
+                             page_num: int = 1, aliases: dict = None,
+                             include_unmatched: bool = False) -> list[dict]:
     """
     Harvest symbol templates from one page's legend.
     Returns [{code, label, image (BGR np.ndarray)}], possibly empty.
+    With include_unmatched=True, legend labels that map to no known symbol
+    code are returned too (code=None, at least two tokens) so the caller can
+    create new symbol types from them — every device a legend lists becomes
+    countable.
     """
     words, page_dims = parse_pdf_page_text(pdf_path, page_num)
     legend_bbox = find_legend_region(words, page_dims)
@@ -162,11 +233,16 @@ def harvest_legend_templates(pdf_path: str, page_image_path: str,
         return []
     H, W = img.shape[:2]
 
+    segments = _merge_continuations(list(_label_segments(words, page_dims, legend_bbox)))
+
     results = []
-    for label, sx1, sy1, sx2, sy2 in _label_segments(words, page_dims, legend_bbox):
+    for label, sx1, sy1, sx2, sy2 in segments:
+        if label.strip().upper().rstrip(":") == "LEGEND":
+            continue
         code = match_label_to_code(label, aliases)
         if not code:
-            continue
+            if not (include_unmatched and len(_tokens(label)) >= 2):
+                continue
 
         # Glyph cell: the symbol sits somewhere left of its label. Take a
         # generous window (symbols often embed their own code text — that
@@ -201,7 +277,7 @@ def harvest_legend_templates(pdf_path: str, page_image_path: str,
     if results:
         logger.info("Legend harvest: %d templates from %s page %d (%s)",
                     len(results), os.path.basename(pdf_path), page_num,
-                    ", ".join(r["code"] for r in results))
+                    ", ".join(r["code"] or f"NEW:{r['label'][:24]}" for r in results))
     return results
 
 

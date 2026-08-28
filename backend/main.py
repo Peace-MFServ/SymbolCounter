@@ -41,7 +41,7 @@ from detection.pipeline import (run_full_detection, crop_template_from_page,
                                 find_door_references, render_pdf_pages)
 from detection.legend_harvest import (harvest_legend_templates,
                                       select_representative_templates,
-                                      _norm64, _sim)
+                                      build_alias_map, _norm64, _sim)
 
 logger = logging.getLogger(__name__)
 
@@ -514,8 +514,9 @@ async def upload_drawing(pid: int, background_tasks: BackgroundTasks,
     )
     db.add(drawing); db.commit(); db.refresh(drawing)
 
-    symbol_codes = [st.code for st in p.symbol_types] or \
-                   [st["code"] for st in models.DEFAULT_SYMBOL_TYPES]
+    symbol_types_data = [(st.code, st.name) for st in p.symbol_types] or \
+                        [(st["code"], st["name"]) for st in models.DEFAULT_SYMBOL_TYPES]
+    symbol_codes = [c for c, _ in symbol_types_data]
 
     # Pass template data as plain dicts to avoid DetachedInstanceError in background task
     stored_tmpls_data = [
@@ -537,7 +538,7 @@ async def upload_drawing(pid: int, background_tasks: BackgroundTasks,
     background_tasks.add_task(
         _run_detection,
         drawing.id, str(pdf_path), str(save_dir),
-        symbol_codes, stored_tmpls_data, p.drawing_firm or "",
+        symbol_types_data, stored_tmpls_data, p.drawing_firm or "",
     )
 
     return _drawing_out(drawing)
@@ -1363,9 +1364,25 @@ def _ingest_legend_templates(db, crops: list, firm: str) -> list[dict]:
     return new_data
 
 
+_TYPE_PALETTE = ["#0ea5e9", "#8b5cf6", "#ec4899", "#14b8a6", "#f59e0b", "#64748b",
+                 "#84cc16", "#06b6d4", "#f43f5e", "#10b981", "#6366f1", "#78716c"]
+
+
+def _auto_code(name: str, existing: set) -> str:
+    """Short unique code from a device name's initials, e.g. BGMCP."""
+    toks = re.findall(r"[A-Za-z0-9]+", name.upper())
+    base = "".join(t[0] for t in toks)[:6] or "SYM"
+    code, n = base, 2
+    while code in existing:
+        code = f"{base}{n}"
+        n += 1
+    return code
+
+
 def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
-                   symbol_codes: list, stored_tmpls_data: list, drawing_firm: str):
+                   symbol_types_data: list, stored_tmpls_data: list, drawing_firm: str):
     """Background task — runs detection and updates drawing status."""
+    symbol_codes = [c for c, _ in symbol_types_data]
     from database import SessionLocal
 
     # Build lightweight template-like objects from plain dicts
@@ -1422,11 +1439,42 @@ def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
 
         # Harvest this drawing's own legend into the template library first,
         # so brand-new symbols (or a new firm's style) are detected on the
-        # very drawing that introduced them.
+        # very drawing that introduced them. Legend entries that match no
+        # configured symbol type become NEW project symbol types — every
+        # device a legend lists is countable.
         try:
+            aliases = build_alias_map(symbol_types_data)
             harvested = []
             for i, img_path in enumerate(image_paths, start=1):
-                harvested += harvest_legend_templates(pdf_path, img_path, i)
+                harvested += harvest_legend_templates(pdf_path, img_path, i,
+                                                      aliases=aliases,
+                                                      include_unmatched=True)
+            unmatched = [c for c in harvested if not c["code"]]
+            if unmatched and d.project:
+                proj = d.project
+                existing_codes = {st.code for st in proj.symbol_types} | set(symbol_codes)
+                by_name = {st.name.strip().upper(): st.code for st in proj.symbol_types}
+                order = max([st.sort_order for st in proj.symbol_types], default=len(symbol_codes))
+                for c in unmatched:
+                    name = c["label"].strip().title()
+                    key = name.upper()
+                    if key in by_name:
+                        c["code"] = by_name[key]
+                        continue
+                    order += 1
+                    code = _auto_code(name, existing_codes)
+                    db.add(models.ProjectSymbolType(
+                        name=name, code=code,
+                        color=_TYPE_PALETTE[order % len(_TYPE_PALETTE)],
+                        sort_order=order, project_id=proj.id,
+                    ))
+                    existing_codes.add(code)
+                    by_name[key] = code
+                    c["code"] = code
+                    symbol_codes.append(code)
+                    logger.info("Legend harvest: new symbol type %r (%s) from legend", name, code)
+                db.commit()
+            harvested = [c for c in harvested if c["code"]]
             if harvested:
                 harvested = select_representative_templates(harvested)
                 stored_tmpls += [_TmplProxy(dd) for dd in
