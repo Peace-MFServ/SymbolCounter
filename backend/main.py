@@ -39,6 +39,9 @@ import models, auth
 from database import engine, get_db, Base
 from detection.pipeline import (run_full_detection, crop_template_from_page,
                                 find_door_references, render_pdf_pages)
+from detection.legend_harvest import (harvest_legend_templates,
+                                      select_representative_templates,
+                                      _norm64, _sim)
 
 logger = logging.getLogger(__name__)
 
@@ -1315,6 +1318,51 @@ def _capture_feedback(page: models.DrawingPage, final_dets: list,
                     t.reject_count = (t.reject_count or 0) + 1
 
 
+def _ingest_legend_templates(db, crops: list, firm: str) -> list[dict]:
+    """
+    Store harvested legend crops as GlobalTemplates unless a near-identical
+    template already exists. Returns template dicts for the new rows so the
+    calling detection run can use them immediately.
+    """
+    import cv2
+
+    existing_by_code: dict[str, list] = {}
+    for t in db.query(models.GlobalTemplate).all():
+        if t.image_path and os.path.exists(t.image_path):
+            img = cv2.imread(t.image_path)
+            if img is not None:
+                existing_by_code.setdefault(t.symbol_code, []).append(_norm64(img))
+
+    new_data = []
+    for c in crops:
+        g = _norm64(c["image"])
+        if any(_sim(g, e) >= 0.93 for e in existing_by_code.get(c["code"], [])):
+            continue
+        out_path = str(TEMPLATE_DIR / f"legend_{uuid.uuid4().hex}.png")
+        cv2.imwrite(out_path, c["image"])
+        t = models.GlobalTemplate(
+            symbol_code=c["code"],
+            symbol_name=c["label"].title(),
+            image_path=out_path,
+            image_width=c["image"].shape[1],
+            image_height=c["image"].shape[0],
+            drawing_firm=firm or "",
+        )
+        db.add(t)
+        db.flush()
+        existing_by_code.setdefault(c["code"], []).append(g)
+        new_data.append({
+            "id": t.id, "symbol_code": t.symbol_code, "image_path": t.image_path,
+            "drawing_firm": t.drawing_firm, "confirm_count": 0, "reject_count": 0,
+            "use_count": 0, "threshold_override": None,
+        })
+        logger.info("Legend harvest: stored new %s template from legend (%r, firm=%r)",
+                    c["code"], c["label"], firm)
+    if new_data:
+        db.commit()
+    return new_data
+
+
 def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
                    symbol_codes: list, stored_tmpls_data: list, drawing_firm: str):
     """Background task — runs detection and updates drawing status."""
@@ -1371,6 +1419,20 @@ def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
                 drawing_id=drawing_id,
             ))
         db.commit()
+
+        # Harvest this drawing's own legend into the template library first,
+        # so brand-new symbols (or a new firm's style) are detected on the
+        # very drawing that introduced them.
+        try:
+            harvested = []
+            for i, img_path in enumerate(image_paths, start=1):
+                harvested += harvest_legend_templates(pdf_path, img_path, i)
+            if harvested:
+                harvested = select_representative_templates(harvested)
+                stored_tmpls += [_TmplProxy(dd) for dd in
+                                 _ingest_legend_templates(db, harvested, drawing_firm)]
+        except Exception:
+            logger.exception("Legend harvest failed — continuing with existing templates")
 
         results = run_full_detection(
             pdf_path, pages_dir,
