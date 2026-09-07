@@ -45,14 +45,40 @@ def _is_background(color) -> bool:
     return (max(color) - min(color)) < 0.12 and min(color) > 0.55
 
 
-def _colour_key(d) -> str:
-    c = d.get("color") or d.get("fill") or (0, 0, 0)
+def _rgb_key(c) -> str:
     r, g, b = (round(v * 4) / 4 for v in c)   # coarse bins: red/blue/black/...
     return f"{r:.2f},{g:.2f},{b:.2f}"
 
 
+def _colour_key(d) -> str:
+    return _rgb_key(d.get("color") or d.get("fill") or (0, 0, 0))
+
+
+_CIRCLE_POINTS = frozenset({(0.5, 0.0), (1.0, 0.5), (0.5, 1.0), (0.0, 0.5)})
+
+
+def _is_polyline_circle(d) -> bool:
+    """
+    Some CAD exports draw a circle as a many-segment polygon rather than four
+    Bézier arcs. Same symbol, different construction: a closed run of 12+
+    line segments whose points all sit at the same distance from the centre.
+    """
+    items = d["items"]
+    if len(items) < 12 or any(it[0] != "l" for it in items):
+        return False
+    r = d["rect"]
+    if abs(r.width - r.height) > 0.15 * max(r.width, r.height, 0.1):
+        return False
+    cx, cy = (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2
+    radii = [math.hypot(it[1].x - cx, it[1].y - cy) for it in items]
+    mean = sum(radii) / len(radii)
+    return mean > 0 and max(abs(x - mean) for x in radii) < 0.12 * mean
+
+
 def _shape_points(d):
     """Path endpoints normalised to the path bbox, snapped to a coarse grid."""
+    if d.get("_circle"):
+        return _CIRCLE_POINTS
     r = d["rect"]
     w, h = max(r.width, 0.1), max(r.height, 0.1)
     pts = set()
@@ -82,6 +108,8 @@ def _rot_variants(pts):
 
 
 def _seg_kinds(d) -> str:
+    if d.get("_circle"):
+        return "cccc"
     return "".join(sorted(it[0] for it in d["items"]))
 
 
@@ -96,6 +124,8 @@ def _length_profile(d) -> tuple:
     are rotated to arbitrary angles on plans): the segment lengths sorted and
     normalised by the longest.
     """
+    if d.get("_circle"):
+        return (1.0, 1.0, 1.0, 1.0)
     lens = []
     for it in d["items"]:
         if it[0] == "l":
@@ -182,7 +212,10 @@ def _adorn_key(anchor, a):
     cx = (r.x0 + r.x1) / 2 - (ar.x0 + ar.x1) / 2
     cy = (r.y0 + r.y1) / 2 - (ar.y0 + ar.y1) / 2
     s = max(ar.width, ar.height, 0.1)
-    return (_seg_kinds(a), round(cx / s * 2) / 2, round(cy / s * 2) / 2)
+    kinds = _seg_kinds(a)
+    if set(kinds) == {"l"} and len(kinds) >= 4:
+        kinds = "c"      # an arc exported as a polyline is still an arc
+    return (kinds, round(cx / s * 2) / 2, round(cy / s * 2) / 2)
 
 
 # ── Page analysis ─────────────────────────────────────────────────────────────
@@ -191,6 +224,7 @@ class VectorPage:
         self.page = page
         self.width, self.height = page.rect.width, page.rect.height
         self.words = page.get_text("words")     # x0, y0, x1, y1, text, ...
+        self.word_colour = self._word_colours(page)
         drawings = page.get_drawings()
         self.n_paths = len(drawings)
         self.n_images = len(page.get_images())
@@ -200,20 +234,64 @@ class VectorPage:
             and MIN_SYMBOL_PT <= max(d["rect"].width, d["rect"].height) <= MAX_SYMBOL_PT
             and d["items"]
         ]
+        for d in self.paths:
+            if _is_polyline_circle(d):
+                d["_circle"] = True
 
     @property
     def is_vector(self) -> bool:
         """Enough real geometry to trust — scans have few paths and one big image."""
         return self.n_paths >= 200 and self.n_images <= 5
 
-    def inner_text(self, rect) -> str:
-        r = fitz.Rect(rect) + (-1, -1, 1, 1)
-        toks = [w[4].upper() for w in self.words
-                if r.x0 <= (w[0] + w[2]) / 2 <= r.x1 and r.y0 <= (w[1] + w[3]) / 2 <= r.y1]
-        return " ".join(sorted(toks))
+    @staticmethod
+    def _word_colours(page) -> dict:
+        """
+        Colour of each word, keyed by its (block, line, word) index — the
+        plain word list carries no colour, the span dict does. Lets the
+        qualifier reader tell a red "CV" beside a red symbol from a grey
+        room name that happens to sit next to it.
+        """
+        lines = {}
+        for bi, b in enumerate(page.get_text("dict").get("blocks", [])):
+            for li, ln in enumerate(b.get("lines", [])):
+                spans = []
+                for sp in ln.get("spans", []):
+                    c = sp.get("color", 0)
+                    spans.append((fitz.Rect(sp["bbox"]) + (-1, -1, 1, 1),
+                                  _rgb_key(((c >> 16 & 255) / 255, (c >> 8 & 255) / 255, (c & 255) / 255))))
+                lines[(bi, li)] = spans
+        out = {}
+        for w in page.get_text("words"):
+            spans = lines.get((w[5], w[6]))
+            if not spans:
+                continue
+            cx, cy = (w[0] + w[2]) / 2, (w[1] + w[3]) / 2
+            key = next((k for r, k in spans if r.contains(fitz.Point(cx, cy))), spans[0][1])
+            out[(w[5], w[6], w[7])] = key
+        return out
 
-    def near_tokens(self, anchor_rect, zone, band=None) -> frozenset:
-        """Short qualifier tokens beside the anchor (CV, 4NO...), not inside it."""
+    def inner_text(self, rect, colour=None) -> str:
+        """
+        Letters drawn inside the symbol — never text that merely overlaps it.
+        When any inside word shares the symbol's colour, only those count, so
+        a grey room code printed across a red detector doesn't change it.
+        """
+        r = fitz.Rect(rect) + (-1, -1, 1, 1)
+        inside = [w for w in self.words
+                  if r.x0 <= (w[0] + w[2]) / 2 <= r.x1 and r.y0 <= (w[1] + w[3]) / 2 <= r.y1
+                  and w[2] - w[0] <= 1.3 * r.width and w[3] - w[1] <= 1.3 * r.height]
+        if colour is not None:
+            same = [w for w in inside if self.word_colour.get((w[5], w[6], w[7])) == colour]
+            if same:
+                inside = same
+        return " ".join(sorted(w[4].upper() for w in inside))
+
+    def near_tokens(self, anchor_rect, zone, band=None, colour=None) -> frozenset:
+        """
+        Short qualifier tokens beside the anchor (CV, 4NO...), not inside it.
+        Only text in the symbol's own colour counts: room names and door
+        labels sit beside devices constantly and are drawn in other colours.
+        """
         inner = fitz.Rect(anchor_rect) + (-1, -1, 1, 1)
         out = set()
         for w in self.words:
@@ -221,6 +299,14 @@ class VectorPage:
             if not zone.contains(fitz.Point(cx, cy)) or inner.contains(fitz.Point(cx, cy)):
                 continue
             if band and not (band[0] <= cy <= band[1]):
+                continue
+            if colour is not None:
+                wc = self.word_colour.get((w[5], w[6], w[7]))
+                if wc is not None and wc != colour:
+                    continue
+            # a letter inside a neighbouring symbol is that symbol's, not a qualifier
+            if any(p["rect"].contains(fitz.Point(cx, cy)) and not inner.contains(p["rect"])
+                   for p in self.paths if _is_shape(p)):
                 continue
             t = w[4].upper()
             if 1 <= len(t) <= 4 and _TOKEN_RE.fullmatch(t):
@@ -270,21 +356,34 @@ class VectorPage:
         size = max(ar.width, ar.height)
         reach = size * ADORN_REACH
         zone = fitz.Rect(ar.x0 - reach, ar.y0 - reach, ar.x1 + reach, ar.y1 + reach)
+        colour = _colour_key(anchor)
+        acx, acy = (ar.x0 + ar.x1) / 2, (ar.y0 + ar.y1) / 2
         adorns = []
         for p in self.paths:
             if p is anchor or id(p) in exclude:
+                continue
+            # A symbol's parts are drawn in the symbol's colour; furniture
+            # and other services layers beside it are not.
+            if _colour_key(p) != colour:
                 continue
             pr = p["rect"]
             cx, cy = (pr.x0 + pr.x1) / 2, (pr.y0 + pr.y1) / 2
             if not zone.contains(fitz.Point(cx, cy)):
                 continue
-            if max(pr.width, pr.height) > size * 1.0:
+            psize = max(pr.width, pr.height)
+            if psize > size * 1.0:
+                continue
+            # Parts hug the anchor: centred inside it or on its edge. Anything
+            # centred a full symbol-width away belongs to a neighbour — the
+            # next detector's circle, or its sounder arcs.
+            off = max(abs(cx - acx), abs(cy - acy))
+            if off > size * 1.0 or (psize >= size * 0.8 and off >= size * 0.9):
                 continue
             if band and not (band[0] <= cy <= band[1]):
                 continue
             adorns.append(p)
-        return Glyph(anchor, adorns, self.inner_text(ar),
-                     self.near_tokens(ar, zone, band), _colour_key(anchor))
+        return Glyph(anchor, adorns, self.inner_text(ar, colour),
+                     self.near_tokens(ar, zone, band, colour), colour)
 
 
 # ── Signatures ────────────────────────────────────────────────────────────────
@@ -325,13 +424,20 @@ class Signature:
             else:
                 return None
         text_s = 1.0 if glyph.text == self.text else 0.0
+        # Adornments: every part the legend draws must be present; extra
+        # paths beside a plan symbol (wire stubs, leaders) cost less, since
+        # they never appear in the legend but constantly appear on plans.
         g_ad = collections.Counter(_adorn_key(a, x) for x in glyph.adorns)
-        if not self.adorns and not g_ad:
-            ad_s = 1.0
+        n_leg = sum(self.adorns.values())
+        inter = sum((self.adorns & g_ad).values())
+        extra = sum((g_ad - self.adorns).values())
+        recall = inter / n_leg if n_leg else 1.0
+        if not extra:
+            ad_s = recall
         else:
-            inter = sum((self.adorns & g_ad).values())
-            union = sum((self.adorns | g_ad).values())
-            ad_s = inter / max(union, 1)
+            # every legend part present + strays: strong; no parts to
+            # confirm + strays: weaker (they may be a variant's parts)
+            ad_s = recall * (0.8 if n_leg else 0.6)
         # Qualifier text beside the symbol: the legend's qualifiers must all be
         # present; extra tokens on the plan (annotations) cost only a little.
         if self.near <= glyph.near:
@@ -440,7 +546,9 @@ def detect_page(vp: VectorPage, sigs: list[Signature], legend_rect, min_score: f
                 best, best_s = s, sc
         if best and best_s >= min_score:
             claimed.add(id(p))
-            claimed.update(id(a) for a in glyph.adorns)
+            # Claim only the parts the legend says belong to this symbol;
+            # a stray path caught in the zone may be the next symbol's part.
+            claimed.update(id(a) for a in glyph.adorns if _adorn_key(p, a) in best.adorns)
             results.append({
                 "label": best.label,
                 "x": c.x / vp.width, "y": c.y / vp.height,
