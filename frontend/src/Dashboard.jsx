@@ -3,38 +3,37 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { useAuth } from './auth'
 
-export function Topbar({ title, onBack, onNavigate }) {
+export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false }) {
   const { user, logout } = useAuth()
   const handleLogout = () => { logout(); onNavigate && onNavigate('login') }
   return (
     <div id="topbar">
-      <div className="logo">MF <span>Symbol Counter</span></div>
-      {onBack && (
-        <button className="btn btn-ghost btn-sm" onClick={onBack}>← Back</button>
+      <a className="logo" onClick={() => onNavigate && onNavigate('dashboard')}>
+        MF <span>Symbol Counter</span>
+      </a>
+      {crumbs.length > 0 && (
+        <nav className="crumbs" aria-label="Breadcrumb">
+          {crumbs.map((c, i) => (
+            <React.Fragment key={i}>
+              <span className="crumb-sep">/</span>
+              {c.onClick && i < crumbs.length - 1
+                ? <a onClick={c.onClick}>{c.label}</a>
+                : <span className="crumb-cur">{c.label}</span>}
+            </React.Fragment>
+          ))}
+        </nav>
       )}
-      {title && <span style={{ color: 'var(--text2)', fontSize: 13 }}>{title}</span>}
       <div className="spacer" />
-      {user && (
+      {right}
+      {user && onNavigate && !compact && (
+        <nav className="topnav">
+          <a className={active === 'projects' ? 'on' : ''} onClick={() => onNavigate('dashboard')}>Projects</a>
+          <a className={active === 'accuracy' ? 'on' : ''} onClick={() => onNavigate('accuracy')}>Accuracy</a>
+        </nav>
+      )}
+      {user && !compact && (
         <>
-          {onNavigate && (
-            <>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => onNavigate('accuracy')}
-                title="Detection accuracy scoreboard"
-              >
-                Accuracy
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => onNavigate('templates')}
-                title="Template library"
-              >
-                Templates
-              </button>
-            </>
-          )}
-          <span className="user-chip">{user.name}</span>
+          <span className="user-name">{user.name}</span>
           <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
         </>
       )}
@@ -66,7 +65,7 @@ export function Dashboard({ onNavigate }) {
 
   return (
     <>
-      <Topbar onNavigate={onNavigate} />
+      <Topbar onNavigate={onNavigate} crumbs={[{ label: 'Projects' }]} />
       <div className="page-wrap">
         <div className="page-header">
           <div>

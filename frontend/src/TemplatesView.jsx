@@ -335,9 +335,9 @@ export function TemplatesView({ onNavigate }) {
   return (
     <>
       <Topbar
-        title="Template Library"
-        onBack={() => onNavigate('dashboard')}
+        active="accuracy"
         onNavigate={onNavigate}
+        crumbs={[{ label: 'Accuracy', onClick: () => onNavigate('accuracy') }, { label: 'Templates' }]}
       />
 
       <div className="page-wrap">

@@ -4,6 +4,18 @@ import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { SymbolManagerModal } from './SymbolManager'
 
+const STATUS = {
+  uploaded:   ['badge-grey',   'Uploaded'],
+  processing: ['badge-orange', 'Detecting…'],
+  detected:   ['badge-blue',   'Detected'],
+  verified:   ['badge-green',  'Verified'],
+  approved:   ['badge-green',  'Approved'],
+  error:      ['badge-red',    'Failed'],
+}
+
+const drawingName = d => (d.block ? `[${d.block}] ` : '') + (d.level || d.original_name)
+const deviceTotal = d => Object.values(d.total_counts || {}).reduce((a, b) => a + b, 0)
+
 export function ProjectView({ id, onNavigate }) {
   const [project,    setProject]   = useState(null)
   const [drawings,   setDrawings]  = useState([])
@@ -12,6 +24,7 @@ export function ProjectView({ id, onNavigate }) {
   const [uploading,  setUploading] = useState(false)
   const [showSymMgr, setShowSymMgr]= useState(false)
   const [showRevDiff, setShowRevDiff] = useState(false)
+  const [dragOver,   setDragOver]  = useState(false)
   const fileRef = useRef()
   const pollRef = useRef()
 
@@ -30,13 +43,15 @@ export function ProjectView({ id, onNavigate }) {
     }
   }
 
-  // Smart polling: only poll while drawings are processing
+  // Poll only while drawings are processing; legend-derived symbol types
+  // appear during detection, so refresh those too.
   const startPoll = () => {
     if (pollRef.current) return
     pollRef.current = setInterval(async () => {
       const cnt = await apiFetch(`/projects/${id}/drawings/processing-count`).catch(() => ({ processing: 0 }))
       if (cnt && cnt.processing === 0) {
         clearInterval(pollRef.current); pollRef.current = null
+        apiFetch(`/projects/${id}/symbol-types`).then(t => { if (t) setSymTypes(t) })
       }
       apiFetch(`/projects/${id}/drawings`).then(dwgs => { if (dwgs) setDrawings(dwgs) })
     }, 3000)
@@ -49,15 +64,17 @@ export function ProjectView({ id, onNavigate }) {
   }, [id])
 
   const upload = async files => {
+    const pdfs = Array.from(files).filter(f => /\.pdf$/i.test(f.name))
+    if (pdfs.length === 0) { showToast('Only PDF drawings can be uploaded', 'error'); return }
     setUploading(true)
-    for (const file of files) {
+    for (const file of pdfs) {
       try {
         const form = new FormData()
         form.append('file', file)
         const d = await apiFetch(`/projects/${id}/drawings`, { method: 'POST', body: form })
         if (d) {
           setDrawings(ds => [d, ...ds])
-          showToast(`Uploaded: ${file.name}`, 'success')
+          showToast(`Uploaded ${file.name} — detecting`, 'success')
           startPoll()
         }
       } catch (err) { showToast(`Failed: ${file.name} — ${err.message}`, 'error') }
@@ -67,7 +84,7 @@ export function ProjectView({ id, onNavigate }) {
 
   const deleteDrawing = async (e, did) => {
     e.stopPropagation()
-    if (!confirm('Delete this drawing?')) return
+    if (!confirm('Delete this drawing and its counts?')) return
     await apiFetch(`/drawings/${did}`, { method: 'DELETE' })
     setDrawings(ds => ds.filter(d => d.id !== did))
   }
@@ -81,193 +98,190 @@ export function ProjectView({ id, onNavigate }) {
     } catch (err) { showToast(err.message, 'error') }
   }
 
-  const exportExcel = async () => {
+  const exportAs = async kind => {
+    const name = project?.name || 'project'
+    const jobs = {
+      excel: [`/projects/${id}/export/excel`, `${name}_Symbol_Count.xlsx`, 'Excel workbook downloaded'],
+      json:  [`/projects/${id}/export/json`,  `${name}_export.json`,       'JSON downloaded'],
+      pdf:   [`/projects/${id}/export/pdf`,   `${name}_all_drawings.pdf`,  'Annotated PDF downloaded'],
+    }
+    const [url, file, msg] = jobs[kind]
     try {
-      await downloadBlob(`/projects/${id}/export/excel`,
-        `${project?.name || 'project'}_Symbol_Count.xlsx`)
-      showToast('Excel exported', 'success')
-    } catch (err) { showToast('Export error: ' + err.message, 'error') }
+      if (kind === 'pdf') showToast('Building PDF…', 'info')
+      await downloadBlob(url, file)
+      showToast(msg, 'success')
+    } catch (err) { showToast('Export failed: ' + err.message, 'error') }
   }
 
-  const exportJSON = async () => {
-    try {
-      await downloadBlob(`/projects/${id}/export/json`,
-        `${project?.name || 'project'}_export.json`)
-      showToast('JSON exported', 'success')
-    } catch (err) { showToast('Export error: ' + err.message, 'error') }
-  }
-
-  const exportProjectPDF = async () => {
-    try {
-      showToast('Building PDF…', 'info')
-      await downloadBlob(`/projects/${id}/export/pdf`,
-        `${project?.name || 'project'}_all_drawings.pdf`)
-      showToast('PDF downloaded', 'success')
-    } catch (err) { showToast('PDF error: ' + err.message, 'error') }
-  }
-
-  const exportDrawingPDF = async (e, did, name) => {
+  const exportDrawingPDF = async (e, d) => {
     e.stopPropagation()
     try {
       showToast('Building PDF…', 'info')
-      await downloadBlob(`/drawings/${did}/export/pdf`, `${name || 'drawing'}_annotated.pdf`)
-      showToast('PDF downloaded', 'success')
-    } catch (err) { showToast('PDF error: ' + err.message, 'error') }
+      await downloadBlob(`/drawings/${d.id}/export/pdf`, `${d.level || d.original_name || 'drawing'}_annotated.pdf`)
+      showToast('Annotated PDF downloaded', 'success')
+    } catch (err) { showToast('Export failed: ' + err.message, 'error') }
   }
 
-  const statusBadge = s => {
-    const map = {
-      uploaded:   ['badge-grey',   'Uploaded'],
-      processing: ['badge-orange', 'Processing…'],
-      detected:   ['badge-blue',   'Detected'],
-      verified:   ['badge-green',  'Verified'],
-      approved:   ['badge-green',  'Approved'],
-      error:      ['badge-red',    'Error'],
-    }
-    const [cls, label] = map[s] || ['badge-grey', s]
-    return <span className={`badge ${cls}`}>{label}</span>
-  }
+  const openDrawing = d => onNavigate('verify', { drawingId: d.id, projectId: id })
 
-  const progressBar = d => {
-    if (!d.total_pages_count || d.total_pages_count === 0) return null
-    const pct = Math.round((d.verified_pages / d.total_pages_count) * 100)
-    return (
-      <div style={{ width: 60, height: 4, background: 'var(--bg3)', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? 'var(--ok)' : 'var(--link)',
-                      transition: 'width .3s' }} />
-      </div>
-    )
-  }
+  const crumbs = [
+    { label: 'Projects', onClick: () => onNavigate('dashboard') },
+    { label: project?.name || '…' },
+  ]
 
   if (loading) return (
     <>
-      <Topbar onBack={() => onNavigate('dashboard')} onNavigate={onNavigate} />
+      <Topbar crumbs={crumbs} onNavigate={onNavigate} />
       <div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div>
     </>
   )
 
-  const verifiedCount = drawings.filter(d => ['verified','approved'].includes(d.status)).length
+  const detectedCount = drawings.filter(d => ['detected', 'verified', 'approved'].includes(d.status)).length
+  const verifiedCount = drawings.filter(d => ['verified', 'approved'].includes(d.status)).length
   const approvedCount = drawings.filter(d => d.status === 'approved').length
+  const processing    = drawings.filter(d => ['uploaded', 'processing'].includes(d.status)).length
+  const totalDevices  = drawings.reduce((s, d) => s + deviceTotal(d), 0)
+
+  const dropProps = {
+    onDragOver:  e => { e.preventDefault(); setDragOver(true) },
+    onDragLeave: () => setDragOver(false),
+    onDrop:      e => { e.preventDefault(); setDragOver(false); upload(e.dataTransfer.files) },
+  }
 
   return (
     <>
-      <Topbar onBack={() => onNavigate('dashboard')} title={project?.name} onNavigate={onNavigate} />
-      <div className="page-wrap">
+      <Topbar crumbs={crumbs} onNavigate={onNavigate} />
+      <div className="page-wrap" {...dropProps}>
         <div className="page-header">
           <div>
             <h1>{project?.name}</h1>
-            <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
-              {project?.client}{project?.client && project?.site ? ' · ' : ''}{project?.site}
-              {project?.drawing_firm && ` · ${project.drawing_firm}`}
+            <p className="lede">
+              {[project?.client, project?.site, project?.drawing_firm].filter(Boolean).join(' · ') || 'No client or site set'}
             </p>
           </div>
           <div className="spacer" />
-          <button className="btn btn-ghost" onClick={() => setShowSymMgr(true)}>⚙ Symbols</button>
-          {drawings.length > 1 && (
-            <button className="btn btn-ghost" onClick={() => setShowRevDiff(true)}>⇄ Compare Revisions</button>
-          )}
-          {drawings.length > 0 && (
-            <>
-              <button className="btn btn-ghost" onClick={exportExcel}>⬇ Excel</button>
-              <button className="btn btn-ghost" onClick={exportJSON}>⬇ JSON</button>
-              <button className="btn btn-ghost" onClick={exportProjectPDF}>PDF (all)</button>
-            </>
-          )}
-          <button className="btn btn-primary" onClick={() => fileRef.current.click()} disabled={uploading}>
-            {uploading ? <><span className="spinner" /> Uploading…</> : '+ Upload PDFs'}
-          </button>
-          <input ref={fileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }}
-                 onChange={e => { upload(Array.from(e.target.files)); e.target.value = '' }} />
-        </div>
-
-        {/* Project progress bar */}
-        {drawings.length > 0 && (
-          <div style={{ display: 'flex', gap: 20, marginBottom: 20, padding: '12px 16px',
-                        background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-            <Stat label="Total" value={drawings.length} />
-            <Stat label="Detected" value={drawings.filter(d => ['detected','verified','approved'].includes(d.status)).length} color="var(--link)" />
-            <Stat label="Verified" value={verifiedCount} color="var(--ok)" />
-            <Stat label="Approved" value={approvedCount} color="var(--ok)" />
+          <div className="actions">
+            <button className="btn" onClick={() => setShowSymMgr(true)}>Symbol types</button>
+            {drawings.length > 1 && (
+              <button className="btn" onClick={() => setShowRevDiff(true)}>Compare revisions</button>
+            )}
+            {drawings.length > 0 && (
+              <Menu label="Export" items={[
+                { label: 'Excel workbook',           onClick: () => exportAs('excel') },
+                { label: 'JSON data',                onClick: () => exportAs('json') },
+                { label: 'Annotated PDF, all drawings', onClick: () => exportAs('pdf') },
+              ]} />
+            )}
+            <button className="btn btn-primary" onClick={() => fileRef.current.click()} disabled={uploading}>
+              {uploading ? <><span className="spinner" /> Uploading…</> : 'Upload drawings'}
+            </button>
+            <input ref={fileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }}
+                   onChange={e => { upload(e.target.files); e.target.value = '' }} />
           </div>
-        )}
-
-        {/* Drop zone */}
-        <div style={{ border: '2px dashed var(--border)', borderRadius: 10, padding: '20px',
-                      textAlign: 'center', marginBottom: 20, color: 'var(--text3)',
-                      cursor: 'pointer' }}
-             onClick={() => fileRef.current.click()}
-             onDragOver={e => e.preventDefault()}
-             onDrop={e => { e.preventDefault(); upload(Array.from(e.dataTransfer.files)) }}>
-          <div style={{ fontSize: 24, marginBottom: 4 }}>📐</div>
-          <p style={{ fontSize: 13 }}>Drop PDF floor plans here, or click to browse</p>
         </div>
 
         {drawings.length === 0 ? (
-          <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 32 }}>
-            No drawings uploaded yet.
+          <div className={`empty-state drop-zone${dragOver ? ' over' : ''}`}
+               onClick={() => fileRef.current.click()}>
+            <h2>No drawings yet.</h2>
+            <p>
+              Drop PDF floor plans here or use Upload drawings. Every device listed in a
+              sheet's legend is counted automatically, usually within a few seconds.
+            </p>
+            <button className="btn btn-primary" onClick={e => { e.stopPropagation(); fileRef.current.click() }}>
+              Upload drawings
+            </button>
           </div>
         ) : (
-          drawings.map(d => (
-            <div key={d.id} className="drawing-row" style={{ cursor: 'pointer' }}
-                 onClick={() => onNavigate('verify', { drawingId: d.id, projectId: id })}>
-              <div className="name">
-                <strong>
-                  {d.block ? `[${d.block}] ` : ''}{d.level || d.original_name}
-                  {d.revision && (
-                    <span style={{ marginLeft: 6, fontSize: 11, background: 'var(--bg3)',
-                                   padding: '1px 6px', borderRadius: 4, color: 'var(--text3)', fontWeight: 400 }}>
-                      Rev {d.revision}
-                    </span>
-                  )}
-                </strong>
-                <span>
-                  {d.level ? `${d.original_name} · ` : ''}{d.total_pages} page{d.total_pages !== 1 ? 's' : ''}
-                  {d.total_pages_count > 0 && ` · ${d.verified_pages}/${d.total_pages_count} verified`}
-                </span>
-              </div>
-              {progressBar(d)}
-              {/* Dynamic count pills for all symbol types */}
-              <div className="counts-pills">
-                {symTypes.map(st => {
-                  const v = (d.total_counts || {})[st.code] || 0
-                  if (v === 0) return null
+          <>
+            <div className="pv-stats">
+              <div className="pv-stat"><div className="num">{drawings.length}</div><div className="lbl">Drawings</div></div>
+              <div className="pv-stat"><div className="num">{totalDevices}</div><div className="lbl">Devices found</div></div>
+              <div className="pv-stat"><div className="num">{verifiedCount}<span className="of">/{drawings.length}</span></div><div className="lbl">Verified</div></div>
+              <div className="pv-stat"><div className="num">{approvedCount}<span className="of">/{drawings.length}</span></div><div className="lbl">Approved</div></div>
+              {processing > 0 && (
+                <div className="pv-stat working"><div className="num"><span className="spinner" /></div><div className="lbl">{processing} detecting</div></div>
+              )}
+            </div>
+
+            <table className="ledger dwg-table">
+              <thead>
+                <tr>
+                  <th>Drawing</th>
+                  <th>Status</th>
+                  <th>Devices found</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {drawings.map(d => {
+                  const [cls, label] = STATUS[d.status] || ['badge-grey', d.status]
+                  const counts = symTypes
+                    .map(st => [st, (d.total_counts || {})[st.code] || 0])
+                    .filter(([, v]) => v > 0)
+                    .sort((a, b) => b[1] - a[1])
+                  const shown = counts.slice(0, 6)
                   return (
-                    <span key={st.id} className="pill"
-                          style={{ background: st.color + '22', color: st.color }}>
-                      {st.code}: {v}
-                    </span>
+                    <tr key={d.id} onClick={() => openDrawing(d)}>
+                      <td>
+                        <div className="proj-name dwg-name">
+                          {drawingName(d)}
+                          {d.revision && <span className="rev">Rev {d.revision}</span>}
+                        </div>
+                        <div className="proj-meta">
+                          {d.level ? `${d.original_name} · ` : ''}
+                          {d.total_pages} page{d.total_pages !== 1 ? 's' : ''}
+                          {d.total_pages_count > 0 && ` · ${d.verified_pages} of ${d.total_pages_count} checked`}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${cls}`}>{label}</span>
+                        {d.status === 'error' && d.error_message && (
+                          <div className="err-note" title={d.error_message}>{d.error_message}</div>
+                        )}
+                      </td>
+                      <td>
+                        {counts.length === 0 ? (
+                          <span className="muted">{['uploaded', 'processing'].includes(d.status) ? 'Detecting…' : 'None'}</span>
+                        ) : (
+                          <div className="dev-cell">
+                            <span className="count-num">{deviceTotal(d)}</span>
+                            <span className="chips">
+                              {shown.map(([st, v]) => (
+                                <span key={st.id} className="chip" title={st.name}>
+                                  <span className="dot" style={{ background: st.color }} />{st.code} {v}
+                                </span>
+                              ))}
+                              {counts.length > shown.length && (
+                                <span className="chip more">+{counts.length - shown.length}</span>
+                              )}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="row-actions">
+                        {d.status === 'verified' && (
+                          <button className="btn btn-ghost btn-sm ok" onClick={e => approveDrawing(e, d.id)}>Approve</button>
+                        )}
+                        <button className="btn btn-sm" onClick={e => { e.stopPropagation(); openDrawing(d) }}>Review</button>
+                        <button className="btn btn-ghost btn-sm" title="Download this drawing with markers"
+                                onClick={e => exportDrawingPDF(e, d)}>PDF</button>
+                        <button className="btn btn-ghost btn-sm danger" onClick={e => deleteDrawing(e, d.id)}>Delete</button>
+                      </td>
+                    </tr>
                   )
                 })}
-              </div>
-              {statusBadge(d.status)}
-              {d.status === 'error' && d.error_message && (
-                <span style={{ fontSize: 11, color: 'var(--red)' }} title={d.error_message}>
-                  {d.error_message.length > 60 ? d.error_message.slice(0, 60) + '…' : d.error_message}
-                </span>
-              )}
-              {d.status === 'verified' && (
-                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--ok)', fontSize: 11 }}
-                        onClick={e => approveDrawing(e, d.id)}>
-                  Approve
-                </button>
-              )}
-              <button className="btn btn-ghost btn-sm" title="Download annotated PDF"
-                      onClick={e => exportDrawingPDF(e, d.id, d.level || d.original_name)}>
-                PDF
-              </button>
-              <button className="btn btn-ghost btn-sm"
-                      onClick={e => { e.stopPropagation(); onNavigate('verify', { drawingId: d.id, projectId: id }) }}>
-                Review →
-              </button>
-              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }}
-                      onClick={e => deleteDrawing(e, d.id)}>×</button>
-            </div>
-          ))
-        )}
+              </tbody>
+            </table>
 
-        {/* Symbol count summary table */}
-        {drawings.length > 0 && symTypes.length > 0 && (
-          <CountTable drawings={drawings} symTypes={symTypes} onNavigate={onNavigate} id={id} />
+            <div className={`drop-strip${dragOver ? ' over' : ''}`} onClick={() => fileRef.current.click()}>
+              Drop more PDF drawings anywhere on this page, or click to browse.
+            </div>
+
+            {symTypes.length > 0 && (
+              <CountTable drawings={drawings} symTypes={symTypes} onOpen={openDrawing} />
+            )}
+          </>
         )}
       </div>
 
@@ -286,120 +300,101 @@ export function ProjectView({ id, onNavigate }) {
   )
 }
 
-function Stat({ label, value, color }) {
+/* A small dropdown of secondary actions — one button in the header instead of five. */
+function Menu({ label, items }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  useEffect(() => {
+    if (!open) return
+    const close = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const key = e => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key) }
+  }, [open])
   return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-      <span style={{ fontSize: 18, fontWeight: 700, color: color || 'var(--text)' }}>{value}</span>
-      <span style={{ fontSize: 11, color: 'var(--text3)' }}>{label}</span>
+    <div className="menu" ref={ref}>
+      <button className={`btn${open ? ' open' : ''}`} onClick={() => setOpen(o => !o)} aria-haspopup="menu" aria-expanded={open}>
+        {label}<span className="caret" />
+      </button>
+      {open && (
+        <div className="menu-list" role="menu">
+          {items.map(it => (
+            <button key={it.label} role="menuitem" onClick={() => { setOpen(false); it.onClick() }}>{it.label}</button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-function CountTable({ drawings, symTypes, onNavigate, id }) {
-  const TH  = { padding: '10px 14px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-                letterSpacing: '.5px', color: 'var(--text3)', borderBottom: '1px solid var(--border)',
-                background: 'var(--bg2)', textAlign: 'left', whiteSpace: 'nowrap' }
-  const TDc = { padding: '10px 14px', borderBottom: '1px solid #1e2230', textAlign: 'center', fontSize: 13 }
-  const TDl = { padding: '10px 14px', borderBottom: '1px solid #1e2230', fontSize: 13 }
-  const TFT = { padding: '10px 14px', background: 'var(--bg2)', fontWeight: 700,
-                borderTop: '2px solid var(--border)', textAlign: 'center', fontSize: 13 }
-
-  const sColor = s => {
-    if (s === 'approved')  return 'var(--ok)'
-    if (s === 'verified')  return 'var(--ok)'
-    if (s === 'detected')  return 'var(--link)'
-    if (s === 'processing')return 'var(--accent)'
-    if (s === 'error')     return 'var(--red)'
-    return '#8892a8'
-  }
-  const sLabel = s => {
-    if (s === 'approved')   return 'Approved'
-    if (s === 'verified')   return 'Verified'
-    if (s === 'detected')   return 'Detected'
-    if (s === 'processing') return 'Processing'
-    if (s === 'error')      return 'Error'
-    return 'Uploaded'
-  }
-
+function CountTable({ drawings, symTypes, onOpen }) {
+  const [showAll, setShowAll] = useState(false)
   const totals = {}
-  symTypes.forEach(st => { totals[st.code] = 0 })
   drawings.forEach(d => {
     const c = d.total_counts || {}
     symTypes.forEach(st => { totals[st.code] = (totals[st.code] || 0) + (c[st.code] || 0) })
   })
+  const withCounts = symTypes.filter(st => totals[st.code] > 0)
+  const cols = showAll ? symTypes : withCounts
+  const hidden = symTypes.length - withCounts.length
 
   return (
-    <div className="count-table-wrap">
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.6px',
-                    color: 'var(--text2)', marginBottom: 12 }}>
-        Symbol Count Summary
+    <section className="count-section">
+      <div className="section-head">
+        <h2>Count by drawing</h2>
+        {hidden > 0 && (
+          <button className="link-btn inline" onClick={() => setShowAll(v => !v)}>
+            {showAll ? 'Hide types with no devices' : `Show ${hidden} types with no devices`}
+          </button>
+        )}
       </div>
-      <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 500 }}>
-          <thead>
-            <tr>
-              <th style={{ ...TH, width: '30%' }}>Drawing</th>
-              <th style={{ ...TH, width: '10%' }}>Block</th>
-              <th style={{ ...TH, width: '8%' }}>Rev</th>
-              <th style={{ ...TH, width: '12%' }}>Status</th>
-              {symTypes.map(st => (
-                <th key={st.id} style={{ ...TH, textAlign: 'center', color: st.color }}>{st.name}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {drawings.map(d => {
-              const c = d.total_counts || {}
-              return (
-                <tr key={d.id}
-                    onClick={() => onNavigate('verify', { drawingId: d.id, projectId: id })}
-                    style={{ cursor: 'pointer' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#1e2230'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}>
-                  <td style={TDl}>
-                    <div style={{ fontWeight: 500 }}>{d.level || d.original_name}</div>
-                    {d.level && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{d.original_name}</div>}
-                  </td>
-                  <td style={{ ...TDl, color: 'var(--text3)', fontSize: 12 }}>{d.block || '—'}</td>
-                  <td style={{ ...TDl, color: 'var(--text3)', fontSize: 12 }}>{d.revision || '—'}</td>
-                  <td style={TDl}>
-                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-                                   background: sColor(d.status), marginRight: 6, verticalAlign: 'middle' }} />
-                    <span style={{ fontSize: 12, color: 'var(--text2)' }}>{sLabel(d.status)}</span>
-                    {d.status === 'error' && d.error_message && (
-                      <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2,
-                                    maxWidth: 240, whiteSpace: 'normal' }}>{d.error_message}</div>
-                    )}
-                  </td>
-                  {symTypes.map(st => {
-                    const v = c[st.code] || 0
-                    return (
-                      <td key={st.id} style={TDc}>
-                        <span style={{ color: v > 0 ? st.color : 'var(--text3)', fontWeight: v > 0 ? 700 : 400 }}>
-                          {v}
-                        </span>
-                      </td>
-                    )
-                  })}
-                </tr>
-              )
-            })}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={4} style={{ ...TFT, textAlign: 'left', color: 'var(--text2)', fontSize: 12 }}>
-                TOTAL — {drawings.length} drawing{drawings.length !== 1 ? 's' : ''}
-              </td>
-              {symTypes.map(st => (
-                <td key={st.id} style={TFT}>
-                  <span style={{ color: st.color }}>{totals[st.code] || 0}</span>
-                </td>
-              ))}
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>
+      {cols.length === 0 ? (
+        <p className="muted">No devices counted yet.</p>
+      ) : (
+        <div className="count-scroll">
+          <table className="count-table">
+            <thead>
+              <tr>
+                <th className="sticky">Drawing</th>
+                {cols.map(st => (
+                  <th key={st.id} title={st.name}>
+                    <span className="dot" style={{ background: st.color }} />
+                    <span className="th-name">{st.name}</span>
+                  </th>
+                ))}
+                <th className="total-col">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {drawings.map(d => {
+                const c = d.total_counts || {}
+                return (
+                  <tr key={d.id} onClick={() => onOpen(d)}>
+                    <td className="sticky">
+                      <div className="dwg-name">{drawingName(d)}</div>
+                      {d.level && <div className="proj-meta">{d.original_name}</div>}
+                    </td>
+                    {cols.map(st => {
+                      const v = c[st.code] || 0
+                      return <td key={st.id} className={v ? 'has' : 'zero'}>{v}</td>
+                    })}
+                    <td className="total-col">{deviceTotal(d)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td className="sticky">Total, {drawings.length} drawing{drawings.length !== 1 ? 's' : ''}</td>
+                {cols.map(st => <td key={st.id}>{totals[st.code] || 0}</td>)}
+                <td className="total-col">{drawings.reduce((s, d) => s + deviceTotal(d), 0)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </section>
   )
 }
 

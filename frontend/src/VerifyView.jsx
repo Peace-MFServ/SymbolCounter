@@ -1,9 +1,11 @@
+import { Topbar } from './Dashboard'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch, API } from './api'
 import { showToast } from './toast'
 
 export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onNavigate }) {
   const [drawing,     setDrawing]    = useState(null)
+  const [projectName, setProjectName] = useState('')
   const [pages,       setPages]      = useState([])
   const [pageIdx,     setPageIdx]    = useState(0)
   const [image,       setImage]      = useState(null)
@@ -40,11 +42,6 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
   const dragMovedRef   = useRef(false)  // true once mouse moved > threshold
   const dblClickRef    = useRef(false)  // suppress click-after-dblclick
 
-  // ── Symbol setup wizard ───────────────────────────────────────────────────
-  const [wizardShow,    setWizardShow]    = useState(false)
-  const [wizardStep,    setWizardStep]    = useState(0)
-  const [wizardPreview, setWizardPreview] = useState(null)  // { url } after snip
-  const wizardDismissedRef = useRef(false)
 
   // ── Data load (also used by the detection poll) ───────────────────────────
   const applyPages = useCallback((ps, preserveManual = false) => {
@@ -158,6 +155,11 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
 
   // ── Canvas setup ──────────────────────────────────────────────────────────
   useEffect(() => {
+    if (!projectId) return
+    apiFetch(`/projects/${projectId}`).then(p => { if (p?.name) setProjectName(p.name) }).catch(() => {})
+  }, [projectId])
+
+  useEffect(() => {
     const canvas = canvasRef.current
     const wrap   = wrapRef.current
     if (!canvas || !wrap) return
@@ -169,16 +171,6 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
     ro.observe(wrap)
     return () => ro.disconnect()
   }, []) // eslint-disable-line
-
-  // Show wizard on first image load when any symbol type has no templates
-  useEffect(() => {
-    if (!image || wizardDismissedRef.current) return
-    const missing = symTypes.filter(st => st.template_count === 0)
-    if (missing.length > 0) {
-      setWizardStep(0)
-      setWizardShow(true)
-    }
-  }, [image]) // eslint-disable-line
 
   // Fit on image load
   useEffect(() => {
@@ -512,10 +504,6 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                 ? { ...st, template_count: (st.template_count || 0) + 1 }
                 : st
             ))
-            // If wizard is active for this symbol type, capture the preview
-            if (wizardShow) {
-              setWizardPreview({ url: result.image_url })
-            }
           }
         } catch (err) { showToast('Template save failed: ' + err.message, 'error') }
         setSnipSaving(false)
@@ -524,7 +512,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
         showToast('Snip too small — zoom in and drag a slightly larger box around the symbol', 'error')
       }
       setSnipRect(null)
-      if (!wizardShow) setSnipMode(null)  // wizard manages snipMode itself
+      setSnipMode(null)
     }
   }
 
@@ -626,36 +614,36 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div id="verify-view">
-      <div id="verify-topbar">
-        <button className="btn btn-ghost btn-sm"
-                onClick={() => onNavigate('project', { id: projectId })}>← Back</button>
-        <span className="drawing-title">{drawing?.original_name || '…'}</span>
-        {drawing?.revision && (
-          <span style={{ fontSize: 11, background: 'var(--bg3)', padding: '2px 8px',
-                         borderRadius: 4, color: 'var(--text3)' }}>
-            Rev {drawing.revision}
-          </span>
-        )}
-        {pages.length > 1 && (
-          <div className="vpage-nav">
-            <button className="btn btn-ghost btn-sm" disabled={pageIdx === 0}
-                    onClick={() => { setPageIdx(i => i - 1); setSelectedId(null) }}>‹</button>
-            <span>Page {pageIdx + 1} of {pages.length}</span>
-            <button className="btn btn-ghost btn-sm" disabled={pageIdx >= pages.length - 1}
-                    onClick={() => { setPageIdx(i => i + 1); setSelectedId(null) }}>›</button>
+      <Topbar
+        compact
+        onNavigate={onNavigate}
+        crumbs={[
+          { label: 'Projects', onClick: () => onNavigate('dashboard') },
+          { label: projectName || 'Project', onClick: () => onNavigate('project', { id: projectId }) },
+          { label: drawing?.original_name || '…' },
+        ]}
+        right={
+          <div className="verify-tools">
+            {pages.length > 1 && (
+              <div className="vpage-nav">
+                <button className="btn btn-ghost btn-sm" disabled={pageIdx === 0}
+                        onClick={() => { setPageIdx(i => i - 1); setSelectedId(null) }}>Previous</button>
+                <span>Page {pageIdx + 1} of {pages.length}</span>
+                <button className="btn btn-ghost btn-sm" disabled={pageIdx >= pages.length - 1}
+                        onClick={() => { setPageIdx(i => i + 1); setSelectedId(null) }}>Next</button>
+              </div>
+            )}
+            {pages.length > 0 && (
+              <span className="saved-note">
+                {pages.filter(p => p.verified).length} of {pages.length} page{pages.length !== 1 ? 's' : ''} saved
+              </span>
+            )}
+            <button className="btn btn-primary btn-sm" onClick={savePage} disabled={saving}>
+              {saving ? <span className="spinner" /> : 'Save page'}
+            </button>
           </div>
-        )}
-        {/* Page completion indicator */}
-        {pages.length > 0 && (
-          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-            {pages.filter(p => p.verified).length}/{pages.length} pages saved
-          </span>
-        )}
-        <div style={{ flex: 1 }} />
-        <button className="btn btn-success btn-sm" onClick={savePage} disabled={saving}>
-          {saving ? <span className="spinner" /> : 'Save Page'}
-        </button>
-      </div>
+        }
+      />
 
       <div id="verify-body">
         <div id="verify-sidebar">
@@ -682,12 +670,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
               <div key={st.id} className={`sym-row${isolate && isolate !== st.code ? ' muted' : ''}`}>
                 <button className={`sym-btn${activeType === st.code ? ' active' : ''}`}
                         onClick={() => { setActiveType(st.code); setSnipMode(null) }}>
-                  <span className="dot"
-                        title={st.template_count === 0
-                          ? 'No examples yet — snip one to improve detection'
-                          : undefined}
-                        style={{ background: st.template_count === 0 ? 'transparent' : st.color,
-                                 border: `2px solid ${st.color}` }} />
+                  <span className="dot" style={{ background: st.color }} />
                   <span style={{ flex: 1, textAlign: 'left' }}>{st.name}</span>
                   <span className={`cnt${isolate === st.code ? ' on' : ''}`}
                         role="button"
@@ -697,11 +680,6 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                     {countByType(st.code)}
                   </span>
                 </button>
-                <button className={`snip-btn${snipMode === st.id ? ' active' : ''}`}
-                        title={`Snip an example of ${st.name} from the drawing`}
-                        onClick={() => { setSnipMode(snipMode === st.id ? null : st.id); setSnipRect(null) }}>
-                  Snip
-                </button>
               </div>
             ))}
             {hiddenCount > 0 && (
@@ -710,8 +688,18 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
               </button>
             )}
             <p className="hint" style={{ marginTop: 8 }}>
-              Click a count to show only that type. Press <kbd>1</kbd>–<kbd>9</kbd> to switch.
+              Click a count to show only that type. Double-click the drawing to add one of the selected type.
             </p>
+            {activeType && (() => {
+              const st = symTypes.find(t => t.code === activeType)
+              if (!st) return null
+              return (
+                <button className={`link-btn${snipMode === st.id ? ' on' : ''}`}
+                        onClick={() => { setSnipMode(snipMode === st.id ? null : st.id); setSnipRect(null) }}>
+                  {snipMode === st.id ? 'Cancel snip' : `Snip an example of ${st.name}`}
+                </button>
+              )
+            })()}
           </div>
 
           {/* Bulk actions — only when this page has detections */}
@@ -739,7 +727,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
           {/* All-pages totals */}
           <div className="vsec">
             <div className="vsec-title">Totals — All Pages</div>
-            {symTypes.map(st => (
+            {symTypes.filter(st => totalByType(st.code) > 0).map(st => (
               <div key={st.id} className="total-row">
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                   <span className="dot" style={{ background: st.color }} />
@@ -809,141 +797,6 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
             ))}
           </div>
         )}
-
-        {/* ── Symbol Setup Wizard ────────────────────────────────────────── */}
-        {wizardShow && (() => {
-          const wizardTypes = symTypes.filter(st => st.template_count === 0)
-          const current     = wizardTypes[wizardStep]
-          const allDone     = wizardStep >= wizardTypes.length
-
-          const closeWizard = () => {
-            setWizardShow(false)
-            setWizardPreview(null)
-            setSnipMode(null)
-            wizardDismissedRef.current = true
-          }
-
-          const startSnip = () => {
-            if (!current) return
-            setWizardPreview(null)
-            setSnipMode(current.id)
-          }
-
-          const confirmSnip = () => {
-            setWizardPreview(null)
-            setSnipMode(null)
-            const next = wizardStep + 1
-            setWizardStep(next)
-            if (next >= wizardTypes.length) {
-              closeWizard()
-              showToast('Symbol setup complete — detection will improve from here!', 'success')
-            } else {
-              // Auto-enable snip for next symbol
-              const nextType = wizardTypes[next]
-              if (nextType) setSnipMode(nextType.id)
-            }
-          }
-
-          const skipCurrent = () => {
-            setWizardPreview(null)
-            setSnipMode(null)
-            const next = wizardStep + 1
-            setWizardStep(next)
-            if (next >= wizardTypes.length) closeWizard()
-            else {
-              const nextType = wizardTypes[next]
-              if (nextType) setSnipMode(nextType.id)
-            }
-          }
-
-          return (
-            <div style={{
-              position: 'absolute', top: 16, right: 16, zIndex: 150,
-              width: 290, background: 'var(--bg2)', border: '2px solid var(--ink)',
-              borderRadius: 'var(--radius)', padding: 18,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600 }}>
-                  Symbol Setup
-                </span>
-                <div style={{ flex: 1 }} />
-                <button className="btn btn-ghost btn-sm" onClick={closeWizard}
-                        title="Skip setup — can run snips manually later">×</button>
-              </div>
-
-              {allDone ? (
-                <p style={{ fontSize: 12, color: 'var(--ok)' }}>
-                  All symbol types have examples — detection improves from here.
-                </p>
-              ) : (
-                <>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 10 }}>
-                    Step {wizardStep + 1} of {wizardTypes.length}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '50%',
-                                   background: current?.color || '#8892a8',
-                                   display: 'inline-block', flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>
-                      {current?.name}
-                    </span>
-                  </div>
-
-                  {wizardPreview ? (
-                    <>
-                      <p style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>
-                        Does this look like a good example?
-                      </p>
-                      <img
-                        src={`${wizardPreview.url}?t=${Date.now()}`}
-                        alt="snip preview"
-                        style={{ width: '100%', border: '1px solid var(--border)',
-                                 borderRadius: 6, marginBottom: 10, imageRendering: 'pixelated',
-                                 background: '#fff' }}
-                        onError={e => { e.target.style.display = 'none' }}
-                      />
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button className="btn btn-ghost btn-sm" style={{ flex: 1 }}
-                                onClick={startSnip}>↩ Redo</button>
-                        <button className="btn btn-success btn-sm" style={{ flex: 1 }}
-                                onClick={confirmSnip}>Confirm</button>
-                      </div>
-                    </>
-                  ) : snipMode === current?.id ? (
-                    <>
-                      <p style={{ fontSize: 12, color: '#fb923c', marginBottom: 8 }}>
-                        <strong>Drag a box</strong> around a clear {current?.name} symbol on the drawing below.
-                      </p>
-                      <button className="btn btn-ghost btn-sm" style={{ width: '100%' }}
-                              onClick={skipCurrent}>Skip this symbol →</button>
-                    </>
-                  ) : (
-                    <>
-                      <p style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>
-                        Find a clear <strong>{current?.name}</strong> on the drawing and snip it as a template example.
-                      </p>
-                      <button className="btn btn-primary btn-sm" style={{ width: '100%', marginBottom: 6 }}
-                              onClick={startSnip}>Snip {current?.name}</button>
-                      <button className="btn btn-ghost btn-sm" style={{ width: '100%' }}
-                              onClick={skipCurrent}>Skip →</button>
-                    </>
-                  )}
-
-                  {/* Progress dots */}
-                  <div style={{ display: 'flex', gap: 4, marginTop: 12, justifyContent: 'center' }}>
-                    {wizardTypes.map((_, i) => (
-                      <span key={i} style={{
-                        width: 6, height: 6, borderRadius: '50%',
-                        background: i < wizardStep ? 'var(--ok)' : i === wizardStep ? 'var(--link)' : 'var(--border)',
-                      }} />
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )
-        })()}
 
         {/* Door-ref editor */}
         {doorRefEdit && (

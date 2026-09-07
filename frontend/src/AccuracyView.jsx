@@ -68,6 +68,7 @@ function Stat({ label, value, color }) {
 export function AccuracyView({ onNavigate }) {
   const [data,    setData]    = useState(null)
   const [error,   setError]   = useState(null)
+  const [showUntested, setShowUntested] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -78,7 +79,8 @@ export function AccuracyView({ onNavigate }) {
 
   return (
     <>
-      <Topbar title="Accuracy" onBack={() => onNavigate('dashboard')} onNavigate={onNavigate} />
+      <Topbar active="accuracy" onNavigate={onNavigate}
+              crumbs={[{ label: 'Accuracy' }]} />
       <div className="page-wrap">
         <div className="page-header">
           <div>
@@ -189,11 +191,13 @@ export function AccuracyView({ onNavigate }) {
 
             {/* Template health */}
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              <div style={{ padding: '14px 20px', fontWeight: 600 }}>
+              <div style={{ padding: '14px 20px', fontWeight: 600, display: 'flex', alignItems: 'baseline', gap: 14 }}>
                 Template health
-                <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text3)', marginLeft: 10 }}>
-                  manage in Templates
+                <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text3)' }}>
+                  used for scanned drawings only
                 </span>
+                <span style={{ flex: 1 }} />
+                <button className="link-btn inline" onClick={() => onNavigate('templates')}>Open template library</button>
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr>
@@ -206,7 +210,7 @@ export function AccuracyView({ onNavigate }) {
                   <th style={{ ...TH, textAlign: 'right' }}>Threshold</th>
                 </tr></thead>
                 <tbody>
-                  {data.templates.map(t => (
+                  {data.templates.filter(t => showUntested || t.health !== 'untested').map(t => (
                     <tr key={t.id} style={t.health === 'toxic' ? { background: 'rgba(220,38,38,0.06)' } : undefined}>
                       <td style={TD}><TemplateThumb imageUrl={t.image_url} /></td>
                       <td style={TD}>{t.symbol_name} <span style={{ color: 'var(--text3)', fontSize: 11 }}>({t.symbol_code})</span></td>
@@ -219,6 +223,15 @@ export function AccuracyView({ onNavigate }) {
                       <td style={{ ...TD, textAlign: 'right' }}>{t.effective_threshold}</td>
                     </tr>
                   ))}
+                  {data.templates.some(t => t.health === 'untested') && (
+                    <tr><td style={{ ...TD, borderBottom: 0 }} colSpan={9}>
+                      <button className="link-btn inline" onClick={() => setShowUntested(v => !v)}>
+                        {showUntested
+                          ? 'Hide untested templates'
+                          : `Show ${data.templates.filter(t => t.health === 'untested').length} untested templates`}
+                      </button>
+                    </td></tr>
+                  )}
                   {data.templates.length === 0 && (
                     <tr><td style={{ ...TD, color: 'var(--text3)' }} colSpan={9}>
                       No templates yet — snip some with the Snip tool in the verify canvas.
