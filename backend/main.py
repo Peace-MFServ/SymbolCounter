@@ -833,133 +833,263 @@ def export_json(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cur
         headers={"Content-Disposition": f'attachment; filename="{safe_name}_export.json"'},
     )
 
-@app.get("/api/drawings/{did}/export/pdf")
-def export_drawing_pdf(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    """Export a single drawing as PDF with detection markers drawn on each page."""
-    from PIL import Image, ImageDraw, ImageFont
-    d = _draw404(did, cu.id, db)
-
-    # Build a color map from project symbol types
-    color_map: dict[str, tuple] = {}
-    for st in (d.project.symbol_types if d.project else []):
+# ── PDF export helpers ────────────────────────────────────────────────────────
+def _pdf_font(size: int, bold: bool = False):
+    from PIL import ImageFont
+    cands = (["arialbd.ttf", "DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
+             if bold else
+             ["arial.ttf", "DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"])
+    for c in cands:
         try:
-            hex_col = st.color.lstrip('#')
-            color_map[st.code] = tuple(int(hex_col[i:i+2], 16) for i in (0, 2, 4))
+            return ImageFont.truetype(c, size)
         except Exception:
-            color_map[st.code] = (255, 80, 80)
-
-    pil_imgs = []
-    for page in sorted(d.pages, key=lambda p: p.page_number):
-        if not page.image_path or not os.path.exists(page.image_path):
             continue
-        img = Image.open(page.image_path).convert("RGB")
-        draw = ImageDraw.Draw(img)
-        iw, ih = img.size
-        r = max(12, int(iw * 0.006))
+    return ImageFont.load_default()
 
-        for det in (page.detections or []):
-            cx = int(det.get("imgX", 0) * iw)
-            cy = int(det.get("imgY", 0) * ih)
-            code = det.get("type", "")
-            col = color_map.get(code, (255, 80, 80))
-            # Circle with fill
-            draw.ellipse([cx - r, cy - r, cx + r, cy + r],
-                         outline=col, width=max(2, r // 5))
-            # Crosshair
-            hs = r // 2
-            draw.line([cx - hs, cy, cx + hs, cy], fill=col, width=max(1, r // 8))
-            draw.line([cx, cy - hs, cx, cy + hs], fill=col, width=max(1, r // 8))
-            # Label above
-            label = 'DOME' if code == 'CCTV_Dome' else 'FIX' if code == 'CCTV_Fixed' else code
-            try:
-                font = ImageFont.truetype("arial.ttf", max(10, r))
-            except Exception:
-                font = ImageFont.load_default()
-            draw.text((cx, cy - r - 4), label, fill=col, font=font, anchor="mb")
 
-        pil_imgs.append(img)
+def _type_maps(symbol_types):
+    """(colour, name, order) lookups keyed by symbol code."""
+    colour, name, order = {}, {}, []
+    for st in symbol_types or []:
+        try:
+            h = st.color.lstrip('#')
+            colour[st.code] = tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+        except Exception:
+            colour[st.code] = (255, 80, 80)
+        name[st.code] = st.name
+        order.append(st.code)
+    return colour, name, order
 
-    if not pil_imgs:
-        raise HTTPException(404, "No pages with images found")
 
+def _count_rows(pages, colour, name, order):
+    """[(code, name, colour, count)] for every type with at least one marker, in symbol-type order."""
+    counts: dict[str, int] = {}
+    for pg in pages:
+        for det in (pg.detections or []):
+            code = det.get("type", "") or "?"
+            counts[code] = counts.get(code, 0) + 1
+    codes = [c for c in order if counts.get(c)] + sorted(c for c in counts if c not in order)
+    return [(c, name.get(c, c), colour.get(c, (255, 80, 80)), counts[c]) for c in codes]
+
+
+def _marker_label(code: str) -> str:
+    return 'DOME' if code == 'CCTV_Dome' else 'FIX' if code == 'CCTV_Fixed' else code
+
+
+def _draw_markers(img, dets, colour, y_off: int = 0):
+    from PIL import ImageDraw
+    draw = ImageDraw.Draw(img)
+    iw = img.size[0]
+    r = max(12, int(iw * 0.006))
+    font = _pdf_font(max(10, r), bold=True)
+    ih = img.size[1] - y_off
+    for det in dets or []:
+        cx = int(det.get("imgX", 0) * iw)
+        cy = int(det.get("imgY", 0) * ih) + y_off
+        code = det.get("type", "")
+        col = colour.get(code, (255, 80, 80))
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col, width=max(2, r // 5))
+        hs = r // 2
+        draw.line([cx - hs, cy, cx + hs, cy], fill=col, width=max(1, r // 8))
+        draw.line([cx, cy - hs, cx, cy + hs], fill=col, width=max(1, r // 8))
+        draw.text((cx, cy - r - 4), _marker_label(code), fill=col, font=font, anchor="mb")
+
+
+def _draw_count_box(img, rows, heading: str, y_off: int = 0):
+    """A count table in the top-right corner of a drawing page: what is on this page."""
+    from PIL import ImageDraw
+    if not rows:
+        return
+    draw = ImageDraw.Draw(img)
+    iw = img.size[0]
+    fs = max(14, int(iw * 0.0075))
+    font, bold = _pdf_font(fs), _pdf_font(fs, bold=True)
+    pad, rh = fs, int(fs * 1.55)
+    name_w = max(draw.textlength(n, font=font) for _, n, _, _ in rows)
+    name_w = max(name_w, draw.textlength(heading, font=bold))
+    w = int(pad * 3 + fs + name_w + fs * 4)
+    h = int(pad * 2 + rh * (len(rows) + 2))
+    x0, y0 = iw - w - pad * 2, y_off + pad * 2
+    draw.rectangle([x0, y0, x0 + w, y0 + h], fill=(255, 255, 255), outline=(26, 23, 18), width=max(2, fs // 7))
+    draw.text((x0 + pad, y0 + pad + rh // 2), heading, fill=(26, 23, 18), font=bold, anchor="lm")
+    y = y0 + pad + rh
+    draw.line([x0 + pad, y, x0 + w - pad, y], fill=(26, 23, 18), width=max(1, fs // 9))
+    total = 0
+    for code, nm, col, n in rows:
+        y += rh
+        cy = y - rh // 2
+        draw.ellipse([x0 + pad, cy - fs // 3, x0 + pad + fs * 2 // 3, cy + fs // 3], fill=col)
+        draw.text((x0 + pad + fs, cy), nm, fill=(26, 23, 18), font=font, anchor="lm")
+        draw.text((x0 + w - pad, cy), str(n), fill=(26, 23, 18), font=bold, anchor="rm")
+        total += n
+    y += rh
+    draw.line([x0 + pad, y - rh + 2, x0 + w - pad, y - rh + 2], fill=(26, 23, 18), width=max(1, fs // 9))
+    draw.text((x0 + pad, y - rh // 2), "Total", fill=(26, 23, 18), font=bold, anchor="lm")
+    draw.text((x0 + w - pad, y - rh // 2), str(total), fill=(26, 23, 18), font=bold, anchor="rm")
+
+
+def _summary_page(size, title: str, lines: list, rows, extra_sections=None):
+    """
+    A full page: title, a few lines of context, then a table of every device
+    type and its count with a total. `extra_sections` is [(heading, [(label, value)])]
+    for e.g. a per-drawing breakdown on the project cover.
+    """
+    from PIL import Image, ImageDraw
+    iw, ih = size
+    img = Image.new("RGB", (iw, ih), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    ink, grey, accent = (26, 23, 18), (110, 104, 96), (255, 77, 0)
+    m = int(iw * 0.06)
+    fs = max(16, int(iw * 0.011))
+    f_title, f_h, f_b, f_bold = _pdf_font(int(fs * 2.4), True), _pdf_font(int(fs * 1.25), True), _pdf_font(fs), _pdf_font(fs, True)
+    y = m
+    draw.text((m, y), "MF Symbol Counter", fill=accent, font=f_bold)
+    y += int(fs * 1.9)
+    draw.text((m, y), title, fill=ink, font=f_title)
+    y += int(fs * 3.2)
+    for ln in lines:
+        draw.text((m, y), ln, fill=grey, font=f_b)
+        y += int(fs * 1.6)
+    y += int(fs * 1.2)
+    draw.line([m, y, iw - m, y], fill=ink, width=max(2, fs // 6))
+    y += int(fs * 1.2)
+    draw.text((m, y), "Devices detected", fill=ink, font=f_h)
+    y += int(fs * 2.2)
+    rh = int(fs * 1.9)
+    col_code = m + int((iw - 2 * m) * 0.62)
+    col_n = iw - m
+    draw.text((m, y), "Symbol", fill=grey, font=f_bold)
+    draw.text((col_code, y), "Code", fill=grey, font=f_bold)
+    draw.text((col_n, y), "Count", fill=grey, font=f_bold, anchor="ra")
+    y += int(fs * 1.5)
+    draw.line([m, y, iw - m, y], fill=ink, width=max(1, fs // 9))
+    total = 0
+    if not rows:
+        y += rh
+        draw.text((m, y), "No devices detected.", fill=grey, font=f_b)
+    for code, nm, col, n in rows:
+        cy = y + rh // 2
+        draw.ellipse([m, cy - fs // 3, m + fs * 2 // 3, cy + fs // 3], fill=col)
+        draw.text((m + fs * 1.2, cy), nm, fill=ink, font=f_b, anchor="lm")
+        draw.text((col_code, cy), code, fill=grey, font=f_b, anchor="lm")
+        draw.text((col_n, cy), str(n), fill=ink, font=f_bold, anchor="rm")
+        y += rh
+        draw.line([m, y, iw - m, y], fill=(220, 214, 204), width=1)
+        total += n
+    y += int(fs * 0.4)
+    draw.line([m, y, iw - m, y], fill=ink, width=max(2, fs // 6))
+    y += int(fs * 1.2)
+    draw.text((m, y), "Total devices", fill=ink, font=f_h)
+    draw.text((col_n, y), str(total), fill=ink, font=f_h, anchor="ra")
+    y += int(fs * 3)
+    for heading, items in (extra_sections or []):
+        if y > ih - m - rh * 3:
+            break
+        draw.text((m, y), heading, fill=ink, font=f_h)
+        y += int(fs * 2.2)
+        for label, value in items:
+            if y > ih - m - rh:
+                draw.text((m, y), "…", fill=grey, font=f_b)
+                break
+            draw.text((m, y), label, fill=ink, font=f_b)
+            draw.text((col_n, y), str(value), fill=ink, font=f_bold, anchor="ra")
+            y += int(fs * 1.6)
+        y += int(fs * 1.2)
+    draw.text((m, ih - m), "Counts reflect the markers saved in the app at the time of export.",
+              fill=grey, font=_pdf_font(int(fs * 0.85)))
+    return img
+
+
+def _status_label(status: str) -> str:
+    return {"uploaded": "Uploaded", "processing": "Detecting", "detected": "Detected, not yet verified",
+            "verified": "Verified", "approved": "Approved", "error": "Detection failed"}.get(status, status)
+
+
+def _drawing_pages_pdf(d, colour, name, order, banner_title=None):
+    """Summary page + annotated pages for one drawing."""
+    from PIL import Image, ImageDraw
+    pages = [pg for pg in sorted(d.pages, key=lambda p: p.page_number)
+             if pg.image_path and os.path.exists(pg.image_path)]
+    if not pages:
+        return []
+    first = Image.open(pages[0].image_path)
+    size = first.size
+    first.close()
+    rows = _count_rows(pages, colour, name, order)
+    lines = [f"Project: {d.project.name if d.project else ''}",
+             f"File: {d.original_name}" + (f"   Revision {d.revision}" if d.revision else ""),
+             f"{len(pages)} page{'s' if len(pages) != 1 else ''}   ·   {_status_label(d.status)}",
+             f"Exported {datetime.now().strftime('%d %b %Y %H:%M')}"]
+    out = [_summary_page(size, d.level or d.original_name or "Drawing", lines, rows)]
+    for pg in pages:
+        img = Image.open(pg.image_path).convert("RGB")
+        y_off = 0
+        if banner_title:
+            iw, ih = img.size
+            bh = max(30, int(ih * 0.02))
+            banner = Image.new("RGB", (iw, bh), (26, 23, 18))
+            ImageDraw.Draw(banner).text((10, bh // 2), f"{banner_title}  —  Page {pg.page_number}",
+                                        fill=(246, 243, 236), font=_pdf_font(max(12, bh - 8)), anchor="lm")
+            combined = Image.new("RGB", (iw, ih + bh))
+            combined.paste(banner, (0, 0)); combined.paste(img, (0, bh))
+            img, y_off = combined, bh
+        _draw_markers(img, pg.detections, colour, y_off)
+        _draw_count_box(img, _count_rows([pg], colour, name, order),
+                        f"Page {pg.page_number} of {len(pages)}", y_off)
+        out.append(img)
+    return out
+
+
+def _pdf_response(pil_imgs, filename: str):
     buf = io.BytesIO()
     pil_imgs[0].save(buf, format="PDF", save_all=True, append_images=pil_imgs[1:], resolution=150)
     buf.seek(0)
-    safe_name = re.sub(r'[^\w\s\-]', '', d.original_name or 'drawing').strip().replace(' ', '_') or 'drawing'
-    logger.info("PDF export: drawing %d (%d pages)", d.id, len(pil_imgs))
     return StreamingResponse(buf, media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}_annotated.pdf"'})
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.get("/api/drawings/{did}/export/pdf")
+def export_drawing_pdf(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """One drawing: a count summary page, then every page with markers and a per-page count box."""
+    d = _draw404(did, cu.id, db)
+    colour, name, order = _type_maps(d.project.symbol_types if d.project else [])
+    pil_imgs = _drawing_pages_pdf(d, colour, name, order)
+    if not pil_imgs:
+        raise HTTPException(404, "No pages with images found")
+    safe_name = re.sub(r'[^\w\s\-]', '', d.original_name or 'drawing').strip().replace(' ', '_') or 'drawing'
+    logger.info("PDF export: drawing %d (%d pages)", d.id, len(pil_imgs) - 1)
+    return _pdf_response(pil_imgs, f"{safe_name}_annotated.pdf")
 
 
 @app.get("/api/projects/{pid}/export/pdf")
 def export_project_pdf(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    """Export all drawings in a project as a single combined PDF."""
-    from PIL import Image, ImageDraw, ImageFont
+    """Whole project: a totals cover, then each drawing's summary page and marked-up pages."""
+    from PIL import Image
     p = _proj404(pid, cu.id, db)
-
-    # Color map from project symbol types
-    color_map: dict[str, tuple] = {}
-    for st in p.symbol_types:
-        try:
-            hex_col = st.color.lstrip('#')
-            color_map[st.code] = tuple(int(hex_col[i:i+2], 16) for i in (0, 2, 4))
-        except Exception:
-            color_map[st.code] = (255, 80, 80)
-
-    pil_imgs = []
-    for d in sorted(p.drawings, key=lambda x: x.id):
-        for page in sorted(d.pages, key=lambda pp: pp.page_number):
-            if not page.image_path or not os.path.exists(page.image_path):
-                continue
-            img = Image.open(page.image_path).convert("RGB")
-            draw = ImageDraw.Draw(img)
-            iw, ih = img.size
-            r = max(12, int(iw * 0.006))
-
-            # Drawing title banner at top
-            banner_h = max(30, int(ih * 0.02))
-            banner = Image.new("RGB", (iw, banner_h), (20, 30, 50))
-            bdraw  = ImageDraw.Draw(banner)
-            try:
-                tfont = ImageFont.truetype("arial.ttf", max(12, banner_h - 6))
-            except Exception:
-                tfont = ImageFont.load_default()
-            title = f"{d.level or d.original_name}  —  Page {page.page_number}"
-            bdraw.text((10, banner_h // 2), title, fill=(180, 200, 220), font=tfont, anchor="lm")
-            combined = Image.new("RGB", (iw, ih + banner_h))
-            combined.paste(banner, (0, 0))
-            combined.paste(img, (0, banner_h))
-            img = combined
-            draw = ImageDraw.Draw(img)
-
-            for det in (page.detections or []):
-                cx = int(det.get("imgX", 0) * iw)
-                cy = int(det.get("imgY", 0) * ih) + banner_h
-                code = det.get("type", "")
-                col  = color_map.get(code, (255, 80, 80))
-                draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col, width=max(2, r // 5))
-                hs = r // 2
-                draw.line([cx - hs, cy, cx + hs, cy], fill=col, width=max(1, r // 8))
-                draw.line([cx, cy - hs, cx, cy + hs], fill=col, width=max(1, r // 8))
-                label = 'DOME' if code == 'CCTV_Dome' else 'FIX' if code == 'CCTV_Fixed' else code
-                try:
-                    font = ImageFont.truetype("arial.ttf", max(10, r))
-                except Exception:
-                    font = ImageFont.load_default()
-                draw.text((cx, cy - r - 4), label, fill=col, font=font, anchor="mb")
-
-            pil_imgs.append(img)
-
-    if not pil_imgs:
+    colour, name, order = _type_maps(p.symbol_types)
+    drawings = [d for d in sorted(p.drawings, key=lambda x: x.id)
+                if any(pg.image_path and os.path.exists(pg.image_path) for pg in d.pages)]
+    if not drawings:
         raise HTTPException(404, "No pages found in this project")
-
-    buf = io.BytesIO()
-    pil_imgs[0].save(buf, format="PDF", save_all=True, append_images=pil_imgs[1:], resolution=150)
-    buf.seek(0)
+    all_pages = [pg for d in drawings for pg in d.pages]
+    first_img = next(pg.image_path for d in drawings for pg in d.pages if pg.image_path and os.path.exists(pg.image_path))
+    with Image.open(first_img) as im:
+        size = im.size
+    per_drawing = [(d.level or d.original_name,
+                    sum(len(pg.detections or []) for pg in d.pages)) for d in drawings]
+    lines = [", ".join(x for x in [p.client, p.site, p.drawing_firm] if x) or "",
+             f"{len(drawings)} drawing{'s' if len(drawings) != 1 else ''}   ·   "
+             f"{sum(1 for d in drawings if d.status in ('verified', 'approved'))} verified   ·   "
+             f"{sum(1 for d in drawings if d.status == 'approved')} approved",
+             f"Exported {datetime.now().strftime('%d %b %Y %H:%M')}"]
+    pil_imgs = [_summary_page(size, p.name, [ln for ln in lines if ln],
+                              _count_rows(all_pages, colour, name, order),
+                              extra_sections=[("Devices by drawing", per_drawing)])]
+    for d in drawings:
+        pil_imgs += _drawing_pages_pdf(d, colour, name, order, banner_title=d.level or d.original_name)
     safe_name = re.sub(r'[^\w\s\-]', '', p.name or 'project').strip().replace(' ', '_') or 'project'
     logger.info("PDF export: project %d (%d pages total)", p.id, len(pil_imgs))
-    return StreamingResponse(buf, media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}_all_drawings.pdf"'})
+    return _pdf_response(pil_imgs, f"{safe_name}_all_drawings.pdf")
 
 
 # ── Accuracy scoreboard ───────────────────────────────────────────────────────
