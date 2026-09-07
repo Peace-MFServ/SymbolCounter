@@ -435,7 +435,39 @@ select.form-control { cursor: pointer; }
   margin-left: auto; background: var(--bg2); border: 1.5px solid var(--ink);
   border-radius: var(--radius); padding: 0 7px; font-size: 11px;
   font-variant-numeric: tabular-nums; font-weight: 700;
+  cursor: pointer; transition: background .1s, color .1s;
 }
+.sym-btn .cnt:hover { background: var(--ink); color: var(--paper); }
+.sym-btn .cnt.on    { background: var(--accent); color: #fff; border-color: var(--ink); }
+.sym-row.muted .sym-btn { opacity: .45; }
+.sym-row.muted .sym-btn:hover { opacity: 1; }
+
+/* Isolate mode — one type's markers only */
+.isolate-note {
+  padding: 8px 12px; margin-bottom: 10px;
+  background: var(--ink); color: var(--paper);
+  font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+}
+.isolate-note .snip-note-close { color: var(--paper); }
+.isolate-banner {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px;
+  background: var(--ink); color: var(--paper); border: 2px solid var(--ink);
+  border-left: 6px solid var(--accent);
+  padding: 8px 16px; font-size: 13px; font-weight: 600; z-index: 5;
+}
+.isolate-banner button {
+  background: var(--paper); color: var(--ink); border: none;
+  font: inherit; font-size: 12px; font-weight: 700; padding: 3px 10px; cursor: pointer;
+}
+.isolate-banner button:hover { background: var(--accent); color: #fff; }
+.link-btn {
+  display: block; width: 100%; text-align: left; margin-top: 4px; padding: 6px 10px;
+  background: none; border: none; border-top: 1px solid var(--border);
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--text2); cursor: pointer;
+}
+.link-btn:hover { color: var(--accent); }
 
 .total-row {
   display: flex; justify-content: space-between; align-items: center;

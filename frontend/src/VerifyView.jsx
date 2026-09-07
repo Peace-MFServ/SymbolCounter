@@ -11,6 +11,8 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
   const [symTypes,    setSymTypes]   = useState(passedSymTypes || [])
   const [activeType,  setActiveType] = useState(null)
   const [selectedId,  setSelectedId] = useState(null)
+  const [isolate,     setIsolate]    = useState(null)    // symbol code → show only that type's markers
+  const [showEmpty,   setShowEmpty]  = useState(false)   // list types with no markers on this page
   const [saving,      setSaving]     = useState(false)
   const [loadingPage, setLoadingPage] = useState(false)
   const [pageError,   setPageError]   = useState(null)   // string when the page image failed to load
@@ -217,7 +219,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
     if (img) ctx.drawImage(img, pan.x, pan.y, img.width * zoom, img.height * zoom)
 
     const pn   = pages[pageIdx]?.page_number
-    const dets = detections[pn] || []
+    const dets = (detections[pn] || []).filter(d => !isolate || d.type === isolate)
 
     dets.forEach(d => {
       if (!img) return
@@ -269,7 +271,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
       ctx.fillRect(snipRect.x1, snipRect.y1, snipRect.x2 - snipRect.x1, snipRect.y2 - snipRect.y1)
       ctx.setLineDash([])
     }
-  }, [image, detections, pages, pageIdx, selectedId, snipRect, snipTypeColor, getTypeConfig])
+  }, [image, detections, pages, pageIdx, selectedId, snipRect, snipTypeColor, getTypeConfig, isolate])
 
   redrawRef.current = redraw
   useEffect(() => { redraw() }, [redraw])
@@ -281,7 +283,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
   }
 
   const hitTest = (cx, cy, pn) => {
-    const dets = detections[pn] || []
+    const dets = (detections[pn] || []).filter(d => !isolate || d.type === isolate)
     if (!image) return null
     const zoom = zoomRef.current; const pan = panRef.current
     return dets.find(d => {
@@ -357,7 +359,7 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
       if (!isNaN(idx) && idx >= 0 && idx < symTypes.length) setActiveType(symTypes[idx].code)
       if (e.key === 'Escape') {
         setSelectedId(null); setCtxMenu(null); setDoorRefEdit(null)
-        setSnipMode(null); setSnipRect(null)
+        setSnipMode(null); setSnipRect(null); setIsolate(null)
       }
       if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); savePage() }
     }
@@ -613,6 +615,13 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
   // ── Counts ────────────────────────────────────────────────────────────────
   const countByType   = type => (detections[curPage?.page_number] || []).filter(d => d.type === type).length
   const totalByType   = type => Object.values(detections).flat().filter(d => d.type === type).length
+  // Types with markers on this page always show; the rest collapse behind a
+  // toggle so a 40-row legend doesn't bury the ones being checked.
+  const anyMarkers    = symTypes.some(st => countByType(st.code) > 0)
+  const visibleTypes  = symTypes.filter(st => showEmpty || !anyMarkers
+                                            || countByType(st.code) > 0 || activeType === st.code
+                                            || snipMode === st.id || isolate === st.code)
+  const hiddenCount   = symTypes.length - visibleTypes.length
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -660,8 +669,17 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                         onClick={() => { setSnipMode(null); setSnipRect(null) }}>×</button>
               </div>
             )}
-            {symTypes.map(st => (
-              <div key={st.id} className="sym-row">
+            {isolate && (
+              <div className="isolate-note">
+                <span style={{ flex: 1 }}>
+                  Showing only <strong>{symTypes.find(t => t.code === isolate)?.name || isolate}</strong>
+                </span>
+                <button className="snip-note-close" title="Show every type again"
+                        onClick={() => setIsolate(null)}>×</button>
+              </div>
+            )}
+            {visibleTypes.map(st => (
+              <div key={st.id} className={`sym-row${isolate && isolate !== st.code ? ' muted' : ''}`}>
                 <button className={`sym-btn${activeType === st.code ? ' active' : ''}`}
                         onClick={() => { setActiveType(st.code); setSnipMode(null) }}>
                   <span className="dot"
@@ -671,7 +689,13 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                         style={{ background: st.template_count === 0 ? 'transparent' : st.color,
                                  border: `2px solid ${st.color}` }} />
                   <span style={{ flex: 1, textAlign: 'left' }}>{st.name}</span>
-                  <span className="cnt">{countByType(st.code)}</span>
+                  <span className={`cnt${isolate === st.code ? ' on' : ''}`}
+                        role="button"
+                        title={isolate === st.code ? 'Show every type again'
+                                                   : `Show only ${st.name} markers`}
+                        onClick={e => { e.stopPropagation(); setIsolate(isolate === st.code ? null : st.code) }}>
+                    {countByType(st.code)}
+                  </span>
                 </button>
                 <button className={`snip-btn${snipMode === st.id ? ' active' : ''}`}
                         title={`Snip an example of ${st.name} from the drawing`}
@@ -680,8 +704,13 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                 </button>
               </div>
             ))}
+            {hiddenCount > 0 && (
+              <button className="link-btn" onClick={() => setShowEmpty(v => !v)}>
+                {showEmpty ? 'Hide types with no markers' : `${hiddenCount} more types with no markers`}
+              </button>
+            )}
             <p className="hint" style={{ marginTop: 8 }}>
-              Hollow dot = no example yet. Press <kbd>1</kbd>–<kbd>9</kbd> to switch.
+              Click a count to show only that type. Press <kbd>1</kbd>–<kbd>9</kbd> to switch.
             </p>
           </div>
 
@@ -977,6 +1006,13 @@ export function VerifyView({ drawingId, projectId, symTypes: passedSymTypes, onN
                       ? 'Detection runs in the background after upload — go back and retry in a moment.'
                       : 'Check the backend log (backend/logs/app.log) for details.')}
               </div>
+            </div>
+          )}
+          {isolate && (
+            <div className="isolate-banner">
+              Only <strong>{symTypes.find(t => t.code === isolate)?.name || isolate}</strong> shown ·
+              {' '}{countByType(isolate)} on this page
+              <button onClick={() => setIsolate(null)}>Show all</button>
             </div>
           )}
           {curDets.some(d => d.method === 'text_fallback') && (
