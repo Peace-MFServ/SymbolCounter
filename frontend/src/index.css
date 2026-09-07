@@ -608,3 +608,7 @@ select.form-control { cursor: pointer; }
 .count-table tfoot td { font-weight: 700; border-top: 2px solid var(--ink); border-bottom: 0; background: var(--paper); }
 .count-table tbody tr:last-child td { border-bottom: 0; }
 .link-btn.on { color: var(--accent); }
+
+.row-actions .menu { display: inline-block; }
+.row-actions .menu .btn.open { background: var(--ink); color: var(--paper); }
+.row-actions .menu-list { min-width: 220px; text-align: left; }

@@ -113,13 +113,19 @@ export function ProjectView({ id, onNavigate }) {
     } catch (err) { showToast('Export failed: ' + err.message, 'error') }
   }
 
-  const exportDrawingPDF = async (e, d) => {
-    e.stopPropagation()
+  const downloadDrawing = async (d, kind) => {
+    const base = (d.level || d.original_name || 'drawing').replace(/\.pdf$/i, '')
+    const jobs = {
+      pdf:      [`/drawings/${d.id}/export/pdf`,   `${base}_annotated.pdf`,   'Annotated PDF downloaded', 'Building PDF…'],
+      excel:    [`/drawings/${d.id}/export/excel`, `${base}_Symbol_Count.xlsx`, 'Excel downloaded', null],
+      original: [`/drawings/${d.id}/file`,         d.original_name || `${base}.pdf`, 'Original PDF downloaded', null],
+    }
+    const [url, file, msg, pre] = jobs[kind]
     try {
-      showToast('Building PDF…', 'info')
-      await downloadBlob(`/drawings/${d.id}/export/pdf`, `${d.level || d.original_name || 'drawing'}_annotated.pdf`)
-      showToast('Annotated PDF downloaded', 'success')
-    } catch (err) { showToast('Export failed: ' + err.message, 'error') }
+      if (pre) showToast(pre, 'info')
+      await downloadBlob(url, file)
+      showToast(msg, 'success')
+    } catch (err) { showToast('Download failed: ' + err.message, 'error') }
   }
 
   const openDrawing = d => onNavigate('verify', { drawingId: d.id, projectId: id })
@@ -264,8 +270,11 @@ export function ProjectView({ id, onNavigate }) {
                           <button className="btn btn-ghost btn-sm ok" onClick={e => approveDrawing(e, d.id)}>Approve</button>
                         )}
                         <button className="btn btn-sm" onClick={e => { e.stopPropagation(); openDrawing(d) }}>Review</button>
-                        <button className="btn btn-ghost btn-sm" title="Download this drawing with markers"
-                                onClick={e => exportDrawingPDF(e, d)}>PDF</button>
+                        <Menu label="Download" small items={[
+                          { label: 'Annotated PDF with counts', onClick: () => downloadDrawing(d, 'pdf') },
+                          { label: 'Excel count',               onClick: () => downloadDrawing(d, 'excel') },
+                          { label: 'Original PDF',              onClick: () => downloadDrawing(d, 'original') },
+                        ]} />
                         <button className="btn btn-ghost btn-sm danger" onClick={e => deleteDrawing(e, d.id)}>Delete</button>
                       </td>
                     </tr>
@@ -301,7 +310,7 @@ export function ProjectView({ id, onNavigate }) {
 }
 
 /* A small dropdown of secondary actions — one button in the header instead of five. */
-function Menu({ label, items }) {
+function Menu({ label, items, small = false }) {
   const [open, setOpen] = useState(false)
   const ref = useRef()
   useEffect(() => {
@@ -313,8 +322,9 @@ function Menu({ label, items }) {
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key) }
   }, [open])
   return (
-    <div className="menu" ref={ref}>
-      <button className={`btn${open ? ' open' : ''}`} onClick={() => setOpen(o => !o)} aria-haspopup="menu" aria-expanded={open}>
+    <div className="menu" ref={ref} onClick={e => e.stopPropagation()}>
+      <button className={`btn${small ? ' btn-sm btn-ghost' : ''}${open ? ' open' : ''}`}
+              onClick={() => setOpen(o => !o)} aria-haspopup="menu" aria-expanded={open}>
         {label}<span className="caret" />
       </button>
       {open && (

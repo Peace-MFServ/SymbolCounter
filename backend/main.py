@@ -833,6 +833,11 @@ def export_json(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cur
         headers={"Content-Disposition": f'attachment; filename="{safe_name}_export.json"'},
     )
 
+def _stem(filename: str) -> str:
+    """'Block BA05 Level 1.pdf' -> 'Block BA05 Level 1' for export file names."""
+    return re.sub(r'\.pdf$', '', filename or 'drawing', flags=re.I) or 'drawing'
+
+
 # ── PDF export helpers ────────────────────────────────────────────────────────
 def _pdf_font(size: int, bold: bool = False):
     from PIL import ImageFont
@@ -1048,6 +1053,28 @@ def _pdf_response(pil_imgs, filename: str):
                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
+@app.get("/api/drawings/{did}/export/excel")
+def export_drawing_excel(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Count workbook for one drawing, same layout as the project export."""
+    d = _draw404(did, cu.id, db)
+    safe_name = re.sub(r'[^\w\s\-]', '', _stem(d.original_name)).strip().replace(' ', '_') or 'drawing'
+    return StreamingResponse(
+        io.BytesIO(_build_excel(d.project, drawings=[d])),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_Symbol_Count.xlsx"'},
+    )
+
+
+@app.get("/api/drawings/{did}/file")
+def download_drawing_file(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """The PDF exactly as it was uploaded."""
+    d = _draw404(did, cu.id, db)
+    path = UPLOAD_DIR / d.filename / "drawing.pdf"
+    if not path.exists():
+        raise HTTPException(404, "Original file is no longer on disk")
+    return FileResponse(str(path), media_type="application/pdf", filename=d.original_name or "drawing.pdf")
+
+
 @app.get("/api/drawings/{did}/export/pdf")
 def export_drawing_pdf(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """One drawing: a count summary page, then every page with markers and a per-page count box."""
@@ -1056,7 +1083,7 @@ def export_drawing_pdf(did: int, db: Session = Depends(get_db), cu=Depends(auth.
     pil_imgs = _drawing_pages_pdf(d, colour, name, order)
     if not pil_imgs:
         raise HTTPException(404, "No pages with images found")
-    safe_name = re.sub(r'[^\w\s\-]', '', d.original_name or 'drawing').strip().replace(' ', '_') or 'drawing'
+    safe_name = re.sub(r'[^\w\s\-]', '', _stem(d.original_name)).strip().replace(' ', '_') or 'drawing'
     logger.info("PDF export: drawing %d (%d pages)", d.id, len(pil_imgs) - 1)
     return _pdf_response(pil_imgs, f"{safe_name}_annotated.pdf")
 
@@ -1741,7 +1768,7 @@ def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
         db.close()
 
 
-def _build_excel(project) -> bytes:
+def _build_excel(project, drawings=None) -> bytes:
     import openpyxl
     from openpyxl.utils import get_column_letter
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -1777,7 +1804,8 @@ def _build_excel(project) -> bytes:
     ws.row_dimensions[2].height = 18
 
     row_i = 3
-    for i, d in enumerate(project.drawings):
+    rows_src = list(drawings) if drawings is not None else list(project.drawings)
+    for i, d in enumerate(rows_src):
         cts   = d.total_counts; fill = GREY if i % 2 == 0 else WHT
         total = sum(cts.get(code, 0) for code in sym_codes)
         vals  = [d.block, d.level or d.original_name, d.revision, d.status] + \
@@ -1790,7 +1818,7 @@ def _build_excel(project) -> bytes:
                 c.font = Font(bold=True, color="1F4E79")
         row_i += 1
 
-    all_cts = [d.total_counts for d in project.drawings]
+    all_cts = [d.total_counts for d in rows_src]
     grand   = sum(sum(ct.get(c, 0) for c in sym_codes) for ct in all_cts)
     for col, code in enumerate(sym_codes, 5):
         c = ws.cell(row=row_i, column=col, value=sum(ct.get(code, 0) for ct in all_cts))
@@ -1804,7 +1832,7 @@ def _build_excel(project) -> bytes:
         ws.cell(row=row_i, column=col).font = Font(bold=True, color="FFFFFF")
         ws.cell(row=row_i, column=col).alignment = ctr
     ws.cell(row=row_i, column=1, value="TOTAL")
-    ws.cell(row=row_i, column=2, value=f"{len(project.drawings)} drawings")
+    ws.cell(row=row_i, column=2, value=f"{len(rows_src)} drawing{'s' if len(rows_src) != 1 else ''}")
 
     ws.column_dimensions["A"].width = 10
     ws.column_dimensions["B"].width = 36
