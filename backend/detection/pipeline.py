@@ -718,6 +718,7 @@ def run_full_detection(
     stored_templates: list = None,   # GlobalTemplate ORM objects
     drawing_firm: str = "",
     image_paths: list = None,        # pre-rendered page images; skips rendering
+    vector_pages: dict = None,       # {page_num: [vector detections]} — authoritative when present
 ) -> dict:
     """
     Full pipeline per page:
@@ -751,7 +752,29 @@ def run_full_detection(
         # Parse PDF text ONCE for this page (used for both symbol text and door refs)
         words, page_dims = parse_pdf_page_text(pdf_path, i)
 
-        # --- Template matching ---
+        # --- Vector detection (authoritative on CAD-exported PDFs) ---
+        # The geometry engine already matched legend signatures exactly and
+        # excluded the legend; pixel matching would only add noise here.
+        if vector_pages and i in vector_pages:
+            page_dets = [
+                {"type": d["type"], "imgX": round(d["x"], 5), "imgY": round(d["y"], 5),
+                 "confidence": d["confidence"], "verified": False, "method": "vector",
+                 "label": d["label"]}
+                for d in vector_pages[i]
+            ]
+            door_refs = find_door_references_from_words(words, page_dims)
+            for det in page_dets:
+                dr = nearest_door_ref(det, door_refs)
+                if dr:
+                    det["door_ref"] = dr
+            for d in page_dets:
+                summary[d["type"]] = summary.get(d["type"], 0) + 1
+            page_results.append({"page": i, "image_path": img_path,
+                                 "detections": page_dets, "door_refs": door_refs})
+            logger.info("Page %d: vector detection, %d symbols", i, len(page_dets))
+            continue
+
+        # --- Template matching (raster fallback for scanned drawings) ---
         img = None
         if db_templates_by_code:
             img = cv2.imread(img_path)

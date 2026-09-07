@@ -221,7 +221,7 @@ export function ProjectView({ id, onNavigate }) {
                   )}
                 </strong>
                 <span>
-                  {d.original_name} · {d.total_pages} page{d.total_pages !== 1 ? 's' : ''}
+                  {d.level ? `${d.original_name} · ` : ''}{d.total_pages} page{d.total_pages !== 1 ? 's' : ''}
                   {d.total_pages_count > 0 && ` · ${d.verified_pages}/${d.total_pages_count} verified`}
                 </span>
               </div>

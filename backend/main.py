@@ -41,7 +41,10 @@ from detection.pipeline import (run_full_detection, crop_template_from_page,
                                 find_door_references, render_pdf_pages)
 from detection.legend_harvest import (harvest_legend_templates,
                                       select_representative_templates,
-                                      build_alias_map, _norm64, _sim)
+                                      build_alias_map, match_label_to_code,
+                                      label_is_device_name, _norm64, _sim)
+from detection.pipeline import parse_pdf_page_text, find_legend_region
+from detection.vector import run_vector_detection
 
 logger = logging.getLogger(__name__)
 
@@ -995,7 +998,7 @@ def accuracy_scoreboard(db: Session = Depends(get_db), cu=Depends(auth.get_curre
         firm = (r.drawing_firm or "").strip() or "Unknown firm"
         by_firm.setdefault(firm, _bucket())[key] += 1
         method = (r.original_method or "").strip()
-        if method in ("template", "text", "text_fallback"):
+        if method in ("vector", "template", "text", "text_fallback"):
             by_method.setdefault(method, _bucket())[key] += 1
 
     name_map = {t["code"]: t["name"] for t in models.DEFAULT_SYMBOL_TYPES}
@@ -1398,6 +1401,69 @@ def _auto_code(name: str, existing: set) -> str:
     return code
 
 
+def _same_device(label: str, name: str) -> bool:
+    """
+    A legend label that is a truncated or abbreviated form of an existing
+    type name ("… COMPLETE WITH" vs "… COMPLETE WITH REMOTE INDICATOR",
+    "… WITH RI") names the same device: the two share a long word prefix
+    covering almost all of the shorter one.
+    """
+    a = re.findall(r"[A-Z0-9/]+", label.upper())
+    b = re.findall(r"[A-Z0-9/]+", name.upper())
+    n = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        n += 1
+    return n >= 4 and n >= 0.8 * min(len(a), len(b))
+
+
+def _ensure_symbol_types(db, proj, labels: list, symbol_codes: list) -> dict:
+    """
+    Map legend labels to symbol codes: configured types and aliases first,
+    then auto-create a project symbol type for any real device name the
+    legend lists that the project doesn't have yet. Returns {label: code}.
+    """
+    # A project only holds symbol type rows once something is added to it,
+    # and the built-in types must survive that — persist them first.
+    if not proj.symbol_types:
+        for st in models.DEFAULT_SYMBOL_TYPES:
+            db.add(models.ProjectSymbolType(**st, project_id=proj.id))
+        db.commit(); db.refresh(proj)
+    types = list(proj.symbol_types)
+    aliases = build_alias_map([(st.code, st.name) for st in types])
+    existing_codes = {st.code for st in types} | set(symbol_codes)
+    by_name = {" ".join(st.name.upper().split()): st.code for st in types}
+    order = max(st.sort_order for st in types)
+    out = {}
+    created = 0
+    # Longest names first, so a truncated variant folds into the full one
+    for label in sorted(labels, key=lambda s: (-len(s.split()), s)):
+        key = " ".join(label.upper().split())
+        code = (match_label_to_code(label, aliases)
+                or by_name.get(key)
+                or next((c for n, c in by_name.items() if _same_device(key, n)), None))
+        if not code and label_is_device_name(label):
+            order += 1
+            code = _auto_code(label.title(), existing_codes)
+            db.add(models.ProjectSymbolType(
+                name=label.strip().title(), code=code,
+                color=_TYPE_PALETTE[order % len(_TYPE_PALETTE)],
+                sort_order=order, project_id=proj.id,
+            ))
+            existing_codes.add(code)
+            by_name[key] = code
+            created += 1
+            logger.info("New symbol type %r (%s) from legend", label.strip().title(), code)
+        if code:
+            out[label] = code
+            if code not in symbol_codes:
+                symbol_codes.append(code)
+    if created:
+        db.commit()
+    return out
+
+
 def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
                    symbol_types_data: list, stored_tmpls_data: list, drawing_firm: str):
     """Background task — runs detection and updates drawing status."""
@@ -1456,50 +1522,57 @@ def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
             ))
         db.commit()
 
-        # Harvest this drawing's own legend into the template library first,
-        # so brand-new symbols (or a new firm's style) are detected on the
-        # very drawing that introduced them. Legend entries that match no
-        # configured symbol type become NEW project symbol types — every
-        # device a legend lists is countable.
+        # --- Vector detection (primary) ---
+        # CAD-exported PDFs describe every symbol as exact geometry. The
+        # vector engine parses the legend from that geometry and matches plan
+        # symbols to it precisely; pixel template matching is only a fallback
+        # for scanned drawings. Legend labels resolve to symbol codes via the
+        # configured types/aliases, auto-creating project types for any real
+        # device the legend lists — every device a legend lists is countable.
+        vector_pages: dict = {}
         try:
-            aliases = build_alias_map(symbol_types_data)
-            harvested = []
-            for i, img_path in enumerate(image_paths, start=1):
-                harvested += harvest_legend_templates(pdf_path, img_path, i,
-                                                      aliases=aliases,
-                                                      include_unmatched=True)
-            unmatched = [c for c in harvested if not c["code"]]
-            if unmatched and d.project:
-                proj = d.project
-                existing_codes = {st.code for st in proj.symbol_types} | set(symbol_codes)
-                by_name = {st.name.strip().upper(): st.code for st in proj.symbol_types}
-                order = max([st.sort_order for st in proj.symbol_types], default=len(symbol_codes))
-                for c in unmatched:
-                    name = c["label"].strip().title()
-                    key = name.upper()
-                    if key in by_name:
-                        c["code"] = by_name[key]
-                        continue
-                    order += 1
-                    code = _auto_code(name, existing_codes)
-                    db.add(models.ProjectSymbolType(
-                        name=name, code=code,
-                        color=_TYPE_PALETTE[order % len(_TYPE_PALETTE)],
-                        sort_order=order, project_id=proj.id,
-                    ))
-                    existing_codes.add(code)
-                    by_name[key] = code
-                    c["code"] = code
-                    symbol_codes.append(code)
-                    logger.info("Legend harvest: new symbol type %r (%s) from legend", name, code)
-                db.commit()
-            harvested = [c for c in harvested if c["code"]]
-            if harvested:
-                harvested = select_representative_templates(harvested)
-                stored_tmpls += [_TmplProxy(dd) for dd in
-                                 _ingest_legend_templates(db, harvested, drawing_firm)]
+            for i in range(1, len(image_paths) + 1):
+                words, dims = parse_pdf_page_text(pdf_path, i)
+                lb = find_legend_region(words, dims)
+                vr = run_vector_detection(pdf_path, i, lb)
+                if vr["is_vector"] and vr["legend"]:
+                    vector_pages[i] = vr
+            if vector_pages and d.project:
+                labels = sorted({lab for vr in vector_pages.values() for lab in vr["legend"]})
+                code_map = _ensure_symbol_types(db, d.project, labels, symbol_codes)
+                for i, vr in list(vector_pages.items()):
+                    mapped = []
+                    for det in vr["detections"]:
+                        code = code_map.get(det["label"])
+                        if code:
+                            mapped.append({**det, "type": code})
+                    vector_pages[i] = mapped
         except Exception:
-            logger.exception("Legend harvest failed — continuing with existing templates")
+            logger.exception("Vector detection failed — falling back to raster matching")
+            vector_pages = {}
+
+        # --- Raster fallback: harvest legend templates for scanned sheets ---
+        raster_pages = [i for i in range(1, len(image_paths) + 1) if i not in vector_pages]
+        if raster_pages:
+            try:
+                aliases = build_alias_map(symbol_types_data)
+                harvested = []
+                for i in raster_pages:
+                    harvested += harvest_legend_templates(pdf_path, image_paths[i - 1], i,
+                                                          aliases=aliases, include_unmatched=True)
+                if harvested and d.project:
+                    labels = sorted({c["label"] for c in harvested if not c["code"]})
+                    code_map = _ensure_symbol_types(db, d.project, labels, symbol_codes)
+                    for c in harvested:
+                        if not c["code"]:
+                            c["code"] = code_map.get(c["label"])
+                harvested = [c for c in harvested if c["code"]]
+                if harvested:
+                    harvested = select_representative_templates(harvested)
+                    stored_tmpls += [_TmplProxy(dd) for dd in
+                                     _ingest_legend_templates(db, harvested, drawing_firm)]
+            except Exception:
+                logger.exception("Legend harvest failed — continuing with existing templates")
 
         results = run_full_detection(
             pdf_path, pages_dir,
@@ -1507,6 +1580,7 @@ def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
             stored_templates=stored_tmpls,
             drawing_firm=drawing_firm,
             image_paths=image_paths,
+            vector_pages=vector_pages or None,
         )
         pages_by_num = {
             p.page_number: p
