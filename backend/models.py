@@ -133,6 +133,8 @@ class Project(Base):
     site          = Column(String, default="")
     description   = Column(Text, default="")
     drawing_firm  = Column(String, default="")
+    quote_no      = Column(String, default="")
+    rep           = Column(String, default="")
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
     owner_id      = Column(Integer, ForeignKey("users.id"))
@@ -185,3 +187,91 @@ class DrawingPage(Base):
     verified            = Column(Boolean, default=False)
     drawing_id          = Column(Integer, ForeignKey("drawings.id"))
     drawing             = relationship("Drawing", back_populates="pages")
+
+
+# ── Ironmongery scheduling ────────────────────────────────────────────────────
+class Product(Base):
+    """One catalogue line, loaded from the Cin7 price list export."""
+    __tablename__ = "products"
+    id          = Column(Integer, primary_key=True, index=True)
+    sku         = Column(String, unique=True, index=True, nullable=False)
+    name        = Column(String, nullable=False)
+    category    = Column(String, default="Other")
+    unit        = Column(String, default="EACH")
+    cost        = Column(Float, nullable=True)        # Cin7 average cost
+    sell        = Column(Float, nullable=True)        # quoted price, when one exists
+    intec_code  = Column(String, default="")          # the code Intec used for the same item
+    image_path  = Column(String, default="")
+    notes       = Column(Text, default="")
+    active      = Column(Boolean, default=True)
+    source      = Column(String, default="cin7")
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at  = Column(DateTime(timezone=True), onupdate=func.now())
+    set_items   = relationship("SetItem", back_populates="product")
+
+
+class HardwareSet(Base):
+    """A named bundle of products with quantities per door, reused across jobs."""
+    __tablename__ = "hardware_sets"
+    id             = Column(Integer, primary_key=True, index=True)
+    code           = Column(String, nullable=False, index=True)   # "MF 04"
+    name           = Column(String, nullable=False)               # "Int Sgl Apartment Entrance FR"
+    description    = Column(Text, default="")
+    fire_rated     = Column(Boolean, default=False)
+    notes          = Column(Text, default="")
+    archived       = Column(Boolean, default=False)
+    copied_from_id = Column(Integer, ForeignKey("hardware_sets.id"), nullable=True)
+    created_by_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at     = Column(DateTime(timezone=True), onupdate=func.now())
+    items          = relationship("SetItem", back_populates="hardware_set",
+                                  cascade="all, delete-orphan", order_by="SetItem.sort_order")
+
+
+class SetItem(Base):
+    __tablename__ = "set_items"
+    id            = Column(Integer, primary_key=True, index=True)
+    set_id        = Column(Integer, ForeignKey("hardware_sets.id"), nullable=False)
+    product_id    = Column(Integer, ForeignKey("products.id"), nullable=False)
+    qty           = Column(Integer, default=1)
+    sort_order    = Column(Integer, default=0)
+    hardware_set  = relationship("HardwareSet", back_populates="items")
+    product       = relationship("Product", back_populates="set_items")
+
+
+class DoorType(Base):
+    """A kind of door on a project (DT-01 Room Entrance Door), which gets one set."""
+    __tablename__ = "door_types"
+    id           = Column(Integer, primary_key=True, index=True)
+    project_id   = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    code         = Column(String, nullable=False)          # "DT-01"
+    description  = Column(String, default="")              # "Room Entrance Door"
+    fire_rating  = Column(String, default="")              # "FD30s"
+    acoustic     = Column(String, default="")              # "37dB Rw"
+    width        = Column(Integer, nullable=True)
+    height       = Column(Integer, nullable=True)
+    spec_text    = Column(Text, default="")                # architect's ironmongery list
+    status       = Column(String, default="decide")        # decide | assigned | excluded
+    set_id       = Column(Integer, ForeignKey("hardware_sets.id"), nullable=True)
+    sort_order   = Column(Integer, default=0)
+    hardware_set = relationship("HardwareSet")
+    doors        = relationship("Door", back_populates="door_type")
+
+
+class Door(Base):
+    """One door on a project: found on a plan, imported from a schedule, or typed."""
+    __tablename__ = "doors"
+    id            = Column(Integer, primary_key=True, index=True)
+    project_id    = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    door_type_id  = Column(Integer, ForeignKey("door_types.id"), nullable=True)
+    ref           = Column(String, default="")             # "D01-001" or generated
+    floor         = Column(String, default="")
+    handed        = Column(Boolean, default=False)
+    drawing_id    = Column(Integer, ForeignKey("drawings.id"), nullable=True)
+    page_number   = Column(Integer, default=1)
+    x             = Column(Float, nullable=True)            # normalised position on the page
+    y             = Column(Float, nullable=True)
+    set_id        = Column(Integer, ForeignKey("hardware_sets.id"), nullable=True)  # per-door override
+    source        = Column(String, default="plan")          # plan | schedule | manual
+    note          = Column(String, default="")
+    door_type     = relationship("DoorType", back_populates="doors")

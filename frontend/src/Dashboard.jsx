@@ -28,6 +28,8 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
       {user && onNavigate && !compact && (
         <nav className="topnav">
           <a className={active === 'projects' ? 'on' : ''} onClick={() => onNavigate('dashboard')}>Projects</a>
+          <a className={active === 'products' ? 'on' : ''} onClick={() => onNavigate('products')}>Products</a>
+          <a className={active === 'sets' ? 'on' : ''} onClick={() => onNavigate('sets')}>Sets</a>
           <a className={active === 'accuracy' ? 'on' : ''} onClick={() => onNavigate('accuracy')}>Accuracy</a>
         </nav>
       )}

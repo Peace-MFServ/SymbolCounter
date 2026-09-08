@@ -5,6 +5,8 @@ import { ProjectView } from './ProjectView'
 import { VerifyView } from './VerifyView'
 import { TemplatesView } from './TemplatesView'
 import { AccuracyView } from './AccuracyView'
+import { ProductsView } from './ProductsView'
+import { SetsView, SetEditor } from './SetsView'
 
 export default function App() {
   const { user, loading } = useAuth()
@@ -51,6 +53,12 @@ export default function App() {
       return <TemplatesView onNavigate={navigate} />
     case 'accuracy':
       return <AccuracyView onNavigate={navigate} />
+    case 'products':
+      return <ProductsView onNavigate={navigate} />
+    case 'sets':
+      return <SetsView onNavigate={navigate} />
+    case 'set':
+      return <SetEditor id={params.id} onNavigate={navigate} />
     default:
       return <Dashboard onNavigate={navigate} />
   }

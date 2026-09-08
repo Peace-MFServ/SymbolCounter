@@ -110,6 +110,12 @@ def _ensure_columns():
                     "ALTER TABLE drawings ADD COLUMN error_message TEXT"
                 ))
                 logger.info("Migrated: added drawings.error_message")
+            prows = conn.execute(_sa.text("PRAGMA table_info(projects)")).fetchall()
+            pexisting = {row[1] for row in prows}
+            for colname in ("quote_no", "rep"):
+                if colname not in pexisting:
+                    conn.execute(_sa.text(f"ALTER TABLE projects ADD COLUMN {colname} TEXT DEFAULT ''"))
+                    logger.info("Migrated: added projects.%s", colname)
     except Exception as exc:
         logger.error("Column migration failed: %s", exc)
 
@@ -162,11 +168,13 @@ class Token(BaseModel):
 class ProjectCreate(BaseModel):
     name: str; client: str = ""; site: str = ""
     description: str = ""; drawing_firm: str = ""
+    quote_no: str = ""; rep: str = ""
 
 class ProjectOut(BaseModel):
     id: int; name: str; client: str; site: str
     description: str; drawing_firm: str; drawing_count: int = 0
     verified_count: int = 0; approved_count: int = 0
+    quote_no: str = ""; rep: str = ""
     class Config: from_attributes = True
 
 class DrawingOut(BaseModel):
@@ -226,6 +234,10 @@ class PositionCorrectionPayload(BaseModel):
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
+# Ironmongery scheduling module (products, sets, doors, schedule output)
+from schedule import router as schedule_router
+app.include_router(schedule_router)
+
 @app.post("/api/auth/register", response_model=Token, status_code=201)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
     if db.query(models.User).filter(models.User.email == payload.email).first():
@@ -292,7 +304,7 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db),
                    cu=Depends(auth.get_current_user)):
     p = models.Project(**payload.model_dump(), owner_id=cu.id)
     db.add(p); db.commit(); db.refresh(p)
-    return ProjectOut(id=p.id, name=p.name, client=p.client, site=p.site,
+    return ProjectOut(id=p.id, name=p.name, client=p.client, site=p.site, quote_no=p.quote_no or "", rep=p.rep or "",
                       description=p.description, drawing_firm=p.drawing_firm, drawing_count=0)
 
 @app.get("/api/projects/{pid}", response_model=ProjectOut)
@@ -300,7 +312,7 @@ def get_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cur
     p = _proj404(pid, cu.id, db)
     vc = sum(1 for d in p.drawings if d.status in ("verified", "approved"))
     ac = sum(1 for d in p.drawings if d.status == "approved")
-    return ProjectOut(id=p.id, name=p.name, client=p.client, site=p.site,
+    return ProjectOut(id=p.id, name=p.name, client=p.client, site=p.site, quote_no=p.quote_no or "", rep=p.rep or "",
                       description=p.description, drawing_firm=p.drawing_firm,
                       drawing_count=len(p.drawings), verified_count=vc, approved_count=ac)
 
@@ -311,7 +323,7 @@ def update_project(pid: int, payload: ProjectCreate, db: Session = Depends(get_d
     for k, v in payload.model_dump().items():
         setattr(p, k, v)
     db.commit(); db.refresh(p)
-    return ProjectOut(id=p.id, name=p.name, client=p.client, site=p.site,
+    return ProjectOut(id=p.id, name=p.name, client=p.client, site=p.site, quote_no=p.quote_no or "", rep=p.rep or "",
                       description=p.description, drawing_firm=p.drawing_firm,
                       drawing_count=len(p.drawings))
 
