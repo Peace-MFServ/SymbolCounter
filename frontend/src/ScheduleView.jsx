@@ -17,7 +17,7 @@ export function ScheduleView({ projectId, onNavigate }) {
     const [d, p] = await Promise.all([apiFetch(`/projects/${projectId}/schedule`), apiFetch(`/projects/${projectId}`)])
     setData(d)
     setJob({ name: p.name, client: p.client || '', site: p.site || '', description: p.description || '',
-             drawing_firm: p.drawing_firm || '', quote_no: p.quote_no || '', rep: p.rep || '' })
+             drawing_firm: p.drawing_firm || '', quote_no: p.quote_no || '', rep: p.rep || '', kind: p.kind || 'symbols' })
   }
   useEffect(() => { load() }, [projectId])
 
@@ -39,12 +39,14 @@ export function ScheduleView({ projectId, onNavigate }) {
     setBusy('')
   }
 
-  const crumbs = [
-    { label: 'Projects', onClick: () => onNavigate('dashboard') },
-    { label: job?.name || '…', onClick: () => onNavigate('project', { id: projectId }) },
-    { label: 'Doors', onClick: () => onNavigate('doors', { id: projectId }) },
-    { label: 'Schedule' },
-  ]
+  const crumbs = job?.kind === 'doors'
+    ? [{ label: 'Projects', onClick: () => onNavigate('dashboard') },
+       { label: job?.name || '…', onClick: () => onNavigate('doors', { id: projectId }) },
+       { label: 'Schedule' }]
+    : [{ label: 'Projects', onClick: () => onNavigate('dashboard') },
+       { label: job?.name || '…', onClick: () => onNavigate('project', { id: projectId }) },
+       { label: 'Doors', onClick: () => onNavigate('doors', { id: projectId }) },
+       { label: 'Schedule' }]
   if (!data || !job) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div></>
 
   const nothing = data.sets.length === 0

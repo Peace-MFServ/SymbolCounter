@@ -701,3 +701,22 @@ tr.sub-row:hover > td { background: var(--bg2); }
 .check-list li.warn::before { background: var(--accent); }
 .check-list li.ok::before { background: var(--ok); }
 .rail-panel.warn { border-color: var(--accent); }
+
+/* ── Project kind, plans strip ──────────────────────────────────────────── */
+.kind-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+.kind-pick button { text-align: left; padding: 12px 14px; background: var(--bg2); border: 2px solid var(--border); cursor: pointer; font-family: inherit; color: var(--ink); }
+.kind-pick button strong { display: block; font-family: var(--font-display); font-size: 17px; margin-bottom: 4px; }
+.kind-pick button span { font-size: 13px; color: var(--text2); line-height: 1.35; }
+.kind-pick button.on { border-color: var(--accent); background: #fff; }
+.plans-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.plan-chip { display: flex; align-items: center; gap: 10px; padding: 7px 10px 7px 12px; border: 1px solid var(--border); background: var(--bg2); font-size: 13px; }
+.plan-chip .plan-name { font-weight: 600; }
+.plan-chip .plan-doors { color: var(--text2); display: inline-flex; align-items: center; gap: 6px; }
+.plan-chip.error { border-color: var(--red); }
+.plan-chip.error .plan-doors { color: var(--red); }
+.plan-chip .plan-x { border: 0; background: transparent; color: var(--text3); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.plan-chip .plan-x:hover { color: var(--red); }
+.plan-chip.add { border-style: dashed; color: var(--text3); cursor: pointer; }
+.plan-chip.add.over, .plan-chip.add:hover { border-color: var(--accent); color: var(--accent); }
+.step-hint { margin: 0 0 12px; font-size: 14px; color: var(--text2); }
+.count-num .of { font-size: 12px; color: var(--text3); font-weight: 400; }

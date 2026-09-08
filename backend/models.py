@@ -135,6 +135,7 @@ class Project(Base):
     drawing_firm  = Column(String, default="")
     quote_no      = Column(String, default="")
     rep           = Column(String, default="")
+    kind          = Column(String, default="symbols")   # "symbols" (device counting) | "doors" (ironmongery schedule)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
     owner_id      = Column(Integer, ForeignKey("users.id"))

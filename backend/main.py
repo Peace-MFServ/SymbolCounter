@@ -116,6 +116,9 @@ def _ensure_columns():
                 if colname not in pexisting:
                     conn.execute(_sa.text(f"ALTER TABLE projects ADD COLUMN {colname} TEXT DEFAULT ''"))
                     logger.info("Migrated: added projects.%s", colname)
+            if "kind" not in pexisting:
+                conn.execute(_sa.text("ALTER TABLE projects ADD COLUMN kind TEXT DEFAULT 'symbols'"))
+                logger.info("Migrated: added projects.kind")
     except Exception as exc:
         logger.error("Column migration failed: %s", exc)
 
@@ -168,14 +171,28 @@ class Token(BaseModel):
 class ProjectCreate(BaseModel):
     name: str; client: str = ""; site: str = ""
     description: str = ""; drawing_firm: str = ""
-    quote_no: str = ""; rep: str = ""
+    quote_no: str = ""; rep: str = ""; kind: str = "symbols"
 
 class ProjectOut(BaseModel):
     id: int; name: str; client: str; site: str
     description: str; drawing_firm: str; drawing_count: int = 0
     verified_count: int = 0; approved_count: int = 0
-    quote_no: str = ""; rep: str = ""
+    quote_no: str = ""; rep: str = ""; kind: str = "symbols"
+    door_count: int = 0; door_types_to_decide: int = 0
     class Config: from_attributes = True
+
+
+def _project_out(p: models.Project, db: Session) -> ProjectOut:
+    vc = sum(1 for d in p.drawings if d.status in ("verified", "approved"))
+    ac = sum(1 for d in p.drawings if d.status == "approved")
+    doors = db.query(models.Door).filter(models.Door.project_id == p.id).count()
+    decide = db.query(models.DoorType).filter(models.DoorType.project_id == p.id,
+                                              models.DoorType.status == "decide").count()
+    return ProjectOut(id=p.id, name=p.name, client=p.client or "", site=p.site or "",
+                      description=p.description or "", drawing_firm=p.drawing_firm or "",
+                      drawing_count=len(p.drawings), verified_count=vc, approved_count=ac,
+                      quote_no=p.quote_no or "", rep=p.rep or "", kind=p.kind or "symbols",
+                      door_count=doors, door_types_to_decide=decide)
 
 class DrawingOut(BaseModel):
     id: int; original_name: str; block: str; level: str
@@ -287,45 +304,33 @@ def serve_template_image(filename: str, cu=Depends(auth.get_current_user)):
 # ── Projects ──────────────────────────────────────────────────────────────────
 @app.get("/api/projects", response_model=list[ProjectOut])
 def list_projects(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    ps = db.query(models.Project).filter(models.Project.owner_id == cu.id).all()
-    result = []
-    for p in ps:
-        vc = sum(1 for d in p.drawings if d.status in ("verified", "approved"))
-        ac = sum(1 for d in p.drawings if d.status == "approved")
-        result.append(ProjectOut(
-            id=p.id, name=p.name, client=p.client, site=p.site,
-            description=p.description, drawing_firm=p.drawing_firm,
-            drawing_count=len(p.drawings), verified_count=vc, approved_count=ac,
-        ))
-    return result
+    ps = db.query(models.Project).filter(models.Project.owner_id == cu.id).order_by(models.Project.id.desc()).all()
+    return [_project_out(p, db) for p in ps]
 
 @app.post("/api/projects", response_model=ProjectOut, status_code=201)
 def create_project(payload: ProjectCreate, db: Session = Depends(get_db),
                    cu=Depends(auth.get_current_user)):
+    if payload.kind not in ("symbols", "doors"):
+        raise HTTPException(400, "Project kind must be 'symbols' or 'doors'")
     p = models.Project(**payload.model_dump(), owner_id=cu.id)
     db.add(p); db.commit(); db.refresh(p)
-    return ProjectOut(id=p.id, name=p.name, client=p.client, site=p.site, quote_no=p.quote_no or "", rep=p.rep or "",
-                      description=p.description, drawing_firm=p.drawing_firm, drawing_count=0)
+    return _project_out(p, db)
 
 @app.get("/api/projects/{pid}", response_model=ProjectOut)
 def get_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     p = _proj404(pid, cu.id, db)
-    vc = sum(1 for d in p.drawings if d.status in ("verified", "approved"))
-    ac = sum(1 for d in p.drawings if d.status == "approved")
-    return ProjectOut(id=p.id, name=p.name, client=p.client, site=p.site, quote_no=p.quote_no or "", rep=p.rep or "",
-                      description=p.description, drawing_firm=p.drawing_firm,
-                      drawing_count=len(p.drawings), verified_count=vc, approved_count=ac)
+    return _project_out(p, db)
 
 @app.put("/api/projects/{pid}", response_model=ProjectOut)
 def update_project(pid: int, payload: ProjectCreate, db: Session = Depends(get_db),
                    cu=Depends(auth.get_current_user)):
     p = _proj404(pid, cu.id, db)
     for k, v in payload.model_dump().items():
+        if k == "kind" and v not in ("symbols", "doors"):
+            continue
         setattr(p, k, v)
     db.commit(); db.refresh(p)
-    return ProjectOut(id=p.id, name=p.name, client=p.client, site=p.site, quote_no=p.quote_no or "", rep=p.rep or "",
-                      description=p.description, drawing_firm=p.drawing_firm,
-                      drawing_count=len(p.drawings))
+    return _project_out(p, db)
 
 @app.delete("/api/projects/{pid}", status_code=204)
 def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
@@ -518,7 +523,7 @@ async def upload_drawing(pid: int, background_tasks: BackgroundTasks,
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDF files accepted")
 
-    if not POPPLER_OK:
+    if not POPPLER_OK and (p.kind or "symbols") != "doors":
         raise HTTPException(503,
             "Cannot process PDFs: Poppler is not installed on the server. "
             "Install it (winget install poppler), reopen the terminal, and restart the backend.")
@@ -547,6 +552,11 @@ async def upload_drawing(pid: int, background_tasks: BackgroundTasks,
         status="uploaded", project_id=pid,
     )
     db.add(drawing); db.commit(); db.refresh(drawing)
+
+    if (p.kind or "symbols") == "doors":
+        # A door-schedule project only needs the door tags; no device detection.
+        background_tasks.add_task(_run_door_scan, drawing.id, str(pdf_path))
+        return _drawing_out(drawing)
 
     symbol_types_data = [(st.code, st.name) for st in p.symbol_types] or \
                         [(st["code"], st["name"]) for st in models.DEFAULT_SYMBOL_TYPES]
@@ -1793,6 +1803,37 @@ def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
                 d.status = "error"
                 d.error_message = f"{type(e).__name__}: {e}"[:500]
                 db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _run_door_scan(drawing_id: int, pdf_path: str):
+    """Background task for door-schedule projects: read the door tags, nothing else."""
+    from database import SessionLocal
+    from schedule import sync_doors_from_drawing
+    db = SessionLocal()
+    try:
+        d = db.query(models.Drawing).filter(models.Drawing.id == drawing_id).first()
+        if not d:
+            return
+        d.status = "processing"; db.commit()
+        try:
+            import pymupdf as _fitz
+        except ImportError:
+            import fitz as _fitz
+        with _fitz.open(pdf_path) as doc:
+            d.total_pages = doc.page_count
+        n = sync_doors_from_drawing(db, d, pdf_path)
+        d.status = "detected"; db.commit()
+        logger.info("Drawing %d: %d door tags read", drawing_id, n)
+    except Exception as e:
+        logger.exception("Door scan failed for drawing %d", drawing_id)
+        try:
+            d = db.query(models.Drawing).filter(models.Drawing.id == drawing_id).first()
+            if d:
+                d.status = "error"; d.error_message = f"{type(e).__name__}: {e}"[:500]; db.commit()
         except Exception:
             pass
     finally:

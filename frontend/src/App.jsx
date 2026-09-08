@@ -58,7 +58,7 @@ export default function App() {
     case 'products':
       return <ProductsView onNavigate={navigate} />
     case 'sets':
-      return <SetsView onNavigate={navigate} />
+      return <SetsView onNavigate={navigate} autoImport={!!params.importIntec} />
     case 'set':
       return <SetEditor id={params.id} onNavigate={navigate} />
     case 'doors':

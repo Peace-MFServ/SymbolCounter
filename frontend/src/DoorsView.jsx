@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
+import { Menu } from './ProjectView'
 
 const STATUS = {
   decide:   ['badge-orange', 'To decide'],
@@ -21,8 +22,11 @@ export function DoorsView({ projectId, onNavigate }) {
   const [open,      setOpen]      = useState(null)      // expanded door type id
   const [doors,     setDoors]     = useState({})        // type id -> [doors]
   const [editing,   setEditing]   = useState(null)      // door type (or EMPTY_TYPE) in the modal
-  const [busy,      setBusy]      = useState('')        // 'import' | 'rescan' | 'apply'
+  const [busy,      setBusy]      = useState('')        // 'import' | 'rescan' | 'apply' | 'upload'
+  const [dragOver,  setDragOver]  = useState(false)
   const fileRef = useRef()
+  const planRef = useRef()
+  const pollRef = useRef()
 
   const load = async () => {
     const [p, s, hs] = await Promise.all([
@@ -38,6 +42,39 @@ export function DoorsView({ projectId, onNavigate }) {
     setDoors(x => ({ ...x, [tid]: ds || [] }))
   }
   useEffect(() => { load() }, [projectId])
+
+  // While a plan is still being read, refresh every few seconds.
+  const scanning = !!summary?.plan_list?.some(p => ['uploaded', 'processing'].includes(p.status))
+  useEffect(() => {
+    if (!scanning) { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } ; return }
+    if (pollRef.current) return
+    pollRef.current = setInterval(async () => {
+      const s = await apiFetch(`/projects/${projectId}/doors/summary`).catch(() => null)
+      if (s) { setSummary(s); setDoors({}) }
+    }, 2500)
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
+  }, [scanning, projectId])
+
+  const uploadPlans = useCallback(async files => {
+    const pdfs = Array.from(files || []).filter(f => f.name.toLowerCase().endsWith('.pdf'))
+    if (!pdfs.length) { showToast('Drop PDF floor plans', 'error'); return }
+    setBusy('upload')
+    let ok = 0
+    for (const f of pdfs) {
+      const form = new FormData(); form.append('file', f)
+      try { await apiFetch(`/projects/${projectId}/drawings`, { method: 'POST', body: form }); ok++ }
+      catch (err) { showToast(`${f.name}: ${err.message}`, 'error') }
+    }
+    if (ok) showToast(`${ok} plan${ok !== 1 ? 's' : ''} uploaded, reading door tags…`, 'success')
+    setBusy('')
+    await load()
+  }, [projectId])
+
+  const removePlan = async p => {
+    if (!confirm(`Remove ${p.name} and its ${p.doors} door${p.doors !== 1 ? 's' : ''}?`)) return
+    await apiFetch(`/drawings/${p.id}`, { method: 'DELETE' })
+    setDoors({}); await load()
+  }
 
   const toggle = tid => {
     if (open === tid) { setOpen(null); return }
@@ -118,53 +155,80 @@ export function DoorsView({ projectId, onNavigate }) {
     setBusy('')
   }
 
-  const crumbs = [
-    { label: 'Projects', onClick: () => onNavigate('dashboard') },
-    { label: project?.name || '…', onClick: () => onNavigate('project', { id: projectId }) },
-    { label: 'Doors' },
-  ]
+  const isDoorsProject = summary?.kind === 'doors'
+  const crumbs = isDoorsProject
+    ? [{ label: 'Projects', onClick: () => onNavigate('dashboard') }, { label: project?.name || '…' }]
+    : [{ label: 'Projects', onClick: () => onNavigate('dashboard') },
+       { label: project?.name || '…', onClick: () => onNavigate('project', { id: projectId }) },
+       { label: 'Doors' }]
   if (!summary) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div></>
 
   const types = summary.door_types
   const decided = summary.assigned + summary.excluded
-  const nothing = summary.doors === 0 && types.length === 0
+  const plans = summary.plan_list || []
+  const nothing = summary.doors === 0 && types.length === 0 && plans.length === 0
+  const dropProps = {
+    onDragOver:  e => { e.preventDefault(); setDragOver(true) },
+    onDragLeave: () => setDragOver(false),
+    onDrop:      e => { e.preventDefault(); setDragOver(false); uploadPlans(e.dataTransfer.files) },
+  }
 
   return (
     <>
       <Topbar crumbs={crumbs} onNavigate={onNavigate} />
-      <div className="page-wrap">
+      <div className="page-wrap" {...dropProps}>
         <div className="page-header">
           <div>
-            <h1>Doors</h1>
+            <h1>{isDoorsProject ? project?.name : 'Doors'}</h1>
             <p className="lede">
-              {nothing ? 'Door tags are read off the plans as they are uploaded.'
-                : `${summary.doors} doors on ${summary.plans} plan${summary.plans !== 1 ? 's' : ''}, ${types.length} door type${types.length !== 1 ? 's' : ''}. Pick a set for each type; every door of that type gets it.`}
+              {isDoorsProject && [project?.quote_no && `Quote ${project.quote_no}`, project?.client, project?.site].filter(Boolean).join(' · ')}
+              {isDoorsProject && summary.doors > 0 && ' · '}
+              {nothing ? (isDoorsProject ? '' : 'Door tags are read off the plans as they are uploaded.')
+                : `${summary.doors} doors on ${summary.plans} plan${summary.plans !== 1 ? 's' : ''}, ${types.length} door type${types.length !== 1 ? 's' : ''}.`}
             </p>
           </div>
           <div className="spacer" />
           <div className="actions">
-            <button className="btn" onClick={() => fileRef.current.click()} disabled={busy === 'import'}>
-              {busy === 'import' ? <><span className="spinner" /> Importing…</> : 'Import door schedule'}
-            </button>
+            <Menu label="More" items={[
+              { label: 'Import door schedule (Excel)', onClick: () => fileRef.current.click() },
+              { label: 'Rescan plans', onClick: rescan },
+              { label: 'Add a door type', onClick: () => setEditing({ ...EMPTY_TYPE }) },
+            ]} />
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" style={{ display: 'none' }}
                    onChange={e => { importSchedule(e.target.files[0]); e.target.value = '' }} />
-            <button className="btn" onClick={rescan} disabled={busy === 'rescan'}>{busy === 'rescan' ? <><span className="spinner" /> Reading…</> : 'Rescan plans'}</button>
-            <button className="btn" onClick={() => setEditing({ ...EMPTY_TYPE })}>Add door type</button>
+            <input ref={planRef} type="file" accept=".pdf" multiple style={{ display: 'none' }}
+                   onChange={e => { uploadPlans(e.target.files); e.target.value = '' }} />
+            <button className="btn" onClick={() => planRef.current.click()} disabled={busy === 'upload'}>
+              {busy === 'upload' ? <><span className="spinner" /> Uploading…</> : 'Upload plans'}
+            </button>
             {!nothing && <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })}>Produce schedule</button>}
           </div>
         </div>
 
         {nothing ? (
-          <div className="empty-state">
-            <h2>No doors yet.</h2>
-            <p>Upload the architect's GA plans on the project page and the door tags (DT-01, D01-001 …) are picked up automatically. The door schedule spreadsheet adds descriptions, sizes and fire ratings.</p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button className="btn btn-primary" onClick={() => onNavigate('project', { id: projectId })}>Go to drawings</button>
-              <button className="btn" onClick={() => fileRef.current.click()}>Import door schedule</button>
-            </div>
+          <div className={`empty-state drop-zone${dragOver ? ' over' : ''}`} onClick={() => planRef.current.click()}>
+            <h2>Step 1: drop the architect's floor plans here.</h2>
+            <p>The door tags on them (DT-01, DT-02 …) are read in a few seconds and become the door list. Then you pick a hardware set for each kind of door, and the schedule comes out.</p>
+            <button className="btn btn-primary" onClick={e => { e.stopPropagation(); planRef.current.click() }}>Upload plans</button>
           </div>
         ) : (
           <>
+            {plans.length > 0 && (
+              <div className="plans-strip">
+                {plans.map(p => (
+                  <div key={p.id} className={`plan-chip ${p.status}`} title={p.error || p.name}>
+                    <span className="plan-name">{p.name}</span>
+                    <span className="plan-doors">
+                      {['uploaded', 'processing'].includes(p.status) ? <><span className="spinner" /> reading…</>
+                        : p.status === 'error' ? 'failed' : `${p.doors} door${p.doors !== 1 ? 's' : ''}`}
+                    </span>
+                    <button className="plan-x" onClick={() => removePlan(p)} title="Remove this plan">×</button>
+                  </div>
+                ))}
+                <div className={`plan-chip add${dragOver ? ' over' : ''}`} onClick={() => planRef.current.click()}>Drop more plans here</div>
+              </div>
+            )}
+
             <div className="pv-stats">
               <div className="pv-stat"><div className="num">{summary.doors}</div><div className="lbl">Doors</div></div>
               <div className="pv-stat"><div className="num">{types.length}</div><div className="lbl">Door types</div></div>
@@ -183,6 +247,16 @@ export function DoorsView({ projectId, onNavigate }) {
               </div>
             )}
 
+            {types.length > 0 && decided === 0 && summary.sets_available > 0 && (
+              <p className="step-hint">Step 2: for each kind of door below, choose the hardware set that goes on it. Every door of that kind gets the set.</p>
+            )}
+            {types.length > 0 && summary.sets_available === 0 && (
+              <div className="suggest-bar">
+                <div><strong>There are no hardware sets yet, so there is nothing to choose.</strong>
+                  <span className="muted"> Import an old Intec schedule to load the sets Evan already uses, or build one by hand.</span></div>
+                <button className="btn btn-sm" onClick={() => onNavigate('sets', { importIntec: true })}>Import Intec schedule</button>
+              </div>
+            )}
             <table className="ledger door-table">
               <thead>
                 <tr><th>Type</th><th>Description</th><th style={{ textAlign: 'right' }}>Doors</th><th>Where</th><th>Set</th><th>Status</th><th></th></tr>
@@ -232,9 +306,9 @@ export function DoorsView({ projectId, onNavigate }) {
                 })}
               </tbody>
             </table>
-            {sets.length === 0 && (
+            {sets.length === 0 && types.length > 0 && (
               <p className="hint" style={{ marginTop: 10 }}>
-                There are no hardware sets yet. <button className="link-btn" onClick={() => onNavigate('set', { id: 'new' })}>Create the first set</button> and it will appear in the Set column.
+                Or <button className="link-btn" onClick={() => onNavigate('set', { id: 'new' })}>build a set by hand</button> and it will appear in the Set column.
               </p>
             )}
           </>

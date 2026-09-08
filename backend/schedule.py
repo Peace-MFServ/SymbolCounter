@@ -417,11 +417,14 @@ class DoorIn(BaseModel):
     ref: str = ""; floor: str = ""; handed: bool = False
     door_type_id: Optional[int] = None; set_id: Optional[int] = None; note: str = ""
 
+class PlanOut(BaseModel):
+    id: int; name: str; floor: str = ""; doors: int = 0; status: str = ""; error: str = ""
+
 class DoorsSummary(BaseModel):
-    project_id: int; doors: int; plans: int; untyped_doors: int
+    project_id: int; kind: str = "symbols"; doors: int; plans: int; untyped_doors: int
     decide: int; assigned: int; excluded: int
-    assigned_doors: int; suggestions: int
-    floors: list[str] = []; door_types: list[DoorTypeOut] = []
+    assigned_doors: int; suggestions: int; sets_available: int = 0
+    floors: list[str] = []; door_types: list[DoorTypeOut] = []; plan_list: list[PlanOut] = []
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -559,6 +562,23 @@ def _get_or_create_type(db: Session, pid: int, code: str, cache: dict) -> models
     if key in cache:
         return cache[key]
     dt = models.DoorType(project_id=pid, code=key, status="decide", sort_order=_code_sort(key)[1])
+    # An earlier schedule import may have left DT-05-01 / DT-05-02 as their own
+    # types with no doors; the plans tag DT-05, so fold them into this one.
+    for vkey in sorted(k for k in list(cache) if k.startswith(key + "-")):
+        v = cache[vkey]
+        if db.query(models.Door).filter(models.Door.door_type_id == v.id).count():
+            continue
+        vd = v.description or ""
+        desc = re.sub(r"\s*\(.*?\)?\s*$", "", vd).strip() if "(" in vd else vd
+        if desc and not dt.description: dt.description = desc
+        if v.fire_rating and not dt.fire_rating: dt.fire_rating = v.fire_rating
+        if v.acoustic and not dt.acoustic: dt.acoustic = v.acoustic
+        if v.width and not dt.width: dt.width = v.width
+        if v.height and not dt.height: dt.height = v.height
+        if not dt.set_id and v.set_id: dt.set_id = v.set_id; dt.status = v.status
+        line = f"{vkey}: {vd}" + (f" {v.width} x {v.height}" if v.width and v.height else "")
+        dt.spec_text = ((dt.spec_text or "").rstrip() + "\n" + line).strip()
+        db.delete(v); del cache[vkey]
     db.add(dt); db.flush()
     cache[key] = dt
     return dt
@@ -617,9 +637,18 @@ def sync_doors_from_drawing(db: Session, drawing: models.Drawing, pdf_path: Opti
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 @router.get("/projects/{pid}/doors/summary", response_model=DoorsSummary)
 def doors_summary(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    _own_project(pid, db, cu)
+    project = _own_project(pid, db, cu)
     types = db.query(models.DoorType).filter(models.DoorType.project_id == pid).all()
     doors = db.query(models.Door).filter(models.Door.project_id == pid).all()
+    by_dwg: dict[int, int] = {}
+    for d in doors:
+        if d.drawing_id:
+            by_dwg[d.drawing_id] = by_dwg.get(d.drawing_id, 0) + 1
+    from detection.doors import floor_from_name
+    plan_list = [PlanOut(id=dw.id, name=dw.level or dw.original_name,
+                         floor=floor_from_name(dw.original_name) or floor_from_name(dw.level or ""),
+                         doors=by_dwg.get(dw.id, 0), status=dw.status or "", error=dw.error_message or "")
+                 for dw in sorted(project.drawings, key=lambda x: x.id)]
     by_type: dict[int, list] = {}
     for d in doors:
         by_type.setdefault(d.door_type_id, []).append(d)
@@ -633,7 +662,8 @@ def doors_summary(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_c
     assigned_doors = sum(1 for d in doors if d.set_id or (d.door_type and d.door_type.set_id
                                                           and d.door_type.status != "excluded"))
     return DoorsSummary(
-        project_id=pid, doors=len(doors), plans=len({d.drawing_id for d in doors if d.drawing_id}),
+        project_id=pid, kind=project.kind or "symbols", sets_available=len(sets), plan_list=plan_list,
+        doors=len(doors), plans=len({d.drawing_id for d in doors if d.drawing_id}),
         untyped_doors=len(by_type.get(None, [])),
         decide=sum(1 for o in outs if o.status == "decide"),
         assigned=sum(1 for o in outs if o.status == "assigned"),
@@ -837,7 +867,7 @@ async def import_door_schedule(pid: int, file: UploadFile = File(...),
             # only tag DT-05, fold them into that one type and keep the sizes.
             vm = re.fullmatch(r"(DT-\d{2,3})-(\d{2})", type_code)
             variant = None
-            if vm and vm.group(1) in cache:
+            if vm:
                 variant = type_code
                 type_code = vm.group(1)
             dt = cache.get(type_code)
@@ -982,3 +1012,24 @@ def picking_list_download(pid: int, db: Session = Depends(get_db), cu=Depends(au
     pdf = picking_list_pdf(data)
     return Response(pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Picking_List")}.pdf"'})
+
+
+# ── Intec import: old schedules become the product and set library ───────────
+@router.post("/sets/import-intec")
+async def import_intec_schedule(file: UploadFile = File(...), create_project: bool = True,
+                                db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """
+    Upload an Intec schedule PDF (priced or unpriced). Its products and
+    hardware sets are added to the library, and the job is kept as a
+    door-schedule project so its sets are suggested on future jobs.
+    """
+    from intec_import import parse_intec_pdf, import_intec
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "Upload the Intec schedule as a PDF")
+    data = await file.read()
+    try:
+        parsed = parse_intec_pdf(data)
+    except Exception as e:
+        raise HTTPException(400, f"Could not read that as an Intec schedule: {e}")
+    return import_intec(db, parsed, cu.id, create_project=create_project,
+                        source_name=Path(file.filename or "").stem)

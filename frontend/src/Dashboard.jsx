@@ -72,7 +72,7 @@ export function Dashboard({ onNavigate }) {
         <div className="page-header">
           <div>
             <h1>Projects</h1>
-            <p className="lede">Drawing sets and device counts for every job, in one ledger.</p>
+            <p className="lede">Every job in one list: door schedules from the architect's plans, and device counts from services drawings.</p>
           </div>
         </div>
 
@@ -85,8 +85,8 @@ export function Dashboard({ onNavigate }) {
                 <div className="empty-state">
                   <h2>No projects yet.</h2>
                   <p>
-                    A project holds the floor plan drawings for one job — create one,
-                    drop the PDFs in, and detection starts on its own.
+                    A project is one job. For a door schedule, drop the architect's floor plans in and
+                    the doors are read off them. For a device count, drop the services drawings in.
                   </p>
                   <button className="btn btn-primary" onClick={() => setShowNew(true)}>
                     Create your first project
@@ -97,25 +97,26 @@ export function Dashboard({ onNavigate }) {
                   <thead>
                     <tr>
                       <th>Project</th>
-                      <th>Drawing firm</th>
+                      <th>Kind</th>
                       <th style={{ textAlign: 'right' }}>Drawings</th>
-                      <th style={{ textAlign: 'right' }}>Verified</th>
+                      <th style={{ textAlign: 'right' }}>Doors</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {projects.map(p => (
-                      <tr key={p.id} onClick={() => onNavigate('project', { id: p.id })}>
+                      <tr key={p.id} onClick={() => onNavigate(openView(p), { id: p.id })}>
                         <td>
                           <div className="proj-name">{p.name}</div>
                           <div className="proj-meta">
-                            {[p.client, p.site].filter(Boolean).join(' · ') || 'No client / site set'}
+                            {[p.quote_no && `Quote ${p.quote_no}`, p.client, p.site].filter(Boolean).join(' · ') || 'No client / site set'}
                           </div>
                         </td>
-                        <td style={{ fontSize: 13, color: 'var(--text2)' }}>{p.drawing_firm || '—'}</td>
+                        <td><span className={`badge ${p.kind === 'doors' ? 'badge-orange' : 'badge-grey'}`}>{p.kind === 'doors' ? 'Door schedule' : 'Device count'}</span></td>
                         <td className="count-num">{p.drawing_count}</td>
-                        <td className="count-num" style={{ color: p.verified_count ? 'var(--ok)' : 'var(--text3)' }}>
-                          {p.verified_count}
+                        <td className="count-num">
+                          {p.door_count || <span className="muted">—</span>}
+                          {p.door_types_to_decide > 0 && <span className="of" title="Door types still to decide"> {p.door_types_to_decide} to decide</span>}
                         </td>
                         <td style={{ textAlign: 'right', width: 90 }}>
                           <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }}
@@ -156,7 +157,7 @@ export function Dashboard({ onNavigate }) {
           onCreated={p => {
             setProjects(ps => [p, ...ps])
             setShowNew(false)
-            onNavigate('project', { id: p.id })
+            onNavigate(openView(p), { id: p.id })
           }}
         />
       )}
@@ -164,11 +165,15 @@ export function Dashboard({ onNavigate }) {
   )
 }
 
+const openView = p => (p.kind === 'doors' ? 'doors' : 'project')
+
 function NewProjectModal({ onClose, onCreated }) {
+  const [kind,   setKind]   = useState('doors')
   const [name,   setName]   = useState('')
   const [client, setClient] = useState('')
   const [site,   setSite]   = useState('')
   const [firm,   setFirm]   = useState('')
+  const [quote,  setQuote]  = useState('')
   const [busy,   setBusy]   = useState(false)
 
   const submit = async e => {
@@ -177,7 +182,7 @@ function NewProjectModal({ onClose, onCreated }) {
     try {
       const p = await apiFetch('/projects', {
         method: 'POST',
-        body: JSON.stringify({ name, client, site, drawing_firm: firm }),
+        body: JSON.stringify({ name, client, site, drawing_firm: firm, quote_no: quote, kind }),
       })
       showToast('Project created', 'success')
       onCreated(p)
@@ -193,31 +198,51 @@ function NewProjectModal({ onClose, onCreated }) {
       <div className="modal">
         <h2>New Project</h2>
         <form onSubmit={submit}>
+          <div className="kind-pick">
+            <button type="button" className={kind === 'doors' ? 'on' : ''} onClick={() => setKind('doors')}>
+              <strong>Door schedule</strong>
+              <span>Architect's floor plans in, ironmongery schedule out. Replaces Intec.</span>
+            </button>
+            <button type="button" className={kind === 'symbols' ? 'on' : ''} onClick={() => setKind('symbols')}>
+              <strong>Device count</strong>
+              <span>Fire and security drawings in, symbol counts out.</span>
+            </button>
+          </div>
           <div className="form-group">
             <label>Project Name *</label>
             <input className="form-control" placeholder="e.g. Ford Site, Cork"
                    value={name} onChange={e => setName(e.target.value)} required />
           </div>
-          <div className="form-group">
-            <label>Client</label>
-            <input className="form-control" placeholder="e.g. Glenveagh Homes"
-                   value={client} onChange={e => setClient(e.target.value)} />
+          <div className="form-grid" style={{ gridTemplateColumns: kind === 'doors' ? '1fr 140px' : '1fr' }}>
+            <div className="form-group">
+              <label>Client</label>
+              <input className="form-control" placeholder="e.g. Glenveagh Homes"
+                     value={client} onChange={e => setClient(e.target.value)} />
+            </div>
+            {kind === 'doors' && (
+              <div className="form-group">
+                <label>Quote no</label>
+                <input className="form-control" placeholder="33301" value={quote} onChange={e => setQuote(e.target.value)} />
+              </div>
+            )}
           </div>
           <div className="form-group">
             <label>Site / Address</label>
             <input className="form-control" placeholder="e.g. Centre Park Road, Cork"
                    value={site} onChange={e => setSite(e.target.value)} />
           </div>
-          <div className="form-group">
-            <label>
-              Drawing Firm{' '}
-              <span style={{ color: 'var(--text3)', fontWeight: 400 }}>
-                (optional — improves detection for this firm's drawing style)
-              </span>
-            </label>
-            <input className="form-control" placeholder="e.g. O'Mahony Pike, EDC Engineers"
-                   value={firm} onChange={e => setFirm(e.target.value)} />
-          </div>
+          {kind === 'symbols' && (
+            <div className="form-group">
+              <label>
+                Drawing Firm{' '}
+                <span style={{ color: 'var(--text3)', fontWeight: 400 }}>
+                  (optional, improves detection for this firm's drawing style)
+                </span>
+              </label>
+              <input className="form-control" placeholder="e.g. O'Mahony Pike, EDC Engineers"
+                     value={firm} onChange={e => setFirm(e.target.value)} />
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={busy}>

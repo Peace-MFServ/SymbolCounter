@@ -4,13 +4,34 @@ import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 
 /* ── List of sets ─────────────────────────────────────────────────────────── */
-export function SetsView({ onNavigate }) {
+export function SetsView({ onNavigate, autoImport = false }) {
   const [sets, setSets] = useState([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
+  const [importing, setImporting] = useState(false)
+  const intecRef = useRef()
 
   const load = () => apiFetch('/sets').then(s => { setSets(s || []); setLoading(false) })
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); if (autoImport) setTimeout(() => intecRef.current?.click(), 300) }, [])
+
+  const importIntec = async files => {
+    const pdfs = Array.from(files || []).filter(f => f.name.toLowerCase().endsWith('.pdf'))
+    if (!pdfs.length) return
+    setImporting(true)
+    let totals = { products_added: 0, sets_added: 0, sets_reused: 0, doors: 0 }, fails = 0
+    for (const f of pdfs) {
+      const form = new FormData(); form.append('file', f)
+      try {
+        const r = await apiFetch('/sets/import-intec', { method: 'POST', body: form })
+        for (const k of Object.keys(totals)) totals[k] += r[k] || 0
+      } catch (err) { fails++; showToast(`${f.name}: ${err.message}`, 'error') }
+    }
+    if (pdfs.length > fails) {
+      showToast(`Imported ${pdfs.length - fails} schedule${pdfs.length - fails !== 1 ? 's' : ''}: ${totals.sets_added} new set${totals.sets_added !== 1 ? 's' : ''}, ${totals.products_added} new product${totals.products_added !== 1 ? 's' : ''}` +
+                (totals.sets_reused ? `, ${totals.sets_reused} already there` : ''), 'success')
+    }
+    setImporting(false); load()
+  }
 
   const copy = async (e, s) => {
     e.stopPropagation()
@@ -34,15 +55,25 @@ export function SetsView({ onNavigate }) {
         <div className="page-header">
           <div><h1>Hardware sets</h1><p className="lede">A set is built once and used on every job that has that kind of door.</p></div>
           <div className="spacer" />
-          <div className="actions"><button className="btn btn-primary" onClick={() => onNavigate('set', { id: 'new' })}>New set</button></div>
+          <div className="actions">
+            <input ref={intecRef} type="file" accept=".pdf" multiple style={{ display: 'none' }}
+                   onChange={e => { importIntec(e.target.files); e.target.value = '' }} />
+            <button className="btn" onClick={() => intecRef.current.click()} disabled={importing}>
+              {importing ? <><span className="spinner" /> Importing…</> : 'Import Intec schedule'}
+            </button>
+            <button className="btn btn-primary" onClick={() => onNavigate('set', { id: 'new' })}>New set</button>
+          </div>
         </div>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner spinner-lg" /></div>
         ) : sets.length === 0 ? (
           <div className="empty-state">
             <h2>No sets yet.</h2>
-            <p>Start with the sets from a recent job: a name like "Int Sgl Apartment Entrance FR" and the products that go on that door, with quantities.</p>
-            <button className="btn btn-primary" onClick={() => onNavigate('set', { id: 'new' })}>New set</button>
+            <p>The quickest start is an old Intec schedule PDF. Drop in a few recent quotes and every set and product on them is loaded, ready to reuse. You can also build a set by hand.</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button className="btn btn-primary" onClick={() => intecRef.current.click()} disabled={importing}>{importing ? <span className="spinner" /> : 'Import Intec schedule'}</button>
+              <button className="btn" onClick={() => onNavigate('set', { id: 'new' })}>New set</button>
+            </div>
           </div>
         ) : (
           <>
