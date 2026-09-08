@@ -42,6 +42,14 @@ export function SetsView({ onNavigate, autoImport = false }) {
     } catch (err) { showToast(err.message, 'error') }
   }
 
+  const remove = async (e, s) => {
+    e.stopPropagation()
+    if (s.used_on.length) { showToast(`${s.code} is on ${s.used_on.map(u => u.project).join(', ')}. Reassign those doors first.`, 'error'); return }
+    if (!confirm(`Delete set ${s.code} ${s.name}?`)) return
+    try { await apiFetch(`/sets/${s.id}`, { method: 'DELETE' }); showToast('Set deleted', 'info'); load() }
+    catch (err) { showToast(err.message, 'error') }
+  }
+
   const shown = sets.filter(s => {
     const n = q.trim().toLowerCase()
     return !n || s.code.toLowerCase().includes(n) || s.name.toLowerCase().includes(n)
@@ -92,6 +100,7 @@ export function SetsView({ onNavigate, autoImport = false }) {
                     <td className="row-actions">
                       <button className="btn btn-sm" onClick={e => { e.stopPropagation(); onNavigate('set', { id: s.id }) }}>Open</button>
                       <button className="btn btn-ghost btn-sm" onClick={e => copy(e, s)}>Copy</button>
+                      <button className="btn btn-ghost btn-sm danger" onClick={e => remove(e, s)}>Delete</button>
                     </td>
                   </tr>
                 ))}

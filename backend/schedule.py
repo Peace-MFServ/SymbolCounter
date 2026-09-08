@@ -450,9 +450,11 @@ def _own_door_type(dtid: int, db: Session, cu) -> models.DoorType:
 
 def _norm_code(code: str) -> str:
     c = re.sub(r"\s+", "", (code or "").upper())
-    m = re.fullmatch(r"DT-?(\d{1,3})(?:[-.](\d{1,2}))?([A-Z]?)", c)
+    m = re.fullmatch(r"([A-Z]{1,3})-?(\d{1,3})(?:[-.](\d{1,2}))?([A-Z]?)", c)
     if m:
-        return f"DT-{int(m.group(1)):02d}" + (f"-{int(m.group(2)):02d}" if m.group(2) else "") + m.group(3)
+        num = m.group(2)
+        num = num.zfill(2) if len(num) < 3 else num
+        return f"{m.group(1)}-{num}" + (f"-{int(m.group(3)):02d}" if m.group(3) else "") + m.group(4)
     return c
 
 
@@ -599,29 +601,38 @@ def sync_doors_from_drawing(db: Session, drawing: models.Drawing, pdf_path: Opti
     Plan-sourced doors for the drawing are replaced; typed or imported doors
     are left alone. Returns the number of doors found.
     """
-    from detection.doors import extract_door_tags, floor_from_name, floor_short, looks_like_door_plan
+    from detection.doors import extract_door_tags, floor_from_name, floor_short, looks_like_door_plan, split_types_and_refs
     path = Path(pdf_path) if pdf_path else UPLOAD_DIR / drawing.filename / "drawing.pdf"
     if not path.exists():
         return 0
     db.query(models.Door).filter(models.Door.drawing_id == drawing.id,
                                  models.Door.source == "plan").delete(synchronize_session=False)
     floor = floor_from_name(drawing.original_name) or floor_from_name(drawing.level or "") or (drawing.level or "")
-    fs = floor_short(floor)
     cache = _type_cache(db, drawing.project_id)
-    counters: dict[str, int] = {}
-    # Existing generated refs on other drawings of the same floor keep numbering unique
-    for (ref,) in db.query(models.Door.ref).filter(models.Door.project_id == drawing.project_id).all():
-        m = re.fullmatch(rf"{re.escape(fs)}-([A-Z0-9]+)-(\d+)", ref or "")
-        if m:
-            counters[m.group(1)] = max(counters.get(m.group(1), 0), int(m.group(2)))
-    total = 0
+    # Read every page first: whether "D-01" is a type or a door number depends on repetition
+    pages: list[tuple[int, list]] = []
     for page_no in range(1, (drawing.total_pages or 1) + 1):
         try:
             tags = extract_door_tags(str(path), page_no)
         except Exception:
             continue
-        if not looks_like_door_plan(tags):
-            continue
+        if looks_like_door_plan(tags):
+            pages.append((page_no, tags))
+    all_tags = [t for _, tags in pages for t in tags]
+    split_types_and_refs(all_tags, set(cache))
+    if not floor:
+        hints = [t["floor_hint"] for t in all_tags if t.get("floor_hint")]
+        if hints:
+            floor = max(set(hints), key=hints.count)
+    fs = floor_short(floor)
+    counters: dict[str, int] = {}
+    # Existing generated refs on other drawings of the same floor keep numbering unique
+    for (ref,) in db.query(models.Door.ref).filter(models.Door.project_id == drawing.project_id).all():
+        m = re.fullmatch(rf"{re.escape(fs)}-([A-Z0-9-]+)-(\d+)", ref or "")
+        if m:
+            counters[m.group(1)] = max(counters.get(m.group(1), 0), int(m.group(2)))
+    total = 0
+    for page_no, tags in pages:
         tags.sort(key=lambda t: (round(t["y"], 2), t["x"]))
         for t in tags:
             code = t["type_code"]
