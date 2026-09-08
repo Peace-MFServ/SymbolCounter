@@ -624,26 +624,30 @@ def sync_doors_from_drawing(db: Session, drawing: models.Drawing, pdf_path: Opti
         hints = [t["floor_hint"] for t in all_tags if t.get("floor_hint")]
         if hints:
             floor = max(set(hints), key=hints.count)
-    fs = floor_short(floor)
-    counters: dict[str, int] = {}
-    # Existing generated refs on other drawings of the same floor keep numbering unique
+    counters: dict[tuple, int] = {}
+    # Existing generated refs on other drawings keep numbering unique per floor and type
     for (ref,) in db.query(models.Door.ref).filter(models.Door.project_id == drawing.project_id).all():
-        m = re.fullmatch(rf"{re.escape(fs)}-([A-Z0-9-]+)-(\d+)", ref or "")
+        m = re.fullmatch(r"([A-Z0-9]{1,3})-([A-Z0-9-]+)-(\d+)", ref or "")
         if m:
-            counters[m.group(1)] = max(counters.get(m.group(1), 0), int(m.group(2)))
+            key = (m.group(1), m.group(2))
+            counters[key] = max(counters.get(key, 0), int(m.group(3)))
     total = 0
     for page_no, tags in pages:
         tags.sort(key=lambda t: (round(t["y"], 2), t["x"]))
         for t in tags:
             code = t["type_code"]
             ref = t["ref"]
+            # A sheet can carry two floors (ground and first of a house); the label
+            # under the tag says which, and beats the sheet-wide floor.
+            door_floor = t.get("floor_hint") or floor
+            fs = floor_short(door_floor)
             dt = _get_or_create_type(db, drawing.project_id, code, cache) if code else None
             if not ref:
                 short = code.replace("DT-", "") if code else "D"
-                counters[short] = counters.get(short, 0) + 1
-                ref = f"{fs}-{short}-{counters[short]:02d}"
+                counters[(fs, short)] = counters.get((fs, short), 0) + 1
+                ref = f"{fs}-{short}-{counters[(fs, short)]:02d}"
             db.add(models.Door(project_id=drawing.project_id, door_type_id=dt.id if dt else None,
-                               ref=ref, floor=floor, handed=t["handed"], drawing_id=drawing.id,
+                               ref=ref, floor=door_floor, handed=t["handed"], drawing_id=drawing.id,
                                page_number=page_no, x=t["x"], y=t["y"], source="plan"))
             total += 1
     db.commit()

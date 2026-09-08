@@ -94,6 +94,11 @@ def parse_tag(text: str):
     m = _REF_MISC.match(t)
     if m:
         return "", t.upper(), False
+    # A stray character glued to the front ("tD-01"): take the tag off the end,
+    # but not from abbreviations like "Ht.D1" (no hyphen, or a dot before it).
+    m = re.search(r"(?<![A-Z.])((?:D|DT|ED|ID|FD|SD|DD)-\d{1,3})([hH])?$", t.upper()[1:] if t[:1].islower() else "")
+    if m and len(t) <= len(m.group(0)) + 2:
+        return norm_code(m.group(1)), "", bool(m.group(2))
     return None
 
 
