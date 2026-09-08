@@ -680,3 +680,24 @@ tr.sub-row:hover > td { background: var(--bg2); }
 .add-door { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
 .add-door .form-control { max-width: 200px; padding: 6px 8px; font-size: 13px; }
 .add-door .form-control + .form-control { max-width: 120px; }
+
+/* ── Schedule ───────────────────────────────────────────────────────────── */
+.sched-set { margin-bottom: 28px; }
+.sched-set-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 10px; }
+.sched-set-head h2 { font-size: 22px; margin: 0; }
+.sched-set-head .set-ref { color: var(--accent); }
+.sched-set-head .btn { margin-left: auto; }
+.sched-items tbody tr { cursor: default; }
+.sched-items tbody tr:hover td { background: transparent; }
+.num-cell { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.thumb { width: 44px; height: 34px; border: 1px solid var(--border); background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.thumb img { max-width: 100%; max-height: 100%; }
+.door-refs { margin-top: 8px; font-size: 13px; }
+.door-ref-list { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; padding: 10px 12px; background: var(--bg2); border: 1px solid var(--border); }
+.check-list { list-style: none; margin: 0; padding: 0; }
+.check-list li { padding: 6px 0 6px 16px; border-bottom: 1px solid var(--border); font-size: 14px; position: relative; }
+.check-list li:last-child { border-bottom: 0; }
+.check-list li::before { content: ''; position: absolute; left: 0; top: 11px; width: 8px; height: 8px; background: var(--text3); }
+.check-list li.warn::before { background: var(--accent); }
+.check-list li.ok::before { background: var(--ok); }
+.rail-panel.warn { border-color: var(--accent); }

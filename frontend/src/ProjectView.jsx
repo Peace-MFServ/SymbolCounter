@@ -180,6 +180,7 @@ export function ProjectView({ id, onNavigate }) {
                 { label: 'Excel workbook',           onClick: () => exportAs('excel') },
                 { label: 'JSON data',                onClick: () => exportAs('json') },
                 { label: 'Annotated PDF, all drawings', onClick: () => exportAs('pdf') },
+                { label: 'Ironmongery schedule',    onClick: () => onNavigate('schedule', { id }) },
               ]} />
             )}
             <button className="btn btn-primary" onClick={() => fileRef.current.click()} disabled={uploading}>
@@ -320,7 +321,7 @@ export function ProjectView({ id, onNavigate }) {
 }
 
 /* A small dropdown of secondary actions — one button in the header instead of five. */
-function Menu({ label, items, small = false }) {
+export function Menu({ label, items, small = false }) {
   const [open, setOpen] = useState(false)
   const ref = useRef()
   useEffect(() => {

@@ -149,7 +149,8 @@ export function DoorsView({ projectId, onNavigate }) {
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" style={{ display: 'none' }}
                    onChange={e => { importSchedule(e.target.files[0]); e.target.value = '' }} />
             <button className="btn" onClick={rescan} disabled={busy === 'rescan'}>{busy === 'rescan' ? <><span className="spinner" /> Reading…</> : 'Rescan plans'}</button>
-            <button className="btn btn-primary" onClick={() => setEditing({ ...EMPTY_TYPE })}>Add door type</button>
+            <button className="btn" onClick={() => setEditing({ ...EMPTY_TYPE })}>Add door type</button>
+            {!nothing && <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })}>Produce schedule</button>}
           </div>
         </div>
 

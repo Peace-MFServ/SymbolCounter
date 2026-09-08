@@ -929,3 +929,56 @@ def update_door(did: int, payload: DoorIn, db: Session = Depends(get_db), cu=Dep
 def delete_door(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     d = _own_door(did, db, cu)
     db.delete(d); db.commit()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Schedule output
+# ═════════════════════════════════════════════════════════════════════════════
+from fastapi.responses import Response  # noqa: E402
+from schedule_output import build_schedule, schedule_pdf, schedule_excel, picking_list_pdf  # noqa: E402
+
+
+def _safe_name(project: models.Project, suffix: str) -> str:
+    base = re.sub(r"[^\w\s\-]", "", project.name or "schedule").strip().replace(" ", "_") or "schedule"
+    return f"{project.quote_no + '_' if project.quote_no else ''}{base}_{suffix}"
+
+
+@router.get("/projects/{pid}/schedule")
+def get_schedule(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """The schedule as data: sets with their doors and products, the product summary, and the checks."""
+    p = _own_project(pid, db, cu)
+    data = build_schedule(db, p, estimator=cu.name)
+    for s in data["sets"]:
+        for it in s["items"]:
+            it["image_url"] = f"/api/files/products/{Path(it['image_path']).name}" if it["image_path"] else ""
+            it.pop("image_path", None)
+    return data
+
+
+@router.get("/projects/{pid}/schedule/pdf")
+def schedule_pdf_download(pid: int, priced: bool = False, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _own_project(pid, db, cu)
+    data = build_schedule(db, p, estimator=cu.name)
+    if priced and not data["priced_ok"]:
+        raise HTTPException(409, "Not every product on the schedule has a sell price")
+    pdf = schedule_pdf(data, priced=priced)
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Schedule" + ("_Priced" if priced else ""))}.pdf"'})
+
+
+@router.get("/projects/{pid}/schedule/excel")
+def schedule_excel_download(pid: int, priced: bool = False, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _own_project(pid, db, cu)
+    data = build_schedule(db, p, estimator=cu.name)
+    xlsx = schedule_excel(data, priced=priced and data["priced_ok"])
+    return Response(xlsx, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Schedule")}.xlsx"'})
+
+
+@router.get("/projects/{pid}/schedule/picking")
+def picking_list_download(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _own_project(pid, db, cu)
+    data = build_schedule(db, p, estimator=cu.name)
+    pdf = picking_list_pdf(data)
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Picking_List")}.pdf"'})
