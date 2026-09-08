@@ -255,6 +255,7 @@ class DoorType(Base):
     set_id       = Column(Integer, ForeignKey("hardware_sets.id"), nullable=True)
     sort_order   = Column(Integer, default=0)
     hardware_set = relationship("HardwareSet")
+    project      = relationship("Project")
     doors        = relationship("Door", back_populates="door_type")
 
 

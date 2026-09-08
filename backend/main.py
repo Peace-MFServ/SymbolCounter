@@ -345,6 +345,8 @@ def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_
         sd = UPLOAD_DIR / d.filename
         if sd.exists():
             shutil.rmtree(sd, ignore_errors=True)
+    db.query(models.Door).filter(models.Door.project_id == pid).delete(synchronize_session=False)
+    db.query(models.DoorType).filter(models.DoorType.project_id == pid).delete(synchronize_session=False)
     db.delete(p)
     db.commit()
 
@@ -725,6 +727,7 @@ def delete_drawing(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_
     db.query(models.DetectionFeedback).filter(models.DetectionFeedback.drawing_id == did) \
       .update({models.DetectionFeedback.drawing_id: None}, synchronize_session=False)
     db.query(models.DrawingPage).filter(models.DrawingPage.drawing_id == did).delete(synchronize_session=False)
+    db.query(models.Door).filter(models.Door.drawing_id == did).delete(synchronize_session=False)
     sd = UPLOAD_DIR / d.filename
     if sd.exists(): shutil.rmtree(sd)
     db.delete(d); db.commit()
@@ -1326,7 +1329,14 @@ def _parse_name(filename: str) -> tuple[str, str]:
     level   = parts[-1].replace("Fire and Security Services Layout ", "").replace(
               "Fire Alarm and Security Services Layout ", "").replace(
               "Floor Plan – GA - ", "") if len(parts) > 1 else ""
-    return block, level.strip()
+    level = level.strip()
+    if not level:
+        # "PLE-AA-L02-DR-JFA-AR-W2002-First-Floor-GA-Plan-Rev.E.pdf" -> "First Floor"
+        from detection.doors import floor_from_name
+        fl = floor_from_name(filename)
+        if fl:
+            level = fl if fl in ("Basement", "Roof", "Mezzanine", "Penthouse") or fl.startswith("Level") else f"{fl} Floor"
+    return block, level
 
 def _parse_revision(filename: str) -> str:
     m = re.search(r'[_\-\s][Rr]ev[\s\-_]?(\w+)', filename)
@@ -1765,6 +1775,15 @@ def _run_detection(drawing_id: int, pdf_path: str, pages_dir: str,
             page.detections = dets
             page.original_detections = copy.deepcopy(dets)
         d.status = "detected"; db.commit()
+
+        # Door tags (DT-01, D01-001 …) on the same sheets feed the door schedule.
+        try:
+            from schedule import sync_doors_from_drawing
+            n_doors = sync_doors_from_drawing(db, d, pdf_path)
+            if n_doors:
+                logger.info("Drawing %d: %d door tags read", drawing_id, n_doors)
+        except Exception:
+            logger.exception("Door sync failed for drawing %d", drawing_id)
 
     except Exception as e:
         logger.exception("Detection error for drawing %d", drawing_id)

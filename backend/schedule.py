@@ -377,3 +377,555 @@ def archive_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cur
         raise HTTPException(409, "This set is assigned to doors on a project. Reassign them first.")
     s.archived = True
     db.commit()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Doors
+# ═════════════════════════════════════════════════════════════════════════════
+UPLOAD_DIR = Path("uploads")
+
+DOOR_STATUSES = ("decide", "assigned", "excluded")
+
+
+class FloorCount(BaseModel):
+    floor: str; count: int
+
+class Suggestion(BaseModel):
+    set_id: int; set_code: str; set_name: str; reason: str
+
+class DoorTypeOut(BaseModel):
+    id: int; code: str; description: str = ""; fire_rating: str = ""; acoustic: str = ""
+    width: Optional[int] = None; height: Optional[int] = None; spec_text: str = ""
+    status: str = "decide"; set_id: Optional[int] = None; set_code: str = ""; set_name: str = ""
+    sort_order: int = 0; door_count: int = 0; handed_count: int = 0
+    floors: list[FloorCount] = []; suggestion: Optional[Suggestion] = None
+
+class DoorTypeIn(BaseModel):
+    code: str; description: str = ""; fire_rating: str = ""; acoustic: str = ""
+    width: Optional[int] = None; height: Optional[int] = None; spec_text: str = ""
+    status: str = "decide"; set_id: Optional[int] = None
+
+class DoorOut(BaseModel):
+    id: int; ref: str; floor: str; handed: bool = False
+    door_type_id: Optional[int] = None; type_code: str = ""
+    drawing_id: Optional[int] = None; drawing: str = ""; page_number: int = 1
+    x: Optional[float] = None; y: Optional[float] = None
+    set_id: Optional[int] = None; effective_set_id: Optional[int] = None; effective_set_code: str = ""
+    source: str = "plan"; note: str = ""
+
+class DoorIn(BaseModel):
+    ref: str = ""; floor: str = ""; handed: bool = False
+    door_type_id: Optional[int] = None; set_id: Optional[int] = None; note: str = ""
+
+class DoorsSummary(BaseModel):
+    project_id: int; doors: int; plans: int; untyped_doors: int
+    decide: int; assigned: int; excluded: int
+    assigned_doors: int; suggestions: int
+    floors: list[str] = []; door_types: list[DoorTypeOut] = []
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _own_project(pid: int, db: Session, cu) -> models.Project:
+    p = db.query(models.Project).filter(models.Project.id == pid, models.Project.owner_id == cu.id).first()
+    if not p:
+        raise HTTPException(404, "Project not found")
+    return p
+
+
+def _own_door_type(dtid: int, db: Session, cu) -> models.DoorType:
+    dt = db.query(models.DoorType).get(dtid)
+    if not dt:
+        raise HTTPException(404, "Door type not found")
+    _own_project(dt.project_id, db, cu)
+    return dt
+
+
+def _norm_code(code: str) -> str:
+    c = re.sub(r"\s+", "", (code or "").upper())
+    m = re.fullmatch(r"DT-?(\d{1,3})(?:[-.](\d{1,2}))?([A-Z]?)", c)
+    if m:
+        return f"DT-{int(m.group(1)):02d}" + (f"-{int(m.group(2)):02d}" if m.group(2) else "") + m.group(3)
+    return c
+
+
+def _code_sort(code: str) -> tuple:
+    m = re.search(r"(\d+)", code or "")
+    return (code.split(str(m.group(1)))[0] if m else code, int(m.group(1)) if m else 0, code)
+
+
+_STOP = {"door", "doors", "internal", "int", "the", "a", "and", "to", "of", "with", "sgl", "single",
+         "dbl", "double", "fr", "nfr", "fire", "rated", "leaf"}
+
+
+def _tokens(s: str) -> set:
+    return {t for t in re.findall(r"[a-z0-9]+", (s or "").lower()) if t not in _STOP and len(t) > 1}
+
+
+def _suggest_for(db: Session, dt: models.DoorType, sets: list, foreign_types: list) -> Optional[Suggestion]:
+    """
+    A set for a door type that still needs deciding, from what was done before:
+    the same description on another job, the same code with a matching
+    description, or a set whose name says the same thing.
+    """
+    desc_tokens = _tokens(dt.description)
+    code = _norm_code(dt.code)
+    fire = (dt.fire_rating or "").upper().startswith("FD")
+    # 1. Same description used on another job
+    best = None
+    for ft, proj_name in foreign_types:
+        if not ft.set_id or ft.hardware_set is None or ft.hardware_set.archived:
+            continue
+        same_desc = desc_tokens and _tokens(ft.description) == desc_tokens
+        same_code = _norm_code(ft.code) == code
+        if same_desc:
+            score = 3 if same_code else 2
+        elif same_code and desc_tokens and _tokens(ft.description) & desc_tokens:
+            score = 1
+        else:
+            continue
+        if best is None or score > best[0]:
+            best = (score, ft, proj_name)
+    if best:
+        _, ft, proj_name = best
+        s = ft.hardware_set
+        return Suggestion(set_id=s.id, set_code=s.code, set_name=s.name,
+                          reason=f"Used for {ft.code} {ft.description} on {proj_name}".strip())
+    # 2. A set whose name matches the description
+    if desc_tokens:
+        scored = []
+        for s in sets:
+            st = _tokens(s.name)
+            hit = len(st & desc_tokens)
+            if hit == 0:
+                continue
+            frac = hit / len(desc_tokens)
+            if frac < 0.5:
+                continue
+            scored.append((frac + (0.1 if bool(s.fire_rated) == fire else 0), s))
+        if scored:
+            scored.sort(key=lambda t: -t[0])
+            s = scored[0][1]
+            return Suggestion(set_id=s.id, set_code=s.code, set_name=s.name, reason="Set name matches this door type")
+    return None
+
+
+def _door_type_out(db: Session, dt: models.DoorType, doors: list, sets=None, foreign_types=None) -> DoorTypeOut:
+    floors: dict[str, int] = {}
+    for d in doors:
+        floors[d.floor or "Unknown"] = floors.get(d.floor or "Unknown", 0) + 1
+    s = dt.hardware_set if dt.set_id else None
+    if s and s.archived:
+        s = None
+    sug = None
+    if dt.status == "decide" and not dt.set_id and sets is not None:
+        sug = _suggest_for(db, dt, sets, foreign_types or [])
+    return DoorTypeOut(
+        id=dt.id, code=dt.code, description=dt.description or "", fire_rating=dt.fire_rating or "",
+        acoustic=dt.acoustic or "", width=dt.width, height=dt.height, spec_text=dt.spec_text or "",
+        status=dt.status or "decide", set_id=s.id if s else None,
+        set_code=s.code if s else "", set_name=s.name if s else "", sort_order=dt.sort_order or 0,
+        door_count=len(doors), handed_count=sum(1 for d in doors if d.handed),
+        floors=[FloorCount(floor=f, count=n) for f, n in sorted(floors.items(), key=lambda t: _floor_rank(t[0]))],
+        suggestion=sug,
+    )
+
+
+_FLOOR_ORDER = ["Basement", "Lower Ground", "Ground", "Mezzanine", "First", "Second", "Third", "Fourth",
+                "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth", "Penthouse", "Roof"]
+
+
+def _floor_rank(f: str):
+    if f in _FLOOR_ORDER:
+        return (0, _FLOOR_ORDER.index(f), f)
+    m = re.match(r"Level (\d+)", f or "")
+    if m:
+        return (1, int(m.group(1)), f)
+    return (2, 0, f or "")
+
+
+def _door_out(d: models.Door, dwg_names: dict, set_codes: dict) -> DoorOut:
+    eff = d.set_id or (d.door_type.set_id if d.door_type else None)
+    return DoorOut(
+        id=d.id, ref=d.ref or "", floor=d.floor or "", handed=bool(d.handed),
+        door_type_id=d.door_type_id, type_code=d.door_type.code if d.door_type else "",
+        drawing_id=d.drawing_id, drawing=dwg_names.get(d.drawing_id, ""), page_number=d.page_number or 1,
+        x=d.x, y=d.y, set_id=d.set_id, effective_set_id=eff, effective_set_code=set_codes.get(eff, ""),
+        source=d.source or "plan", note=d.note or "",
+    )
+
+
+def _get_or_create_type(db: Session, pid: int, code: str, cache: dict) -> models.DoorType:
+    key = _norm_code(code)
+    if key in cache:
+        return cache[key]
+    dt = models.DoorType(project_id=pid, code=key, status="decide", sort_order=_code_sort(key)[1])
+    db.add(dt); db.flush()
+    cache[key] = dt
+    return dt
+
+
+def _type_cache(db: Session, pid: int) -> dict:
+    return {_norm_code(t.code): t for t in db.query(models.DoorType).filter(models.DoorType.project_id == pid).all()}
+
+
+def sync_doors_from_drawing(db: Session, drawing: models.Drawing, pdf_path: Optional[str] = None) -> int:
+    """
+    Read the door tags off every page of a drawing and (re)create its doors.
+    Plan-sourced doors for the drawing are replaced; typed or imported doors
+    are left alone. Returns the number of doors found.
+    """
+    from detection.doors import extract_door_tags, floor_from_name, floor_short, looks_like_door_plan
+    path = Path(pdf_path) if pdf_path else UPLOAD_DIR / drawing.filename / "drawing.pdf"
+    if not path.exists():
+        return 0
+    db.query(models.Door).filter(models.Door.drawing_id == drawing.id,
+                                 models.Door.source == "plan").delete(synchronize_session=False)
+    floor = floor_from_name(drawing.original_name) or floor_from_name(drawing.level or "") or (drawing.level or "")
+    fs = floor_short(floor)
+    cache = _type_cache(db, drawing.project_id)
+    counters: dict[str, int] = {}
+    # Existing generated refs on other drawings of the same floor keep numbering unique
+    for (ref,) in db.query(models.Door.ref).filter(models.Door.project_id == drawing.project_id).all():
+        m = re.fullmatch(rf"{re.escape(fs)}-([A-Z0-9]+)-(\d+)", ref or "")
+        if m:
+            counters[m.group(1)] = max(counters.get(m.group(1), 0), int(m.group(2)))
+    total = 0
+    for page_no in range(1, (drawing.total_pages or 1) + 1):
+        try:
+            tags = extract_door_tags(str(path), page_no)
+        except Exception:
+            continue
+        if not looks_like_door_plan(tags):
+            continue
+        tags.sort(key=lambda t: (round(t["y"], 2), t["x"]))
+        for t in tags:
+            code = t["type_code"]
+            ref = t["ref"]
+            dt = _get_or_create_type(db, drawing.project_id, code, cache) if code else None
+            if not ref:
+                short = code.replace("DT-", "") if code else "D"
+                counters[short] = counters.get(short, 0) + 1
+                ref = f"{fs}-{short}-{counters[short]:02d}"
+            db.add(models.Door(project_id=drawing.project_id, door_type_id=dt.id if dt else None,
+                               ref=ref, floor=floor, handed=t["handed"], drawing_id=drawing.id,
+                               page_number=page_no, x=t["x"], y=t["y"], source="plan"))
+            total += 1
+    db.commit()
+    return total
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+@router.get("/projects/{pid}/doors/summary", response_model=DoorsSummary)
+def doors_summary(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    _own_project(pid, db, cu)
+    types = db.query(models.DoorType).filter(models.DoorType.project_id == pid).all()
+    doors = db.query(models.Door).filter(models.Door.project_id == pid).all()
+    by_type: dict[int, list] = {}
+    for d in doors:
+        by_type.setdefault(d.door_type_id, []).append(d)
+    sets = db.query(models.HardwareSet).filter(models.HardwareSet.archived == False).all()   # noqa: E712
+    foreign = [(ft, ft.project.name if ft.project else "another job")
+               for ft in db.query(models.DoorType).filter(models.DoorType.project_id != pid,
+                                                          models.DoorType.set_id.isnot(None)).all()]
+    outs = [_door_type_out(db, t, by_type.get(t.id, []), sets, foreign) for t in types]
+    outs.sort(key=lambda o: _code_sort(o.code))
+    floors = sorted({d.floor for d in doors if d.floor}, key=_floor_rank)
+    assigned_doors = sum(1 for d in doors if d.set_id or (d.door_type and d.door_type.set_id
+                                                          and d.door_type.status != "excluded"))
+    return DoorsSummary(
+        project_id=pid, doors=len(doors), plans=len({d.drawing_id for d in doors if d.drawing_id}),
+        untyped_doors=len(by_type.get(None, [])),
+        decide=sum(1 for o in outs if o.status == "decide"),
+        assigned=sum(1 for o in outs if o.status == "assigned"),
+        excluded=sum(1 for o in outs if o.status == "excluded"),
+        assigned_doors=assigned_doors, suggestions=sum(1 for o in outs if o.suggestion),
+        floors=floors, door_types=outs,
+    )
+
+
+@router.get("/projects/{pid}/doors/count")
+def doors_count(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    _own_project(pid, db, cu)
+    n = db.query(models.Door).filter(models.Door.project_id == pid).count()
+    types = db.query(models.DoorType).filter(models.DoorType.project_id == pid).all()
+    return {"doors": n, "types": len(types), "decide": sum(1 for t in types if t.status == "decide")}
+
+
+@router.get("/projects/{pid}/doors", response_model=list[DoorOut])
+def list_doors(pid: int, type_id: Optional[int] = None, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    _own_project(pid, db, cu)
+    q = db.query(models.Door).filter(models.Door.project_id == pid)
+    if type_id is not None:
+        q = q.filter(models.Door.door_type_id == (type_id or None))
+    doors = q.all()
+    dwg_names = {d.id: (d.level or d.original_name) for d in db.query(models.Drawing).filter(models.Drawing.project_id == pid).all()}
+    set_codes = {s.id: s.code for s in db.query(models.HardwareSet).all()}
+    doors.sort(key=lambda d: (_floor_rank(d.floor or ""), d.ref or ""))
+    return [_door_out(d, dwg_names, set_codes) for d in doors]
+
+
+def _apply_type_payload(dt: models.DoorType, payload: DoorTypeIn, db: Session):
+    if payload.status not in DOOR_STATUSES:
+        raise HTTPException(400, "Bad status")
+    if payload.set_id is not None and not db.query(models.HardwareSet).get(payload.set_id):
+        raise HTTPException(404, "Set not found")
+    dt.code = _norm_code(payload.code) or dt.code
+    dt.description = payload.description.strip(); dt.fire_rating = payload.fire_rating.strip()
+    dt.acoustic = payload.acoustic.strip(); dt.width = payload.width; dt.height = payload.height
+    dt.spec_text = payload.spec_text; dt.set_id = payload.set_id
+    if payload.status == "excluded":
+        dt.status = "excluded"
+    else:
+        dt.status = "assigned" if payload.set_id else "decide"
+    dt.sort_order = _code_sort(dt.code)[1]
+
+
+@router.post("/projects/{pid}/door-types", response_model=DoorTypeOut, status_code=201)
+def create_door_type(pid: int, payload: DoorTypeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    _own_project(pid, db, cu)
+    code = _norm_code(payload.code)
+    if not code:
+        raise HTTPException(400, "Door type needs a code")
+    if code in _type_cache(db, pid):
+        raise HTTPException(409, f"{code} already exists on this project")
+    dt = models.DoorType(project_id=pid)
+    _apply_type_payload(dt, payload, db)
+    db.add(dt); db.commit(); db.refresh(dt)
+    return _door_type_out(db, dt, [])
+
+
+@router.put("/door-types/{dtid}", response_model=DoorTypeOut)
+def update_door_type(dtid: int, payload: DoorTypeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    dt = _own_door_type(dtid, db, cu)
+    new_code = _norm_code(payload.code)
+    if new_code and new_code != _norm_code(dt.code) and new_code in _type_cache(db, dt.project_id):
+        raise HTTPException(409, f"{new_code} already exists on this project")
+    _apply_type_payload(dt, payload, db)
+    db.commit(); db.refresh(dt)
+    doors = db.query(models.Door).filter(models.Door.door_type_id == dt.id).all()
+    return _door_type_out(db, dt, doors)
+
+
+@router.delete("/door-types/{dtid}", status_code=204)
+def delete_door_type(dtid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    dt = _own_door_type(dtid, db, cu)
+    n = db.query(models.Door).filter(models.Door.door_type_id == dt.id).count()
+    if n:
+        raise HTTPException(409, f"{dt.code} has {n} door{'s' if n != 1 else ''}. Move or remove them first.")
+    db.delete(dt); db.commit()
+
+
+@router.post("/projects/{pid}/doors/apply-suggestions")
+def apply_suggestions(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Assign every suggested set to its door type in one go."""
+    summary = doors_summary(pid, db, cu)
+    applied = 0
+    for o in summary.door_types:
+        if o.suggestion and o.status == "decide":
+            dt = db.query(models.DoorType).get(o.id)
+            dt.set_id = o.suggestion.set_id; dt.status = "assigned"; applied += 1
+    db.commit()
+    return {"applied": applied}
+
+
+@router.post("/projects/{pid}/doors/rescan")
+def rescan_doors(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Re-read door tags from every plan on the project."""
+    p = _own_project(pid, db, cu)
+    total, plans = 0, 0
+    for d in p.drawings:
+        if d.status in ("uploaded", "processing"):
+            continue
+        n = sync_doors_from_drawing(db, d)
+        if n:
+            plans += 1
+        total += n
+    return {"doors": total, "plans": plans}
+
+
+# ── Door schedule import ──────────────────────────────────────────────────────
+_COL_ALIASES = {
+    "code": ("door type", "door ref", "door no", "type", "ref"),
+    "description": ("location description", "description", "location", "door description"),
+    "width": ("width", "structural ope width", "w"),
+    "height": ("height", "structural ope height", "h"),
+    "fire": ("fire rating", "fire", "fd rating"),
+    "acoustic": ("db rating", "acoustic", "acoustic rating", "sound"),
+    "ironmongery": ("ironmongery", "hardware", "ironmongery set"),
+    "floor": ("floor", "level"),
+}
+
+
+def _match_col(header: str) -> Optional[str]:
+    h = re.sub(r"\s+", " ", (header or "").strip().lower())
+    if not h:
+        return None
+    for key, names in _COL_ALIASES.items():
+        if h in names:
+            return key
+    for key, names in _COL_ALIASES.items():
+        if any(h.startswith(n) for n in names if len(n) > 3):
+            return key
+    return None
+
+
+def _int_or_none(v):
+    try:
+        s = re.sub(r"[^\d.]", "", str(v))
+        return int(float(s)) if s else None
+    except ValueError:
+        return None
+
+
+@router.post("/projects/{pid}/doors/import-schedule")
+async def import_door_schedule(pid: int, file: UploadFile = File(...),
+                               db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """
+    An architect's door schedule (.xlsx). One row per door type (DT-01,
+    Room Entrance Door, 1010 x 2135, FD30s, 37dB) fills in the door types;
+    one row per door (D01-001 …) also creates the doors.
+    """
+    _own_project(pid, db, cu)
+    if not (file.filename or "").lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(400, "Upload the schedule as an Excel file (.xlsx)")
+    import openpyxl
+    data = await file.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+    except Exception:
+        raise HTTPException(400, "Could not read that Excel file")
+
+    cache = _type_cache(db, pid)
+    types_added = types_updated = doors_added = 0
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        header_i, cols = None, {}
+        for i, row in enumerate(rows[:40]):
+            cells = [str(c).strip() if c is not None else "" for c in row]
+            if not any(re.fullmatch(r"door\s*(type|ref|no\.?)", c.lower()) for c in cells):
+                continue
+            cols = {}
+            for j, c in enumerate(cells):
+                k = _match_col(c)
+                if k and k not in cols:
+                    cols[k] = j
+            # a "Width / Height" sub-header on the next row
+            if i + 1 < len(rows):
+                for j, c in enumerate(rows[i + 1]):
+                    k = _match_col(str(c) if c is not None else "")
+                    if k in ("width", "height") and k not in cols:
+                        cols[k] = j
+            header_i = i
+            break
+        if header_i is None or "code" not in cols:
+            continue
+        seen_types: set = set()
+        for row in rows[header_i + 1:]:
+            get = lambda k: (str(row[cols[k]]).strip() if k in cols and cols[k] < len(row) and row[cols[k]] is not None else "")
+            raw = get("code")
+            if not raw:
+                continue
+            code = _norm_code(raw)
+            if not re.fullmatch(r"[A-Z]{1,4}-?\d{1,4}(?:-\d{1,2})?[A-Z]?", code) and not re.match(r"^D\d{2}-\d{3}$", code):
+                continue
+            desc = get("description")
+            if desc.lower() in ("", "n/a", "-"):
+                desc = ""
+            per_door = bool(re.match(r"^D\d{2}-\d{3}$", code)) or bool(re.match(r"^D_[A-Z0-9.]+$", code))
+            type_code = code[:3] if per_door and code.startswith("D") and "-" in code else code
+            # "DT-05-01" / "DT-05-02" are size variants of DT-05; when the plans
+            # only tag DT-05, fold them into that one type and keep the sizes.
+            vm = re.fullmatch(r"(DT-\d{2,3})-(\d{2})", type_code)
+            variant = None
+            if vm and vm.group(1) in cache:
+                variant = type_code
+                type_code = vm.group(1)
+            dt = cache.get(type_code)
+            if dt is None:
+                dt = models.DoorType(project_id=pid, code=type_code, status="decide", sort_order=_code_sort(type_code)[1])
+                db.add(dt); db.flush(); cache[type_code] = dt; types_added += 1
+            elif type_code not in seen_types:
+                types_updated += 1
+            seen_types.add(type_code)
+            if variant:
+                base_desc = re.sub(r"\s*\(.*?\)?\s*$", "", desc).strip() if "(" in desc else desc
+                if base_desc and not dt.description: dt.description = base_desc
+                fire = get("fire")
+                if fire and fire.lower() not in ("n/a", "-") and not dt.fire_rating: dt.fire_rating = fire
+                ac = get("acoustic")
+                if ac and ac.lower() not in ("n/a", "-", "none") and not dt.acoustic: dt.acoustic = ac
+                w, h = _int_or_none(get("width")), _int_or_none(get("height"))
+                if w and not dt.width: dt.width = w
+                if h and not dt.height: dt.height = h
+                line = f"{variant}: {desc}" + (f" {w} x {h}" if w and h else "")
+                if line not in (dt.spec_text or ""):
+                    dt.spec_text = ((dt.spec_text or "").rstrip() + "\n" + line).strip()
+                continue
+            if not per_door or not dt.description:
+                if desc: dt.description = desc
+                fire = get("fire")
+                if fire and fire.lower() not in ("n/a", "-"): dt.fire_rating = fire
+                ac = get("acoustic")
+                if ac and ac.lower() not in ("n/a", "-", "none"): dt.acoustic = ac
+                w, h = _int_or_none(get("width")), _int_or_none(get("height"))
+                if w: dt.width = w
+                if h: dt.height = h
+                spec = get("ironmongery")
+                if spec: dt.spec_text = spec
+            if per_door:
+                exists = db.query(models.Door).filter(models.Door.project_id == pid, models.Door.ref == code).first()
+                if not exists:
+                    db.add(models.Door(project_id=pid, door_type_id=dt.id, ref=code, floor=get("floor"),
+                                       source="schedule", note=desc if per_door else ""))
+                    doors_added += 1
+    db.commit()
+    return {"types_added": types_added, "types_updated": types_updated, "doors_added": doors_added}
+
+
+# ── Individual doors ──────────────────────────────────────────────────────────
+def _own_door(did: int, db: Session, cu) -> models.Door:
+    d = db.query(models.Door).get(did)
+    if not d:
+        raise HTTPException(404, "Door not found")
+    _own_project(d.project_id, db, cu)
+    return d
+
+
+def _door_single_out(db: Session, d: models.Door) -> DoorOut:
+    dwg = db.query(models.Drawing).get(d.drawing_id) if d.drawing_id else None
+    set_codes = {s.id: s.code for s in db.query(models.HardwareSet).all()}
+    return _door_out(d, {dwg.id: (dwg.level or dwg.original_name)} if dwg else {}, set_codes)
+
+
+@router.post("/projects/{pid}/doors", response_model=DoorOut, status_code=201)
+def create_door(pid: int, payload: DoorIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    _own_project(pid, db, cu)
+    if payload.door_type_id is not None:
+        _own_door_type(payload.door_type_id, db, cu)
+    ref = payload.ref.strip()
+    if not ref:
+        n = db.query(models.Door).filter(models.Door.project_id == pid, models.Door.source == "manual").count()
+        ref = f"M-{n + 1:02d}"
+    d = models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), handed=payload.handed,
+                    door_type_id=payload.door_type_id, set_id=payload.set_id, note=payload.note, source="manual")
+    db.add(d); db.commit(); db.refresh(d)
+    return _door_single_out(db, d)
+
+
+@router.put("/doors/{did}", response_model=DoorOut)
+def update_door(did: int, payload: DoorIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    d = _own_door(did, db, cu)
+    if payload.door_type_id is not None:
+        _own_door_type(payload.door_type_id, db, cu)
+    if payload.set_id is not None and not db.query(models.HardwareSet).get(payload.set_id):
+        raise HTTPException(404, "Set not found")
+    d.ref = payload.ref.strip() or d.ref; d.floor = payload.floor.strip(); d.handed = payload.handed
+    d.door_type_id = payload.door_type_id; d.set_id = payload.set_id; d.note = payload.note
+    db.commit(); db.refresh(d)
+    return _door_single_out(db, d)
+
+
+@router.delete("/doors/{did}", status_code=204)
+def delete_door(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    d = _own_door(did, db, cu)
+    db.delete(d); db.commit()

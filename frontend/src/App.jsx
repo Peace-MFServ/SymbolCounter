@@ -7,6 +7,7 @@ import { TemplatesView } from './TemplatesView'
 import { AccuracyView } from './AccuracyView'
 import { ProductsView } from './ProductsView'
 import { SetsView, SetEditor } from './SetsView'
+import { DoorsView } from './DoorsView'
 
 export default function App() {
   const { user, loading } = useAuth()
@@ -59,6 +60,8 @@ export default function App() {
       return <SetsView onNavigate={navigate} />
     case 'set':
       return <SetEditor id={params.id} onNavigate={navigate} />
+    case 'doors':
+      return <DoorsView projectId={params.id} onNavigate={navigate} />
     default:
       return <Dashboard onNavigate={navigate} />
   }

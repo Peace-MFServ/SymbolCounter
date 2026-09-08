@@ -25,6 +25,7 @@ export function ProjectView({ id, onNavigate }) {
   const [showSymMgr, setShowSymMgr]= useState(false)
   const [showRevDiff, setShowRevDiff] = useState(false)
   const [dragOver,   setDragOver]  = useState(false)
+  const [doorInfo,   setDoorInfo]  = useState(null)   // {doors, types, decide}
   const fileRef = useRef()
   const pollRef = useRef()
 
@@ -38,6 +39,7 @@ export function ProjectView({ id, onNavigate }) {
       setProject(proj)
       setDrawings(dwgs || [])
       setSymTypes(syms || [])
+      apiFetch(`/projects/${id}/doors/count`).then(c => { if (c) setDoorInfo(c) }).catch(() => {})
     } finally {
       setLoading(false)
     }
@@ -52,6 +54,7 @@ export function ProjectView({ id, onNavigate }) {
       if (cnt && cnt.processing === 0) {
         clearInterval(pollRef.current); pollRef.current = null
         apiFetch(`/projects/${id}/symbol-types`).then(t => { if (t) setSymTypes(t) })
+        apiFetch(`/projects/${id}/doors/count`).then(c => { if (c) setDoorInfo(c) }).catch(() => {})
       }
       apiFetch(`/projects/${id}/drawings`).then(dwgs => { if (dwgs) setDrawings(dwgs) })
     }, 3000)
@@ -167,6 +170,7 @@ export function ProjectView({ id, onNavigate }) {
           </div>
           <div className="spacer" />
           <div className="actions">
+            <button className="btn" onClick={() => onNavigate('doors', { id })}>Doors{doorInfo?.doors ? ` ${doorInfo.doors}` : ''}</button>
             <button className="btn" onClick={() => setShowSymMgr(true)}>Symbol types</button>
             {drawings.length > 1 && (
               <button className="btn" onClick={() => setShowRevDiff(true)}>Compare revisions</button>
@@ -207,6 +211,12 @@ export function ProjectView({ id, onNavigate }) {
               <div className="pv-stat"><div className="num">{approvedCount}<span className="of">/{drawings.length}</span></div><div className="lbl">Approved</div></div>
               {processing > 0 && (
                 <div className="pv-stat working"><div className="num"><span className="spinner" /></div><div className="lbl">{processing} detecting</div></div>
+              )}
+              {doorInfo?.doors > 0 && (
+                <div className="pv-stat link" onClick={() => onNavigate('doors', { id })} title="Open the door list">
+                  <div className="num">{doorInfo.doors}</div>
+                  <div className="lbl">Doors{doorInfo.decide > 0 ? ` · ${doorInfo.decide} type${doorInfo.decide !== 1 ? 's' : ''} to decide` : ''}</div>
+                </div>
               )}
             </div>
 
