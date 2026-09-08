@@ -420,8 +420,13 @@ class DoorIn(BaseModel):
 class PlanOut(BaseModel):
     id: int; name: str; floor: str = ""; doors: int = 0; status: str = ""; error: str = ""
 
+class BulkDoorsIn(BaseModel):
+    door_ids: list[int] = []; untyped: bool = False
+    set_id: Optional[int] = None; door_type_id: Optional[int] = None; clear_set: bool = False
+
 class DoorsSummary(BaseModel):
     project_id: int; kind: str = "symbols"; doors: int; plans: int; untyped_doors: int
+    untyped_floors: list[FloorCount] = []; untyped_with_set: int = 0; untyped_sample: list[str] = []
     decide: int; assigned: int; excluded: int
     assigned_doors: int; suggestions: int; sets_available: int = 0
     floors: list[str] = []; door_types: list[DoorTypeOut] = []; plan_list: list[PlanOut] = []
@@ -661,7 +666,14 @@ def doors_summary(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_c
     floors = sorted({d.floor for d in doors if d.floor}, key=_floor_rank)
     assigned_doors = sum(1 for d in doors if d.set_id or (d.door_type and d.door_type.set_id
                                                           and d.door_type.status != "excluded"))
+    untyped = by_type.get(None, [])
+    uf: dict[str, int] = {}
+    for d in untyped:
+        uf[d.floor or "Unknown"] = uf.get(d.floor or "Unknown", 0) + 1
     return DoorsSummary(
+        untyped_floors=[FloorCount(floor=f, count=n) for f, n in sorted(uf.items(), key=lambda t: _floor_rank(t[0]))],
+        untyped_with_set=sum(1 for d in untyped if d.set_id),
+        untyped_sample=[d.ref for d in sorted(untyped, key=lambda d: d.ref or "")[:6]],
         project_id=pid, kind=project.kind or "symbols", sets_available=len(sets), plan_list=plan_list,
         doors=len(doors), plans=len({d.drawing_id for d in doors if d.drawing_id}),
         untyped_doors=len(by_type.get(None, [])),
@@ -771,6 +783,34 @@ def rescan_doors(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cu
             plans += 1
         total += n
     return {"doors": total, "plans": plans}
+
+
+@router.put("/projects/{pid}/doors/bulk")
+def bulk_update_doors(pid: int, payload: BulkDoorsIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Give many doors a set or a type at once: a list of ids, or every door with no type."""
+    _own_project(pid, db, cu)
+    if payload.set_id is not None and not db.query(models.HardwareSet).get(payload.set_id):
+        raise HTTPException(404, "Set not found")
+    if payload.door_type_id is not None:
+        _own_door_type(payload.door_type_id, db, cu)
+    q = db.query(models.Door).filter(models.Door.project_id == pid)
+    if payload.untyped:
+        q = q.filter(models.Door.door_type_id.is_(None))
+    elif payload.door_ids:
+        q = q.filter(models.Door.id.in_(payload.door_ids))
+    else:
+        return {"updated": 0}
+    n = 0
+    for d in q.all():
+        if payload.clear_set:
+            d.set_id = None
+        elif payload.set_id is not None:
+            d.set_id = payload.set_id
+        if payload.door_type_id is not None:
+            d.door_type_id = payload.door_type_id
+        n += 1
+    db.commit()
+    return {"updated": n}
 
 
 # ── Door schedule import ──────────────────────────────────────────────────────

@@ -98,25 +98,33 @@ export function DoorsView({ projectId, onNavigate }) {
     return saveType(t, { status: 'assigned', set_id: Number(value) })
   }
 
+  const setUntyped = async value => {
+    const body = value === '' ? { untyped: true, clear_set: true } : { untyped: true, set_id: Number(value) }
+    try {
+      await apiFetch(`/projects/${projectId}/doors/bulk`, { method: 'PUT', body: JSON.stringify(body) })
+      setDoors(x => ({ ...x, 0: undefined })); await load(); if (open === 0) loadDoors(0)
+    } catch (err) { showToast(err.message, 'error') }
+  }
+
   const setDoorOverride = async (d, value) => {
     const body = { ref: d.ref, floor: d.floor, handed: d.handed, door_type_id: d.door_type_id,
                    set_id: value === '' ? null : Number(value), note: d.note }
     try {
       await apiFetch(`/doors/${d.id}`, { method: 'PUT', body: JSON.stringify(body) })
-      await loadDoors(d.door_type_id); const s = await apiFetch(`/projects/${projectId}/doors/summary`); setSummary(s)
+      await loadDoors(d.door_type_id || 0); const s = await apiFetch(`/projects/${projectId}/doors/summary`); setSummary(s)
     } catch (err) { showToast(err.message, 'error') }
   }
 
   const removeDoor = async d => {
     if (!confirm(`Remove door ${d.ref}?${d.source === 'plan' ? ' It will come back if the plans are rescanned.' : ''}`)) return
     await apiFetch(`/doors/${d.id}`, { method: 'DELETE' })
-    await load(); loadDoors(d.door_type_id)
+    await load(); loadDoors(d.door_type_id || 0)
   }
 
   const addDoor = async (t, ref, floor) => {
     try {
-      await apiFetch(`/projects/${projectId}/doors`, { method: 'POST', body: JSON.stringify({ ref, floor, door_type_id: t.id }) })
-      await load(); loadDoors(t.id)
+      await apiFetch(`/projects/${projectId}/doors`, { method: 'POST', body: JSON.stringify({ ref, floor, door_type_id: t.id || null }) })
+      await load(); loadDoors(t.id || 0)
     } catch (err) { showToast(err.message, 'error') }
   }
 
@@ -247,10 +255,10 @@ export function DoorsView({ projectId, onNavigate }) {
               </div>
             )}
 
-            {types.length > 0 && decided === 0 && summary.sets_available > 0 && (
+            {(types.length > 0 || summary.untyped_doors > 0) && decided === 0 && summary.untyped_with_set === 0 && summary.sets_available > 0 && (
               <p className="step-hint">Step 2: for each kind of door below, choose the hardware set that goes on it. Every door of that kind gets the set.</p>
             )}
-            {types.length > 0 && summary.sets_available === 0 && (
+            {(types.length > 0 || summary.untyped_doors > 0) && summary.sets_available === 0 && (
               <div className="suggest-bar">
                 <div><strong>There are no hardware sets yet, so there is nothing to choose.</strong>
                   <span className="muted"> Import an old Intec schedule to load the sets Evan already uses, or build one by hand.</span></div>
@@ -262,6 +270,43 @@ export function DoorsView({ projectId, onNavigate }) {
                 <tr><th>Type</th><th>Description</th><th style={{ textAlign: 'right' }}>Doors</th><th>Where</th><th>Set</th><th>Status</th><th></th></tr>
               </thead>
               <tbody>
+                {summary.untyped_doors > 0 && (() => {
+                  const allSet = summary.untyped_with_set === summary.untyped_doors
+                  const isOpen = open === 0
+                  const fake = { id: 0, set_code: '' }
+                  return (
+                    <React.Fragment key="untyped">
+                      <tr className={isOpen ? 'open' : ''}>
+                        <td className="type-code muted">none</td>
+                        <td>
+                          <div className="dwg-name" style={{ fontSize: 15 }}>Doors with no type on the plan</div>
+                          <div className="proj-meta">Numbered {summary.untyped_sample.slice(0, 3).join(', ')}{summary.untyped_sample.length > 3 ? ' …' : ''}. Give them all one set here, or open the list and set them one by one.</div>
+                        </td>
+                        <td className="count-num">{summary.untyped_doors}</td>
+                        <td className="muted floors-cell">{summary.untyped_floors.map(f => `${f.floor} ${f.count}`).join(' · ') || '—'}</td>
+                        <td className="set-cell" onClick={e => e.stopPropagation()}>
+                          <select className="form-control set-select" value="" onChange={e => setUntyped(e.target.value)}>
+                            <option value="">{allSet ? 'Change the set for all…' : summary.untyped_with_set ? `Set the rest (${summary.untyped_doors - summary.untyped_with_set})…` : 'Choose a set for all…'}</option>
+                            {sets.map(s => <option key={s.id} value={s.id}>{s.code} {s.name}</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          {allSet ? <span className="badge badge-green">Assigned</span>
+                            : summary.untyped_with_set ? <span className="badge badge-orange">{summary.untyped_with_set} of {summary.untyped_doors}</span>
+                            : <span className="badge badge-orange">To decide</span>}
+                        </td>
+                        <td className="row-actions">
+                          <button className="btn btn-ghost btn-sm" onClick={() => toggle(0)}>{isOpen ? 'Hide doors' : 'Doors'}</button>
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="sub-row"><td colSpan={7}>
+                          <DoorList type={fake} doors={doors[0]} sets={sets} onOverride={setDoorOverride} onRemove={removeDoor} onAdd={addDoor} />
+                        </td></tr>
+                      )}
+                    </React.Fragment>
+                  )
+                })()}
                 {types.map(t => {
                   const [cls, label] = STATUS[t.status] || ['badge-grey', t.status]
                   const isOpen = open === t.id
