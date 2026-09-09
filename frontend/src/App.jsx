@@ -72,6 +72,6 @@ export default function App() {
     case 'schedule':
       return <ScheduleView projectId={params.id} onNavigate={navigate} />
     default:
-      return <Dashboard onNavigate={navigate} />
+      return <Dashboard onNavigate={navigate} q={params.q || ''} />
   }
 }

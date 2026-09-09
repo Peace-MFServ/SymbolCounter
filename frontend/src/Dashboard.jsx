@@ -3,21 +3,49 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { useAuth } from './auth'
 import logo from './assets/mf-logo.jpeg'
+import { IconSearch, IconRight, IconPlus } from './icons'
 
 export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false }) {
   const { user, logout } = useAuth()
+  const [q, setQ] = useState('')
   const handleLogout = () => { logout(); onNavigate && onNavigate('login') }
+  const initials = (user?.name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase()
   return (
-    <div id="topbar">
-      <a className="logo" onClick={() => onNavigate && onNavigate('dashboard')}>
-        <img src={logo} alt="MF Services" />
-        <span className="logo-words"><strong>MF Services</strong><span>Door Schedules</span></span>
-      </a>
+    <>
+      <div id="topbar">
+        <a className="logo" onClick={() => onNavigate && onNavigate('dashboard')}>
+          <img src={logo} alt="MF Services" />
+          <span className="logo-words"><strong>MF Services</strong><span>Door Schedules</span></span>
+        </a>
+        {user && onNavigate && !compact && (
+          <nav className="topnav">
+            <a className={active === 'projects' ? 'on' : ''} onClick={() => onNavigate('dashboard')}>Jobs</a>
+            <a className={active === 'products' ? 'on' : ''} onClick={() => onNavigate('products')}>Products</a>
+            <a className={active === 'sets' ? 'on' : ''} onClick={() => onNavigate('sets')}>Sets</a>
+            <a className={active === 'accuracy' ? 'on' : ''} onClick={() => onNavigate('accuracy')}>Accuracy</a>
+          </nav>
+        )}
+        <div className="spacer" />
+        {right}
+        {user && onNavigate && !compact && (
+          <form className="topsearch" onSubmit={e => { e.preventDefault(); onNavigate('dashboard', { q }); }}>
+            <IconSearch size={16} />
+            <input placeholder="Search jobs…" value={q} onChange={e => setQ(e.target.value)} />
+          </form>
+        )}
+        {user && !compact && (
+          <div className="userchip">
+            <span className="avatar">{initials}</span>
+            <span className="user-name">{user.name}<small>Estimator</small></span>
+            <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
+          </div>
+        )}
+      </div>
       {crumbs.length > 0 && (
         <nav className="crumbs" aria-label="Breadcrumb">
           {crumbs.map((c, i) => (
             <React.Fragment key={i}>
-              <span className="crumb-sep">/</span>
+              {i > 0 && <span className="crumb-sep"><IconRight size={14} /></span>}
               {c.onClick && i < crumbs.length - 1
                 ? <a onClick={c.onClick}>{c.label}</a>
                 : <span className="crumb-cur">{c.label}</span>}
@@ -25,27 +53,11 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
           ))}
         </nav>
       )}
-      <div className="spacer" />
-      {right}
-      {user && onNavigate && !compact && (
-        <nav className="topnav">
-          <a className={active === 'projects' ? 'on' : ''} onClick={() => onNavigate('dashboard')}>Projects</a>
-          <a className={active === 'products' ? 'on' : ''} onClick={() => onNavigate('products')}>Products</a>
-          <a className={active === 'sets' ? 'on' : ''} onClick={() => onNavigate('sets')}>Sets</a>
-          <a className={active === 'accuracy' ? 'on' : ''} onClick={() => onNavigate('accuracy')}>Accuracy</a>
-        </nav>
-      )}
-      {user && !compact && (
-        <>
-          <span className="user-name">{user.name}<small>MF Services</small></span>
-          <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
-        </>
-      )}
-    </div>
+    </>
   )
 }
 
-export function Dashboard({ onNavigate }) {
+export function Dashboard({ onNavigate, q = '' }) {
   const [projects, setProjects] = useState([])
   const [loading,  setLoading]  = useState(true)
   const [showNew,  setShowNew]  = useState(false)
@@ -69,12 +81,12 @@ export function Dashboard({ onNavigate }) {
 
   return (
     <>
-      <Topbar onNavigate={onNavigate} crumbs={[{ label: 'Projects' }]} />
+      <Topbar onNavigate={onNavigate} />
       <div className="page-wrap">
         <div className="page-header">
           <div>
-            <h1>Projects</h1>
-            <p className="lede">Every job in the office, in one list.</p>
+            <h1>Jobs</h1>
+            <p className="lede">{q ? `Jobs matching “${q}”.` : 'Every job in the office, in one list.'}</p>
           </div>
         </div>
 
@@ -98,7 +110,7 @@ export function Dashboard({ onNavigate }) {
                 <table className="ledger">
                   <thead>
                     <tr>
-                      <th>Project</th>
+                      <th>Job</th>
                       <th>Kind</th>
                       <th style={{ textAlign: 'right' }}>Drawings</th>
                       <th style={{ textAlign: 'right' }}>Doors</th>
@@ -106,7 +118,7 @@ export function Dashboard({ onNavigate }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {projects.map(p => (
+                    {projects.filter(p => !q || [p.name, p.client, p.site, p.quote_no].join(' ').toLowerCase().includes(q.toLowerCase())).map(p => (
                       <tr key={p.id} onClick={() => onNavigate(openView(p), { id: p.id })}>
                         <td>
                           <div className="proj-name">{p.name}</div>
@@ -134,7 +146,7 @@ export function Dashboard({ onNavigate }) {
 
             <aside className="rail">
               <button className="btn btn-primary btn-lg" onClick={() => setShowNew(true)}>
-                New Project
+                <IconPlus size={16} /> New job
               </button>
               <div className="rail-panel">
                 <h3>At a glance</h3>
@@ -199,7 +211,7 @@ function NewProjectModal({ onClose, onCreated }) {
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <h2>New Project</h2>
+        <h2>New job</h2>
         <form onSubmit={submit}>
           <div className="kind-pick">
             <button type="button" className={kind === 'doors' ? 'on' : ''} onClick={() => setKind('doors')}>
@@ -249,7 +261,7 @@ function NewProjectModal({ onClose, onCreated }) {
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={busy}>
-              {busy ? <span className="spinner" /> : 'Create Project'}
+              {busy ? <span className="spinner" /> : 'Create job'}
             </button>
           </div>
         </form>

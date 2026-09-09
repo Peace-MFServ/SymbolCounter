@@ -212,7 +212,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
   const value = items.reduce((s, i) => s + (i.price || 0) * i.qty, 0)
 
   const crumbs = projectId
-    ? [{ label: 'Projects', onClick: () => onNavigate('dashboard') }, { label: job?.name || '…', onClick: back }, { label: isNew ? 'New set' : code }]
+    ? [{ label: 'Jobs', onClick: () => onNavigate('dashboard') }, { label: job?.name || '…', onClick: back }, { label: isNew ? 'New set' : code }]
     : [{ label: 'Sets', onClick: back }, { label: isNew ? 'New set' : `${code} ${name}` }]
   if (!set) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} active="sets" /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div></>
 
@@ -221,7 +221,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
       <Topbar crumbs={crumbs} onNavigate={onNavigate} active={projectId ? 'projects' : 'sets'} />
       <div className="page-wrap">
         {readOnly && <div className="suggest-bar"><div><strong>{lockedBy} has this set open.</strong><span className="muted"> You can look but not save. It frees up when they close it.</span></div></div>}
-        <div className="page-header" style={{ alignItems: 'flex-start' }}>
+        <div className="page-header set-edit-head">
           <div className="set-title">
             <input className="set-code" value={code} onChange={e => { setCode(e.target.value); setDirty(true) }} placeholder="MF 01" disabled={readOnly} />
             <input className="set-name" value={name} onChange={e => { setName(e.target.value); setDirty(true) }} placeholder="Int Sgl Bathroom Doors FR" disabled={readOnly} />
@@ -252,7 +252,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
                     ))}
                   </div>
                 )}
-            <table className="ledger set-items">
+            <table className="ledger set-items soft">
               <thead><tr><th>Code</th><th>Product</th><th className="num">Per door</th><th className="num">Price</th><th className="num">Value</th><th></th></tr></thead>
               <tbody>
                 {groups.map(g => (
