@@ -238,6 +238,20 @@ export function SetEditor({ id, projectId, onNavigate }) {
 
         <div className="split">
           <div>
+            {!readOnly && (
+              <div className="typeahead" style={{ marginBottom: 14 }}>
+                <input ref={searchRef} className="form-control" placeholder="Add a product to this set: type a code or name, press Enter" value={q}
+                       onChange={e => setQ(e.target.value)}
+                       onKeyDown={e => { if (e.key === 'Enter' && matches[0]) { e.preventDefault(); add(matches[0]) } if (e.key === 'Escape') setQ('') }} />
+                {matches.length > 0 && (
+                  <div className="typeahead-list">
+                    {matches.map(p => (
+                      <button key={p.id} onClick={() => add(p)}>
+                        <span className="mono">{p.sku}</span><span className="ta-name">{p.name}</span><span className="muted">{TYPE_NAMES[p.product_type || '']}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
             <table className="ledger set-items">
               <thead><tr><th>Code</th><th>Product</th><th className="num">Per door</th><th className="num">Price</th><th className="num">Value</th><th></th></tr></thead>
               <tbody>
@@ -256,20 +270,6 @@ export function SetEditor({ id, projectId, onNavigate }) {
                 <tfoot><tr><td colSpan={3} /><td className="num" style={{ fontWeight: 600 }}>Set value</td><td className="num" style={{ fontWeight: 600 }}>{priced ? money(value) : <span className="muted" style={{ fontWeight: 400 }}>not all priced</span>}</td><td /></tr></tfoot>
               )}
             </table>
-            {!readOnly && (
-              <div className="typeahead">
-                <input ref={searchRef} className="form-control" placeholder="Add a product: type a code or name and press Enter" value={q}
-                       onChange={e => setQ(e.target.value)}
-                       onKeyDown={e => { if (e.key === 'Enter' && matches[0]) { e.preventDefault(); add(matches[0]) } if (e.key === 'Escape') setQ('') }} />
-                {matches.length > 0 && (
-                  <div className="typeahead-list">
-                    {matches.map(p => (
-                      <button key={p.id} onClick={() => add(p)}>
-                        <span className="mono">{p.sku}</span><span className="ta-name">{p.name}</span><span className="muted">{TYPE_NAMES[p.product_type || '']}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
                 {q && matches.length === 0 && <div className="hint" style={{ marginTop: 6 }}>No product matches. Add it under Products first.</div>}
               </div>
             )}

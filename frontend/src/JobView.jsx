@@ -274,6 +274,40 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onChanged, o
         </div>
       </div>
 
+      <div className="doors-block">
+        <div className="doors-block-head">
+          <h3>Doors on {s.code} <span className="muted" style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{doors.length}</span></h3>
+        </div>
+        <div className="add-doors">
+          <form onSubmit={addQty} className="add-doors-row">
+            <label>Add<input className="form-control" type="number" min="1" max="2000" value={count} onChange={e => setCount(e.target.value)} /></label>
+            <label>doors numbered<input className="form-control" value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="D" style={{ width: 80 }} /></label>
+            <input className="form-control" value={sep} onChange={e => setSep(e.target.value)} placeholder="." style={{ width: 36 }} title="Separator, e.g. a dot" />
+            <span className="muted">then a number</span>
+            <input className="form-control" value={floor} onChange={e => setFloor(e.target.value)} placeholder="Floor (optional)" style={{ width: 130 }} />
+            <button className="btn btn-sm" type="submit" disabled={busy === 'qty'}>{busy === 'qty' ? <span className="spinner" /> : `Add ${count || 1}`}</button>
+          </form>
+          <form onSubmit={addRange} className="add-doors-row">
+            <span className="muted">or a range</span>
+            <input className="form-control" type="number" value={from} onChange={e => setFrom(e.target.value)} placeholder="from" style={{ width: 80 }} />
+            <input className="form-control" type="number" value={to} onChange={e => setTo(e.target.value)} placeholder="to" style={{ width: 80 }} />
+            <button className="btn btn-sm" type="submit" disabled={busy === 'range' || from === '' || to === ''}>{busy === 'range' ? <span className="spinner" /> : 'Add range'}</button>
+            <span className="hint">Next would be {prefix}{sep}{String(Math.max(1, (doors.length ? Number((lastRef.match(/(\d+)$/) || [0, 0])[1]) : 0) + 1)).padStart(pad(), '0')}</span>
+          </form>
+        </div>
+        {doors.length > 0 ? (
+          <div className="door-ref-list">
+            {shown.map(d => (
+              <span key={d.id} className="door-chip" title={[d.floor, d.source === 'plan' ? 'from the plan' : ''].filter(Boolean).join(' · ')}>
+                {d.ref}{d.handed ? 'h' : ''}
+                {d.source !== 'plan' && <button onClick={() => onRemoveDoor(d)} title="Remove this door">×</button>}
+              </span>
+            ))}
+            {doors.length > 40 && !showAll && <button className="link-btn" onClick={() => setShowAll(true)}>and {doors.length - 40} more</button>}
+          </div>
+        ) : <p className="muted" style={{ fontSize: 13, margin: '10px 0 4px' }}>No doors yet. Say how many above.</p>}
+
+      </div>
       <table className="ledger set-products">
         <thead><tr><th>Code</th><th>Product</th><th className="num">Per door</th><th className="num">Price</th><th className="num">Value</th></tr></thead>
         <tbody>
@@ -299,40 +333,6 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onChanged, o
         </tfoot>
       </table>
 
-      <div className="doors-block">
-        <div className="doors-block-head">
-          <h3>Doors on {s.code} <span className="muted" style={{ fontWeight: 400 }}>{doors.length}</span></h3>
-        </div>
-        {doors.length > 0 ? (
-          <div className="door-ref-list">
-            {shown.map(d => (
-              <span key={d.id} className="door-chip" title={[d.floor, d.source === 'plan' ? 'from the plan' : ''].filter(Boolean).join(' · ')}>
-                {d.ref}{d.handed ? 'h' : ''}
-                {d.source !== 'plan' && <button onClick={() => onRemoveDoor(d)} title="Remove this door">×</button>}
-              </span>
-            ))}
-            {doors.length > 40 && !showAll && <button className="link-btn" onClick={() => setShowAll(true)}>and {doors.length - 40} more</button>}
-          </div>
-        ) : <p className="muted" style={{ fontSize: 13, margin: '4px 0 10px' }}>No doors yet. Say how many below.</p>}
-
-        <div className="add-doors">
-          <form onSubmit={addQty} className="add-doors-row">
-            <label>Add<input className="form-control" type="number" min="1" max="2000" value={count} onChange={e => setCount(e.target.value)} /></label>
-            <label>doors numbered<input className="form-control" value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="D" style={{ width: 80 }} /></label>
-            <input className="form-control" value={sep} onChange={e => setSep(e.target.value)} placeholder="." style={{ width: 36 }} title="Separator, e.g. a dot" />
-            <span className="muted">then a number</span>
-            <input className="form-control" value={floor} onChange={e => setFloor(e.target.value)} placeholder="Floor (optional)" style={{ width: 130 }} />
-            <button className="btn btn-sm" type="submit" disabled={busy === 'qty'}>{busy === 'qty' ? <span className="spinner" /> : `Add ${count || 1}`}</button>
-          </form>
-          <form onSubmit={addRange} className="add-doors-row">
-            <span className="muted">or a range</span>
-            <input className="form-control" type="number" value={from} onChange={e => setFrom(e.target.value)} placeholder="from" style={{ width: 80 }} />
-            <input className="form-control" type="number" value={to} onChange={e => setTo(e.target.value)} placeholder="to" style={{ width: 80 }} />
-            <button className="btn btn-sm" type="submit" disabled={busy === 'range' || from === '' || to === ''}>{busy === 'range' ? <span className="spinner" /> : 'Add range'}</button>
-            <span className="hint">Next would be {prefix}{sep}{String(Math.max(1, (doors.length ? Number((lastRef.match(/(\d+)$/) || [0, 0])[1]) : 0) + 1)).padStart(pad(), '0')}</span>
-          </form>
-        </div>
-      </div>
     </div>
   )
 }
