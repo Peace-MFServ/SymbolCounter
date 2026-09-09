@@ -5,7 +5,7 @@ import { useAuth } from './auth'
 import logo from './assets/mf-logo.jpeg'
 import { IconRight, IconPlus } from './icons'
 
-export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false }) {
+export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false, crumbsRight = null }) {
   const { user, logout } = useAuth()
   const handleLogout = () => { logout(); onNavigate && onNavigate('login') }
   const initials = (user?.name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase()
@@ -44,6 +44,7 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
                 : <span className="crumb-cur">{c.label}</span>}
             </React.Fragment>
           ))}
+          {crumbsRight && <div className="crumbs-right">{crumbsRight}</div>}
         </nav>
       )}
     </>

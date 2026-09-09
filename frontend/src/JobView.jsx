@@ -112,25 +112,18 @@ export function JobView({ projectId, onNavigate }) {
 
   return (
     <>
-      <Topbar crumbs={crumbs} onNavigate={onNavigate} />
+      <Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={
+        <>
+          <Menu label="Job actions" items={[
+            { label: 'Products by set', onClick: () => onNavigate('grid', { id: projectId }) },
+            { label: 'Copy this job', onClick: copyJob },
+            { label: `Plans and door types${job.plans ? ` (${job.plans})` : ''}`, onClick: () => onNavigate('doors', { id: projectId }) },
+            { label: 'Set library', onClick: () => onNavigate('sets') },
+          ]} />
+          <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })} disabled={!job.sets.length}><IconFile size={16} /> Produce schedule</button>
+        </>
+      } />
       <div className="page-wrap wide">
-        <div className="page-header job-head">
-          <div>
-            <h2 className="job-name">{job.name}</h2>
-            <p className="lede">{[job.quote_no && `Quote ${job.quote_no}`, job.client, job.site].filter(Boolean).join(' · ') || 'No quote number or client yet'}</p>
-          </div>
-          <div className="spacer" />
-          <div className="actions">
-            <Menu label="Job actions" items={[
-              { label: 'Products by set', onClick: () => onNavigate('grid', { id: projectId }) },
-              { label: 'Copy this job', onClick: copyJob },
-              { label: `Plans and door types${job.plans ? ` (${job.plans})` : ''}`, onClick: () => onNavigate('doors', { id: projectId }) },
-              { label: 'Set library', onClick: () => onNavigate('sets') },
-            ]} />
-            <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })} disabled={!job.sets.length}><IconFile size={16} /> Produce schedule</button>
-          </div>
-        </div>
-
         <div className="job-grid">
           {/* Left: sets on this job */}
           <aside className="job-sets card-panel">
