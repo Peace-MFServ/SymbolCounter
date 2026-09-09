@@ -930,4 +930,4 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .set-items.soft .qty { width: 60px; padding: 6px; text-align: center; border: 1px solid var(--border-strong); border-radius: 6px; font: inherit; font-weight: 600; }
 .set-items.soft td.row-actions { width: 160px; white-space: nowrap; }
 
-.set-panel-head .actions { flex-wrap: nowrap; white-space: nowrap; }
+.set-panel-head .actions { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; white-space: nowrap; }
