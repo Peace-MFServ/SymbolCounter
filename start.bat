@@ -80,7 +80,13 @@ if errorlevel 1 (
 )
 echo  [OK] Frontend built
 
-:: ── 6. Start backend ─────────────────────────────────────────
+:: ── 6. Free port 8000 if an earlier run is still holding it ──
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r ":8000 .*LISTENING"') do (
+    echo  Stopping the earlier Symbol Counter on port 8000 (process %%p)...
+    taskkill /F /PID %%p >nul 2>&1
+)
+
+:: ── 7. Start backend ─────────────────────────────────────────
 echo.
 echo  -----------------------------------------------
 echo  Starting Symbol Counter...
