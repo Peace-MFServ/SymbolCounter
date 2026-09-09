@@ -65,11 +65,11 @@ function AuthHero() {
   return (
     <section className="auth-hero">
       <div className="auth-brand"><img src={logo} alt="MF Services" /></div>
-      <h1>Door schedules,<br /><em>without the typing.</em></h1>
+      <h1>Door Schedules</h1>
       <div className="auth-rule" />
       <p>
-        Standard sets, doors by the dozen, and the schedule PDF at the end.
-        Device counts from services drawings too, when a job needs them.
+        Ironmongery schedules for every job: standard sets, doors, and the
+        schedule PDF. Device counts from services drawings when a job needs them.
       </p>
     </section>
   )
