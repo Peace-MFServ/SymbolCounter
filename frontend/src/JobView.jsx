@@ -3,7 +3,7 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { Menu } from './ProjectView'
-import { IconPlus, IconEdit, IconSave, IconBars, IconDoc, IconCheck, IconWarn, IconFile, IconSearch, IconRight, IconDoor, IconLayers, IconFolder } from './icons'
+import { IconPlus, IconEdit, IconSave, IconBars, IconDoc, IconCheck, IconWarn, IconFile, IconRight, IconDoor, IconLayers, IconFolder, IconTrash } from './icons'
 
 export const TYPE_NAMES = {
   '01': 'Hinges and pivots', '02': 'Door closers', '03': 'Locks and cylinders', '04': 'Door handles',
@@ -55,6 +55,17 @@ export function JobView({ projectId, onNavigate }) {
     const what = js.set.is_standard ? `Take ${js.set.code} off this job?` : `Delete this job's copy of ${js.set.code}?`
     if (!confirm(n ? `${what} Its ${n} door${n !== 1 ? 's' : ''} will be left without a set.` : what)) return
     try { await apiFetch(`/projects/${projectId}/sets/${js.set.id}`, { method: 'DELETE' }); setSelected(null); await load() }
+    catch (err) { showToast(err.message, 'error') }
+  }
+  const deleteFromLibrary = async s => {
+    let usedOn = s.used_on || []
+    try { usedOn = (await apiFetch(`/sets/${s.id}`)).used_on || [] } catch {}
+    const others = usedOn.filter(u => u.project_id !== Number(projectId))
+    const msg = others.length
+      ? `${s.code} ${s.name} is also on ${others.map(u => u.project).join(', ')}.\n\nDelete it from the library anyway? Doors using it on every job will be left without a set.`
+      : `Delete ${s.code} ${s.name} from the set library? Doors using it on this job will be left without a set.`
+    if (!confirm(msg)) return
+    try { await apiFetch(`/sets/${s.id}?force=true`, { method: 'DELETE' }); showToast('Set deleted', 'info'); setSelected(null); await load() }
     catch (err) { showToast(err.message, 'error') }
   }
   const editSet = async js => {
@@ -155,11 +166,11 @@ export function JobView({ projectId, onNavigate }) {
           {/* Middle: the selected set */}
           <main className="job-main">
             {choosing || !current ? (
-              <SetChooser library={job.library} onJob={job.sets.map(js => js.set.id)} onPick={addSet}
+              <SetChooser library={job.library} onJob={job.sets.map(js => js.set.id)} onPick={addSet} onDelete={deleteFromLibrary}
                           onCancel={current ? () => setChoosing(false) : null} />
             ) : (
               <SetPanel js={current} doors={doors} projectId={projectId}
-                        onEdit={() => editSet(current)} onCopy={() => copyForJob(current)} onRemove={() => removeSet(current)}
+                        onEdit={() => editSet(current)} onCopy={() => copyForJob(current)} onRemove={() => removeSet(current)} onDelete={() => deleteFromLibrary(current.set)}
                         onChanged={load} onRemoveDoor={removeDoor} />
             )}
           </main>
@@ -212,14 +223,11 @@ const setTag = s => {
   return { cls: '', label: 'Standard' }
 }
 
-function SetChooser({ library, onJob, onPick, onCancel }) {
-  const [q, setQ] = useState('')
+function SetChooser({ library, onJob, onPick, onCancel, onDelete }) {
   const [filter, setFilter] = useState('all')
   const filters = SET_FILTERS.filter(f => library.some(f.test))
   const shown = library.filter(s => {
-    if (filter !== 'all' && !SET_FILTERS.find(f => f.key === filter).test(s)) return false
-    if (!q) return true
-    return (s.code + ' ' + s.name + ' ' + (s.description || '')).toLowerCase().includes(q.toLowerCase())
+    return filter === 'all' || SET_FILTERS.find(f => f.key === filter).test(s)
   })
   return (
     <div className="card-panel chooser">
@@ -231,11 +239,7 @@ function SetChooser({ library, onJob, onPick, onCancel }) {
         </div>
         {onCancel && <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>}
       </div>
-      <label className="chooser-search">
-        <IconSearch size={18} />
-        <input placeholder="Search sets, e.g. bathroom, fire rated, MF 01" value={q} onChange={e => setQ(e.target.value)} autoFocus />
-      </label>
-      <div className="chooser-filters">
+      <div className="chooser-filters" style={{ marginTop: 0 }}>
         <button className={'filter-chip' + (filter === 'all' ? ' on' : '')} onClick={() => setFilter('all')}>All</button>
         {filters.map(f => <button key={f.key} className={'filter-chip' + (filter === f.key ? ' on' : '')} onClick={() => setFilter(f.key)}>{f.label}</button>)}
         <span className="spacer" />
@@ -260,7 +264,10 @@ function SetChooser({ library, onJob, onPick, onCancel }) {
                 <span className="sep" />
                 <span>{s.value_per_door != null ? money(s.value_per_door) + ' / door' : 'No price yet'}</span>
                 <span className="spacer" />
-                {!added && <IconRight size={16} />}
+                {!added && s.copied_from && onDelete
+                  ? <span className="lib-card-del" role="button" title="Delete this copy from the library"
+                          onClick={e => { e.stopPropagation(); onDelete(s) }}><IconTrash size={14} /> Delete</span>
+                  : !added && <IconRight size={16} />}
               </div>
             </button>
           )
@@ -270,7 +277,7 @@ function SetChooser({ library, onJob, onPick, onCancel }) {
   )
 }
 
-function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onChanged, onRemoveDoor }) {
+function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, onChanged, onRemoveDoor }) {
   const s = js.set
   const groups = groupItems(s.items)
   const [prefix, setPrefix] = useState('D')
@@ -320,6 +327,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onChanged, o
   const menuItems = [
     ...(s.is_standard ? [{ label: 'Copy for this job only', onClick: onCopy }] : []),
     { label: s.is_standard ? 'Remove from job' : 'Delete this copy', onClick: onRemove },
+    ...(s.is_standard ? [{ label: 'Delete from set library', onClick: onDelete, danger: true }] : []),
   ]
   return (
     <div className="set-panel">

@@ -341,7 +341,7 @@ export function Menu({ label, items, small = false }) {
       {open && (
         <div className="menu-list" role="menu">
           {items.map(it => (
-            <button key={it.label} role="menuitem" onClick={() => { setOpen(false); it.onClick() }}>{it.label}</button>
+            <button key={it.label} role="menuitem" className={it.danger ? 'danger' : ''} onClick={() => { setOpen(false); it.onClick() }}>{it.label}</button>
           ))}
         </div>
       )}

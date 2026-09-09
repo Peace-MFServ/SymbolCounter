@@ -1001,3 +1001,9 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .lib-card-meta svg { margin-left: auto; flex-shrink: 0; }
 .lib-card-meta .sep { width: 1px; height: 14px; background: var(--border); }
 .lib-card-meta svg { color: var(--accent); }
+
+.menu-list button.danger { color: var(--red); }
+.menu-list button.danger:hover { background: #FBEDE6; color: var(--red); }
+.lib-card .lib-card-del { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--red); padding: 3px 7px; margin: -3px -7px -3px 0; border-radius: 6px; }
+.lib-card .lib-card-del:hover { background: #FBEDE6; }
+.lib-card .lib-card-del svg { color: var(--red); margin: 0; }
