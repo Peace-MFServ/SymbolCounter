@@ -205,6 +205,8 @@ async def import_products(file: UploadFile = File(...), db: Session = Depends(ge
         cat = (str(r[c_cat]).strip() if c_cat is not None and r[c_cat] else "Other") or "Other"
         unit = (str(r[c_unit]).strip() if c_unit is not None and r[c_unit] else "EACH") or "EACH"
         cost = num(r[c_cost]) if c_cost is not None else None
+        if not cost:
+            cost = None            # Cin7 shows 0 until the first delivery lands
         sell = None
         for ci in (c_whole, c_gen):
             if ci is not None and num(r[ci]):

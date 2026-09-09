@@ -69,7 +69,7 @@ export function ScheduleView({ projectId, onNavigate }) {
           <div className="actions">
             {!nothing && (
               <>
-                <label className="check" style={{ marginRight: 8 }} title={data.priced_ok ? '' : 'Some products have no sell price yet'}>
+                <label className="check" style={{ marginRight: 8 }} title={data.priced_ok ? '' : 'Some products have no cost in Cin7 yet'}>
                   <input type="checkbox" checked={priced} disabled={!data.priced_ok} onChange={e => setPriced(e.target.checked)} /> With prices
                 </label>
                 <button className="btn" onClick={() => download('picking')} disabled={!!busy}>{busy === 'picking' ? <span className="spinner" /> : 'Picking list'}</button>

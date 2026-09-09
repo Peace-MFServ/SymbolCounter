@@ -51,8 +51,7 @@ export function ProductsView({ onNavigate }) {
           <div>
             <h1>Products</h1>
             <p className="lede">
-              {products.length} products{products.some(p => p.cost != null) ? ', costs from Cin7' : ''}.
-              Sell prices to follow.
+              {products.length} products. Prices are Cin7's average cost in euro; a blank one has not landed yet.
             </p>
           </div>
           <div className="spacer" />
@@ -96,7 +95,7 @@ export function ProductsView({ onNavigate }) {
             </div>
 
             <table className="ledger prod-table">
-              <thead><tr><th>Code</th><th>Product</th><th>Category</th><th style={{ textAlign: 'right' }}>Cost</th><th>Photo</th><th>Used in sets</th><th></th></tr></thead>
+              <thead><tr><th>Code</th><th>Product</th><th>Category</th><th style={{ textAlign: 'right' }}>Avg cost</th><th>Photo</th><th>Used in sets</th><th></th></tr></thead>
               <tbody>
                 {shown.slice(0, 300).map(p => (
                   <tr key={p.id} onClick={() => setEditing(p)}>
@@ -184,8 +183,8 @@ function ProductModal({ product, categories, onClose, onSaved }) {
           </div>
           <div className="form-group"><label>Name</label><input className="form-control" value={f.name} onChange={set('name')} required /></div>
           <div className="form-grid three">
-            <div className="form-group"><label>Cost</label><input className="form-control" type="number" step="0.01" value={f.cost} onChange={set('cost')} placeholder="—" /></div>
-            <div className="form-group"><label>Sell price</label><input className="form-control" type="number" step="0.01" value={f.sell} onChange={set('sell')} placeholder="—" /></div>
+            <div className="form-group"><label>Average cost <span className="muted">(EUR, from Cin7)</span></label><input className="form-control" type="number" step="0.01" value={f.cost} onChange={set('cost')} placeholder="not in yet" /></div>
+            <div className="form-group"><label>Last Intec price <span className="muted">(fallback)</span></label><input className="form-control" type="number" step="0.01" value={f.sell} onChange={set('sell')} placeholder="—" /></div>
             <div className="form-group"><label>Unit</label><input className="form-control" value={f.unit} onChange={set('unit')} /></div>
           </div>
           <div className="form-grid">

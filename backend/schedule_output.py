@@ -43,7 +43,10 @@ def _ref_key(ref: str):
 def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
     """
     Everything the documents need, as plain data. Prices come from the
-    products' sell price; 'priced_ok' says whether every line has one.
+    products' average cost from Cin7 (already in euro); a zero or blank cost
+    means the stock has not landed yet. A product that is not in Cin7 falls
+    back to the price on the last Intec schedule it appeared on.
+    'priced_ok' says whether every line has a price.
     """
     types = {t.id: t for t in db.query(models.DoorType).filter(models.DoorType.project_id == project.id).all()}
     doors = db.query(models.Door).filter(models.Door.project_id == project.id).all()
@@ -72,7 +75,7 @@ def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
         items, per_door = [], 0.0
         for it in s.items:
             p = it.product
-            price = p.sell
+            price = p.cost if p.cost else (p.sell if p.sell else None)
             if price is None:
                 priced_ok = False
             else:
@@ -117,7 +120,7 @@ def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
         checks.append({"level": "info", "text": f"{len(photo_missing)} product{'s' if len(photo_missing) != 1 else ''} without a photo: "
                                                 + ", ".join(sorted(photo_missing)[:8]) + (" …" if len(photo_missing) > 8 else "")})
     if not priced_ok and sets_out:
-        checks.append({"level": "info", "text": "Some products have no sell price, so the priced version is off"})
+        checks.append({"level": "info", "text": "Some products have no cost yet (not landed in Cin7), so the priced version is off"})
     if sets_out and not checks:
         checks.append({"level": "ok", "text": "Every door has a set and every set has products"})
 
