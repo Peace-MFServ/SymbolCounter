@@ -997,7 +997,7 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .lib-card .lib-tag.added, .lib-tag.added { background: var(--bg4); color: var(--text2); }
 .lib-card strong { font-size: 17px; font-weight: 700; color: var(--ink); }
 .lib-card .lib-card-name { display: block; font-size: 14px; color: var(--text2); margin-top: 3px; line-height: 1.4; }
-.lib-card-meta { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--text3); white-space: nowrap; }
+.lib-card-meta { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 14px; font-size: 13px; color: var(--text3); white-space: nowrap; }
 .lib-card-meta svg { margin-left: auto; flex-shrink: 0; }
 .lib-card-meta .sep { width: 1px; height: 14px; background: var(--border); }
 .lib-card-meta svg { color: var(--accent); }
