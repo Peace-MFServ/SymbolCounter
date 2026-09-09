@@ -3,7 +3,7 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { Menu } from './ProjectView'
-import { IconPlus, IconEdit, IconSave, IconBars, IconDoc, IconCheck, IconWarn } from './icons'
+import { IconPlus, IconEdit, IconSave, IconBars, IconDoc, IconCheck, IconWarn, IconFile, IconSearch, IconRight, IconDoor, IconLayers, IconFolder } from './icons'
 
 export const TYPE_NAMES = {
   '01': 'Hinges and pivots', '02': 'Door closers', '03': 'Locks and cylinders', '04': 'Door handles',
@@ -25,7 +25,7 @@ export function JobView({ projectId, onNavigate }) {
   const [doors,    setDoors]    = useState([])        // doors of the selected set
   const [busy,     setBusy]     = useState('')
   const [details,  setDetails]  = useState(null)      // editable job details
-  const [addingSet, setAddingSet] = useState(false)
+  const [choosing, setChoosing] = useState(false)     // show the set chooser even when a set is selected
 
   const load = async () => {
     const j = await apiFetch(`/projects/${projectId}/job`)
@@ -46,7 +46,7 @@ export function JobView({ projectId, onNavigate }) {
   }, [current?.set.id, job])
 
   const addSet = async sid => {
-    setAddingSet(false)
+    setChoosing(false)
     try { await apiFetch(`/projects/${projectId}/sets/${sid}/add`, { method: 'POST' }); await load(); setSelected(Number(sid)) }
     catch (err) { showToast(err.message, 'error') }
   }
@@ -116,18 +116,18 @@ export function JobView({ projectId, onNavigate }) {
               { label: `Plans and door types${job.plans ? ` (${job.plans})` : ''}`, onClick: () => onNavigate('doors', { id: projectId }) },
               { label: 'Set library', onClick: () => onNavigate('sets') },
             ]} />
-            <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })} disabled={!job.sets.length}>Produce schedule</button>
+            <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })} disabled={!job.sets.length}><IconFile size={16} /> Produce schedule</button>
           </div>
         </div>
 
         <div className="job-grid">
           {/* Left: sets on this job */}
-          <aside className="job-sets">
-            <h2 className="side-title">Sets on this job</h2>
-            {job.sets.length === 0 && <p className="muted" style={{ fontSize: 13.5, marginBottom: 10 }}>None yet. Add one below.</p>}
+          <aside className="job-sets card-panel">
+            <h2 className="card-title"><IconLayers size={20} /> Sets on this job</h2>
+            {job.sets.length === 0 && <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>None yet. Add one below.</p>}
             <ul className="set-list">
               {job.sets.map(js => (
-                <li key={js.set.id} className={js.set.id === selected ? 'on' : ''} onClick={() => setSelected(js.set.id)}>
+                <li key={js.set.id} className={js.set.id === selected && !choosing ? 'on' : ''} onClick={() => { setSelected(js.set.id); setChoosing(false) }}>
                   <div className="set-list-code">{js.set.code}{!js.set.is_standard && <span className="tag">this job</span>}</div>
                   <div className="set-list-name">{js.set.name}</div>
                   <div className="set-list-meta">
@@ -137,17 +137,13 @@ export function JobView({ projectId, onNavigate }) {
                 </li>
               ))}
             </ul>
-            {addingSet ? (
-              <select className="form-control" autoFocus defaultValue="" onChange={e => e.target.value && addSet(e.target.value)} onBlur={() => setAddingSet(false)}>
-                <option value="">Choose a set…</option>
-                {job.library.map(s => <option key={s.id} value={s.id}>{s.code} {s.name}</option>)}
-              </select>
-            ) : (
-              <div className="set-add">
-                <button className="btn btn-soft" onClick={() => setAddingSet(true)} disabled={!job.library.length}><IconPlus size={16} /> Add set</button>
-                <button className="link-btn" onClick={() => onNavigate('set', { id: 'new', projectId })}>New set for this job</button>
-              </div>
-            )}
+            <div className="set-add">
+              <button className={'btn ' + (choosing || !current ? 'btn-primary' : 'btn-soft')} onClick={() => setChoosing(true)} disabled={!job.library.length}><IconPlus size={16} /> Add set</button>
+            </div>
+            <div className="side-block">
+              <button className="link-btn strong" onClick={() => onNavigate('set', { id: 'new', projectId })}>New set for this job</button>
+              <p className="muted">Build one from scratch. It stays on this job only.</p>
+            </div>
             {job.types_to_decide > 0 && (
               <div className="rail-note">
                 {job.types_to_decide} door type{job.types_to_decide !== 1 ? 's' : ''} from the plans still to decide.{' '}
@@ -158,21 +154,9 @@ export function JobView({ projectId, onNavigate }) {
 
           {/* Middle: the selected set */}
           <main className="job-main">
-            {!current ? (
-              <div className="empty-state" style={{ padding: 48 }}>
-                <h2>Start with a set.</h2>
-                <p>A set is the hardware that goes on one kind of door. Add one from the library on the left, then say how many doors get it.</p>
-                {job.library.length > 0 && (
-                  <div className="lib-pick">
-                    {job.library.map(s => (
-                      <button key={s.id} className="lib-card" onClick={() => addSet(s.id)}>
-                        <strong>{s.code}</strong> {s.name}
-                        <span>{s.product_count} products · {s.value_per_door != null ? money(s.value_per_door) + ' per door' : 'no price yet'}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {choosing || !current ? (
+              <SetChooser library={job.library} onJob={job.sets.map(js => js.set.id)} onPick={addSet}
+                          onCancel={current ? () => setChoosing(false) : null} />
             ) : (
               <SetPanel js={current} doors={doors} projectId={projectId}
                         onEdit={() => editSet(current)} onCopy={() => copyForJob(current)} onRemove={() => removeSet(current)}
@@ -212,6 +196,80 @@ export function JobView({ projectId, onNavigate }) {
 }
 
 /* The selected set: its products in type order, and its doors. */
+/* ── Pick a set from the library ──────────────────────────────────────────── */
+const isFire = s => !/\bNFR\b/i.test(s.name) && (s.fire_rated || /\bFR\b|fire rated/i.test(s.name))
+const SET_FILTERS = [
+  { key: 'bath',  label: 'Bathroom',   test: s => /bath|wc|toilet|washroom/i.test(s.name) },
+  { key: 'fire',  label: 'Fire rated', test: isFire },
+  { key: 'heavy', label: 'Heavy duty', test: s => /heavy|riser|plant/i.test(s.name) },
+  { key: 'job',   label: 'This job',   test: s => !s.is_standard },
+]
+const setTag = s => {
+  if (!s.is_standard) return { cls: 'job', label: 'This job' }
+  if (isFire(s)) return { cls: 'fire', label: 'Fire rated' }
+  if (/bath|wc|toilet|washroom/i.test(s.name)) return { cls: 'bath', label: 'Bathroom' }
+  if (/heavy|riser|plant/i.test(s.name)) return { cls: 'heavy', label: 'Heavy duty' }
+  return { cls: '', label: 'Standard' }
+}
+
+function SetChooser({ library, onJob, onPick, onCancel }) {
+  const [q, setQ] = useState('')
+  const [filter, setFilter] = useState('all')
+  const filters = SET_FILTERS.filter(f => library.some(f.test))
+  const shown = library.filter(s => {
+    if (filter !== 'all' && !SET_FILTERS.find(f => f.key === filter).test(s)) return false
+    if (!q) return true
+    return (s.code + ' ' + s.name + ' ' + (s.description || '')).toLowerCase().includes(q.toLowerCase())
+  })
+  return (
+    <div className="card-panel chooser">
+      <div className="chooser-head">
+        <span className="chooser-icon"><IconFolder size={22} /></span>
+        <div>
+          <h2>Choose a set</h2>
+          <p>A set is the hardware that goes on one kind of door. Pick one from the library, then say how many doors get it.</p>
+        </div>
+        {onCancel && <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>}
+      </div>
+      <label className="chooser-search">
+        <IconSearch size={18} />
+        <input placeholder="Search sets, e.g. bathroom, fire rated, MF 01" value={q} onChange={e => setQ(e.target.value)} autoFocus />
+      </label>
+      <div className="chooser-filters">
+        <button className={'filter-chip' + (filter === 'all' ? ' on' : '')} onClick={() => setFilter('all')}>All</button>
+        {filters.map(f => <button key={f.key} className={'filter-chip' + (filter === f.key ? ' on' : '')} onClick={() => setFilter(f.key)}>{f.label}</button>)}
+        <span className="spacer" />
+        <span className="muted">{shown.length} set{shown.length !== 1 ? 's' : ''}</span>
+      </div>
+      {library.length === 0 && <p className="muted" style={{ marginTop: 16 }}>The set library is empty. Import Evan's set file under Sets, or build a new set for this job.</p>}
+      {library.length > 0 && shown.length === 0 && <p className="muted" style={{ marginTop: 16 }}>No sets match.</p>}
+      <div className="lib-pick">
+        {shown.map(s => {
+          const tag = setTag(s)
+          const added = onJob.includes(s.id)
+          return (
+            <button key={s.id} className={'lib-card' + (added ? ' added' : '')} onClick={() => !added && onPick(s.id)} disabled={added}>
+              <div className="lib-card-top">
+                <span className="lib-card-icon"><IconDoor size={18} /></span>
+                <span className={'lib-tag ' + (added ? 'added' : tag.cls)}>{added ? 'On this job' : tag.label}</span>
+              </div>
+              <strong>{s.code}</strong>
+              <span className="lib-card-name">{s.name}</span>
+              <div className="lib-card-meta">
+                <span>{s.product_count} product{s.product_count !== 1 ? 's' : ''}</span>
+                <span className="sep" />
+                <span>{s.value_per_door != null ? money(s.value_per_door) + ' / door' : 'No price yet'}</span>
+                <span className="spacer" />
+                {!added && <IconRight size={16} />}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onChanged, onRemoveDoor }) {
   const s = js.set
   const groups = groupItems(s.items)
