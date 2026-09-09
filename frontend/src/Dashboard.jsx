@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { apiFetch } from './api'
 import { showToast } from './toast'
 import { useAuth } from './auth'
+import logo from './assets/mf-logo.jpeg'
 
 export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false }) {
   const { user, logout } = useAuth()
@@ -9,7 +10,8 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
   return (
     <div id="topbar">
       <a className="logo" onClick={() => onNavigate && onNavigate('dashboard')}>
-        MF <span>Symbol Counter</span>
+        <img src={logo} alt="MF Services" />
+        <span className="logo-words"><strong>MF Services</strong><span>Door Schedules</span></span>
       </a>
       {crumbs.length > 0 && (
         <nav className="crumbs" aria-label="Breadcrumb">
@@ -35,7 +37,7 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
       )}
       {user && !compact && (
         <>
-          <span className="user-name">{user.name}</span>
+          <span className="user-name">{user.name}<small>MF Services</small></span>
           <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
         </>
       )}

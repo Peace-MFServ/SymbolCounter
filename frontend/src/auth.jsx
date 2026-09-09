@@ -1,3 +1,4 @@
+import logo from './assets/mf-logo.jpeg'
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { apiFetch } from './api'
 
@@ -63,13 +64,12 @@ export function useAuth() {
 function AuthHero() {
   return (
     <section className="auth-hero">
-      <div className="auth-brand">MF Services</div>
-      <h1>Every device.<br />Every drawing.<br /><em>Counted.</em></h1>
+      <div className="auth-brand"><img src={logo} alt="MF Services" /></div>
+      <h1>Door schedules,<br /><em>without the typing.</em></h1>
       <div className="auth-rule" />
       <p>
-        Symbol Counter reads security and fire-alarm devices off engineering
-        floor plans — detected automatically, verified by you, exported as
-        schedules you can price a job on.
+        Standard sets, doors by the dozen, and the schedule PDF at the end.
+        Device counts from services drawings too, when a job needs them.
       </p>
     </section>
   )
