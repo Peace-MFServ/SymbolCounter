@@ -479,12 +479,20 @@ def copy_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_curren
 
 
 @router.delete("/sets/{sid}", status_code=204)
-def archive_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+def archive_set(sid: int, force: bool = False, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Delete a set. If it is on jobs, force=true takes it off them and leaves those doors without a set."""
     s = db.query(models.HardwareSet).get(sid)
     if not s:
         raise HTTPException(404, "Set not found")
-    if _set_uses(db, sid):
-        raise HTTPException(409, "This set is assigned to doors on a project. Reassign them first.")
+    uses = _set_uses(db, sid)
+    if uses and not force:
+        raise HTTPException(409, "This set is on " + ", ".join(u.project for u in uses) + ".")
+    if uses:
+        for d in db.query(models.Door).filter(models.Door.set_id == sid).all():
+            d.set_id = None
+        for t in db.query(models.DoorType).filter(models.DoorType.set_id == sid).all():
+            t.set_id = None; t.status = "decide"
+        db.query(models.ProjectSet).filter(models.ProjectSet.set_id == sid).delete(synchronize_session=False)
     s.archived = True
     db.commit()
 

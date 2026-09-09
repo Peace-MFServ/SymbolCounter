@@ -46,9 +46,12 @@ export function SetsView({ onNavigate, autoImport = false }) {
   }
   const remove = async (e, s) => {
     e.stopPropagation()
-    if (s.used_on.length) { showToast(`${s.code} is on ${s.used_on.map(u => u.project).join(', ')}. Take it off those jobs first.`, 'error'); return }
-    if (!confirm(`Delete set ${s.code} ${s.name}?`)) return
-    try { await apiFetch(`/sets/${s.id}`, { method: 'DELETE' }); showToast('Set deleted', 'info'); load() }
+    const used = s.used_on.length
+    const msg = used
+      ? `${s.code} ${s.name} is on ${s.used_on.map(u => `${u.project} (${u.doors} doors)`).join(', ')}.\n\nDelete it anyway? Those doors will be left without a set.`
+      : `Delete set ${s.code} ${s.name}?`
+    if (!confirm(msg)) return
+    try { await apiFetch(`/sets/${s.id}${used ? '?force=true' : ''}`, { method: 'DELETE' }); showToast('Set deleted', 'info'); load() }
     catch (err) { showToast(err.message, 'error') }
   }
 
@@ -193,8 +196,13 @@ export function SetEditor({ id, projectId, onNavigate }) {
   }
   const back = () => (projectId ? onNavigate('job', { id: projectId }) : onNavigate('sets'))
   const archive = async () => {
-    if (isNew || !confirm('Delete this set?')) return
-    try { await apiFetch(`/sets/${id}`, { method: 'DELETE' }); showToast('Set deleted', 'info'); back() }
+    if (isNew) return
+    const used = set.used_on?.length || 0
+    const msg = !set.is_standard ? 'Delete this copy? Its doors on the job will be left without a set.'
+      : used ? `This set is on ${set.used_on.map(u => u.project).join(', ')}.\n\nDelete it anyway? Those doors will be left without a set.`
+      : 'Delete this set?'
+    if (!confirm(msg)) return
+    try { await apiFetch(`/sets/${id}${used || !set.is_standard ? '?force=true' : ''}`, { method: 'DELETE' }); showToast('Set deleted', 'info'); back() }
     catch (err) { showToast(err.message, 'error') }
   }
 
@@ -222,6 +230,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
           </div>
           <div className="spacer" />
           <div className="actions">
+            {!isNew && !readOnly && <button className="btn btn-ghost danger" onClick={archive}>{set.is_standard ? 'Delete set' : 'Delete this copy'}</button>}
             <button className="btn btn-ghost" onClick={back}>{projectId ? 'Back to job' : 'Back to sets'}</button>
             <button className="btn btn-primary" onClick={save} disabled={busy || readOnly}>{busy ? <span className="spinner" /> : dirty || isNew ? 'Save set' : 'Saved'}</button>
           </div>
@@ -284,7 +293,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
               </div>
             )}
             {set.copied_from && <div className="rail-panel" style={{ marginTop: 20 }}><h3>Started from</h3><p className="muted">{set.copied_from}</p></div>}
-            {!isNew && !readOnly && <button className="link-btn" style={{ marginTop: 16, color: 'var(--red)' }} onClick={archive}>Delete this set</button>}
+
           </aside>
         </div>
       </div>

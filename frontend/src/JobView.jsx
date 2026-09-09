@@ -51,7 +51,8 @@ export function JobView({ projectId, onNavigate }) {
   }
   const removeSet = async js => {
     const n = js.doors
-    if (!confirm(n ? `Take ${js.set.code} off this job? Its ${n} door${n !== 1 ? 's' : ''} will be left without a set.` : `Take ${js.set.code} off this job?`)) return
+    const what = js.set.is_standard ? `Take ${js.set.code} off this job?` : `Delete this job's copy of ${js.set.code}?`
+    if (!confirm(n ? `${what} Its ${n} door${n !== 1 ? 's' : ''} will be left without a set.` : what)) return
     try { await apiFetch(`/projects/${projectId}/sets/${js.set.id}`, { method: 'DELETE' }); setSelected(null); await load() }
     catch (err) { showToast(err.message, 'error') }
   }
@@ -269,7 +270,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onChanged, o
         <div className="actions">
           {s.is_standard && <button className="btn btn-ghost btn-sm" onClick={onCopy} title="Change this set on this job without touching the standard">Copy for this job</button>}
           <button className="btn btn-sm" onClick={onEdit}>Edit set</button>
-          <button className="btn btn-ghost btn-sm danger" onClick={onRemove}>Remove from job</button>
+          <button className="btn btn-ghost btn-sm danger" onClick={onRemove}>{s.is_standard ? 'Remove from job' : 'Delete this copy'}</button>
         </div>
       </div>
 
