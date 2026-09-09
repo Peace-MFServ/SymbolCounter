@@ -259,7 +259,7 @@ function SetChooser({ library, onJob, onPick, onCancel, onDelete }) {
                 <span className="spacer" />
                 {!added && s.copied_from && onDelete
                   ? <span className="lib-card-del" role="button" title="Delete this copy from the library"
-                          onClick={e => { e.stopPropagation(); onDelete(s) }}><IconTrash size={14} /> Delete</span>
+                          onClick={e => { e.stopPropagation(); onDelete(s) }}><IconTrash size={16} /></span>
                   : !added && <IconRight size={16} />}
               </div>
             </button>
