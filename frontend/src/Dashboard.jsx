@@ -72,7 +72,7 @@ export function Dashboard({ onNavigate }) {
         <div className="page-header">
           <div>
             <h1>Projects</h1>
-            <p className="lede">Every job in one list: door schedules from the architect's plans, and device counts from services drawings.</p>
+            <p className="lede">Every job in the office, in one list.</p>
           </div>
         </div>
 
@@ -110,6 +110,7 @@ export function Dashboard({ onNavigate }) {
                           <div className="proj-name">{p.name}</div>
                           <div className="proj-meta">
                             {[p.quote_no && `Quote ${p.quote_no}`, p.client, p.site].filter(Boolean).join(' · ') || 'No client / site set'}
+                            {p.owner_name ? ` · ${p.owner_name}` : ''}
                           </div>
                         </td>
                         <td><span className={`badge ${p.kind === 'doors' ? 'badge-orange' : 'badge-grey'}`}>{p.kind === 'doors' ? 'Door schedule' : 'Device count'}</span></td>
@@ -165,7 +166,7 @@ export function Dashboard({ onNavigate }) {
   )
 }
 
-const openView = p => (p.kind === 'doors' ? 'doors' : 'project')
+const openView = p => (p.kind === 'doors' ? 'job' : 'project')
 
 function NewProjectModal({ onClose, onCreated }) {
   const [kind,   setKind]   = useState('doors')
@@ -201,7 +202,7 @@ function NewProjectModal({ onClose, onCreated }) {
           <div className="kind-pick">
             <button type="button" className={kind === 'doors' ? 'on' : ''} onClick={() => setKind('doors')}>
               <strong>Door schedule</strong>
-              <span>Architect's floor plans in, ironmongery schedule out. Replaces Intec.</span>
+              <span>Sets, doors and quantities, with the schedule PDF at the end. Plans can be read in if you have them.</span>
             </button>
             <button type="button" className={kind === 'symbols' ? 'on' : ''} onClick={() => setKind('symbols')}>
               <strong>Device count</strong>

@@ -85,11 +85,12 @@ echo.
 echo  -----------------------------------------------
 echo  Starting Symbol Counter...
 echo  Open http://localhost:8000 in your browser
+echo  Other PCs in the office: use this machine's address instead of localhost, e.g. http://%COMPUTERNAME%:8000
 echo  Press Ctrl+C to stop
 echo  -----------------------------------------------
 echo.
 cd /d "%BACKEND%"
-python -m uvicorn main:app --port 8000
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 pause
 endlocal

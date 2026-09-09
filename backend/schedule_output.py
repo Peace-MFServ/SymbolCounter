@@ -226,6 +226,14 @@ class SchedulePDF(FPDF):
         self.set_xy(18, 96)
         self.cell(100, 5, f"{d['doors_scheduled']} doors across {len(d['sets'])} hardware set{'s' if len(d['sets']) != 1 else ''}, "
                           f"{d['item_count']} items.")
+        y = 104
+        if d.get("deliver_to"):
+            self.set_font("Helvetica", "B", 9); self.set_xy(18, y); self.cell(28, 5, "Deliver to:")
+            self.set_font("Helvetica", "", 9); self.set_xy(46, y); self.multi_cell(120, 5, _latin(d["deliver_to"]))
+            y = self.get_y() + 1
+        if d.get("your_ref"):
+            self.set_font("Helvetica", "B", 9); self.set_xy(18, y); self.cell(28, 5, "Your ref:")
+            self.set_font("Helvetica", "", 9); self.set_xy(46, y); self.cell(120, 5, _latin(d["your_ref"]))
 
     def _table_header(self):
         self.set_font("Helvetica", "B", 8.5)
@@ -377,8 +385,26 @@ def schedule_pdf(data: dict, priced: bool = False) -> bytes:
 
 
 def picking_list_pdf(data: dict) -> bytes:
-    pdf = SchedulePDF(data, priced=False, title="Picking List")
+    pdf = SchedulePDF(data, priced=False, title="Packing List" if data.get("deliver_to") or data.get("your_ref") else "Picking List")
     pdf.cover()
+    if data.get("deliver_to") or data.get("your_ref"):
+        # A packing list says which doors are in the box, set by set
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 13); pdf.set_xy(18, 36); pdf.cell(100, 7, "Doors in this delivery")
+        pdf.set_y(46)
+        for s in data["sets"]:
+            if pdf.get_y() + 14 > pdf.h - 28:
+                pdf.add_page()
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.cell(174, 5, _latin(f"{s['code']}  {s['name']}  ({s['doors']} door{'s' if s['doors'] != 1 else ''})"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.set_font("Helvetica", "", 8.5)
+            refs = [r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"]]
+            for i in range(0, len(refs), 6):
+                x = 18
+                for r in refs[i:i + 6]:
+                    pdf.set_xy(x, pdf.get_y()); pdf.cell(29, 4.5, _latin(r)); x += 29
+                pdf.set_y(pdf.get_y() + 4.5)
+            pdf.set_y(pdf.get_y() + 3)
     pdf.summary_page(picking=True)
     return bytes(pdf.output())
 

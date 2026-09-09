@@ -3,8 +3,9 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { useAuthImage } from './TemplatesView'
+import { TYPE_NAMES, TYPE_ORDER } from './JobView'
 
-const EMPTY = { sku: '', name: '', category: 'Other', unit: 'EACH', cost: '', sell: '', intec_code: '', notes: '', active: true }
+const EMPTY = { sku: '', name: '', category: 'Other', unit: 'EACH', cost: '', sell: '', intec_code: '', product_type: '', brand: '', notes: '', active: true }
 
 export function ProductsView({ onNavigate }) {
   const [products,   setProducts]   = useState([])
@@ -12,6 +13,7 @@ export function ProductsView({ onNavigate }) {
   const [loading,    setLoading]    = useState(true)
   const [q,          setQ]          = useState('')
   const [cat,        setCat]        = useState('')
+  const [ptype,      setPtype]      = useState(null)    // null = all, '' = untyped, '01'…
   const [editing,    setEditing]    = useState(null)   // product object or EMPTY for new
   const [importing,  setImporting]  = useState(false)
   const fileRef = useRef()
@@ -25,10 +27,11 @@ export function ProductsView({ onNavigate }) {
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return products.filter(p =>
+      (ptype === null || (p.product_type || '') === ptype) &&
       (!cat || p.category === cat) &&
       (!needle || p.sku.toLowerCase().includes(needle) || p.name.toLowerCase().includes(needle)
         || (p.intec_code || '').toLowerCase().includes(needle)))
-  }, [products, q, cat])
+  }, [products, q, cat, ptype])
 
   const importFile = async file => {
     if (!file) return
@@ -79,6 +82,15 @@ export function ProductsView({ onNavigate }) {
               <input className="form-control search" placeholder="Search code, name or Intec code…"
                      value={q} onChange={e => setQ(e.target.value)} />
               <div className="chips">
+                <button className={`chip-btn${ptype === null ? ' on' : ''}`} onClick={() => setPtype(null)}>All types</button>
+                {TYPE_ORDER.map(t => {
+                  const n = products.filter(p => (p.product_type || '') === t).length
+                  return n ? <button key={t || 'none'} className={`chip-btn${ptype === t ? ' on' : ''}`} onClick={() => setPtype(ptype === t ? null : t)}>{TYPE_NAMES[t]} {n}</button> : null
+                })}
+              </div>
+            </div>
+            <div className="filter-row" style={{ marginTop: -8 }}>
+              <div className="chips">
                 <button className={`chip-btn${cat === '' ? ' on' : ''}`} onClick={() => setCat('')}>All {products.length}</button>
                 {cats.slice(0, 8).map(c => (
                   <button key={c.name} className={`chip-btn${cat === c.name ? ' on' : ''}`}
@@ -95,7 +107,7 @@ export function ProductsView({ onNavigate }) {
             </div>
 
             <table className="ledger prod-table">
-              <thead><tr><th>Code</th><th>Product</th><th>Category</th><th style={{ textAlign: 'right' }}>Avg cost</th><th>Photo</th><th>Used in sets</th><th></th></tr></thead>
+              <thead><tr><th>Code</th><th>Product</th><th>Type</th><th style={{ textAlign: 'right' }}>Avg cost</th><th>Photo</th><th>Used in sets</th><th></th></tr></thead>
               <tbody>
                 {shown.slice(0, 300).map(p => (
                   <tr key={p.id} onClick={() => setEditing(p)}>
@@ -106,7 +118,7 @@ export function ProductsView({ onNavigate }) {
                         <div className="proj-meta">{[p.intec_code && `Intec code ${p.intec_code}`, p.notes].filter(Boolean).join(' · ')}</div>
                       )}
                     </td>
-                    <td>{p.category}</td>
+                    <td>{p.product_type ? TYPE_NAMES[p.product_type] : <span className="muted">Not set</span>}<div className="proj-meta">{p.category}</div></td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{p.cost != null ? p.cost.toFixed(2) : <span className="muted">—</span>}</td>
                     <td>{p.image_url ? <span className="badge badge-green">Yes</span> : <span className="badge badge-grey">None</span>}</td>
                     <td className="muted" style={{ fontSize: 13 }}>{p.used_in.length ? p.used_in.join(', ') : 'Not used yet'}</td>
@@ -186,6 +198,14 @@ function ProductModal({ product, categories, onClose, onSaved }) {
             <div className="form-group"><label>Average cost <span className="muted">(EUR, from Cin7)</span></label><input className="form-control" type="number" step="0.01" value={f.cost} onChange={set('cost')} placeholder="not in yet" /></div>
             <div className="form-group"><label>Last Intec price <span className="muted">(fallback)</span></label><input className="form-control" type="number" step="0.01" value={f.sell} onChange={set('sell')} placeholder="—" /></div>
             <div className="form-group"><label>Unit</label><input className="form-control" value={f.unit} onChange={set('unit')} /></div>
+          </div>
+          <div className="form-grid">
+            <div className="form-group"><label>Type <span className="muted">(where it sits on a set)</span></label>
+              <select className="form-control" value={f.product_type} onChange={set('product_type')}>
+                {TYPE_ORDER.map(t => <option key={t || 'none'} value={t}>{t ? `${t} ${TYPE_NAMES[t]}` : 'Not set'}</option>)}
+              </select>
+            </div>
+            <div className="form-group"><label>Brand</label><input className="form-control" value={f.brand} onChange={set('brand')} /></div>
           </div>
           <div className="form-grid">
             <div className="form-group"><label>Intec code <span className="muted">(if different)</span></label><input className="form-control" value={f.intec_code} onChange={set('intec_code')} /></div>

@@ -202,6 +202,8 @@ class Product(Base):
     cost        = Column(Float, nullable=True)        # Cin7 average cost
     sell        = Column(Float, nullable=True)        # quoted price, when one exists
     intec_code  = Column(String, default="")          # the code Intec used for the same item
+    product_type = Column(String, default="")         # "01" hinges … "07" accessories (Intec's order on a set)
+    brand       = Column(String, default="")
     image_path  = Column(String, default="")
     notes       = Column(Text, default="")
     active      = Column(Boolean, default=True)
@@ -222,11 +224,28 @@ class HardwareSet(Base):
     notes          = Column(Text, default="")
     archived       = Column(Boolean, default=False)
     copied_from_id = Column(Integer, ForeignKey("hardware_sets.id"), nullable=True)
+    project_id     = Column(Integer, ForeignKey("projects.id"), nullable=True)  # None = standard library; set = this job only
+    locked_by_id   = Column(Integer, ForeignKey("users.id"), nullable=True)     # who has the editor open
+    locked_at      = Column(DateTime(timezone=True), nullable=True)
     created_by_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at     = Column(DateTime(timezone=True), server_default=func.now())
     updated_at     = Column(DateTime(timezone=True), onupdate=func.now())
     items          = relationship("SetItem", back_populates="hardware_set",
                                   cascade="all, delete-orphan", order_by="SetItem.sort_order")
+    locked_by      = relationship("User", foreign_keys=[locked_by_id])
+
+
+class ProjectSet(Base):
+    """A set placed on a job, even before it has doors (Intec keeps sets with 0 doors)."""
+    __tablename__ = "project_sets"
+    id         = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    set_id     = Column(Integer, ForeignKey("hardware_sets.id"), nullable=False, index=True)
+    sort_order = Column(Integer, default=0)
+
+
+PRODUCT_TYPES = [("01", "Hinges and pivots"), ("02", "Door closers"), ("03", "Locks and cylinders"),
+                 ("04", "Door handles"), ("05", "Signage"), ("06", "Door protection"), ("07", "Accessories")]
 
 
 class SetItem(Base):

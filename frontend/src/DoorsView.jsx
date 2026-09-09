@@ -165,7 +165,7 @@ export function DoorsView({ projectId, onNavigate }) {
 
   const isDoorsProject = summary?.kind === 'doors'
   const crumbs = isDoorsProject
-    ? [{ label: 'Projects', onClick: () => onNavigate('dashboard') }, { label: project?.name || '…' }]
+    ? [{ label: 'Projects', onClick: () => onNavigate('dashboard') }, { label: project?.name || '…', onClick: () => onNavigate('job', { id: projectId }) }, { label: 'Plans and door types' }]
     : [{ label: 'Projects', onClick: () => onNavigate('dashboard') },
        { label: project?.name || '…', onClick: () => onNavigate('project', { id: projectId }) },
        { label: 'Doors' }]
@@ -187,7 +187,7 @@ export function DoorsView({ projectId, onNavigate }) {
       <div className="page-wrap" {...dropProps}>
         <div className="page-header">
           <div>
-            <h1>{isDoorsProject ? project?.name : 'Doors'}</h1>
+            <h1>{isDoorsProject ? 'Plans and door types' : 'Doors'}</h1>
             <p className="lede">
               {isDoorsProject && [project?.quote_no && `Quote ${project.quote_no}`, project?.client, project?.site].filter(Boolean).join(' · ')}
               {isDoorsProject && summary.doors > 0 && ' · '}
@@ -209,7 +209,9 @@ export function DoorsView({ projectId, onNavigate }) {
             <button className="btn" onClick={() => planRef.current.click()} disabled={busy === 'upload'}>
               {busy === 'upload' ? <><span className="spinner" /> Uploading…</> : 'Upload plans'}
             </button>
-            {!nothing && <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })}>Produce schedule</button>}
+            {!nothing && (isDoorsProject
+              ? <button className="btn btn-primary" onClick={() => onNavigate('job', { id: projectId })}>Back to job</button>
+              : <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })}>Produce schedule</button>)}
           </div>
         </div>
 

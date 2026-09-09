@@ -26,14 +26,15 @@ PRODUCT_IMG_DIR.mkdir(parents=True, exist_ok=True)
 # ── Schemas ───────────────────────────────────────────────────────────────────
 class ProductOut(BaseModel):
     id: int; sku: str; name: str; category: str; unit: str
-    cost: Optional[float] = None; sell: Optional[float] = None
-    intec_code: str = ""; image_url: str = ""; notes: str = ""; active: bool = True
+    cost: Optional[float] = None; sell: Optional[float] = None; price: Optional[float] = None
+    intec_code: str = ""; product_type: str = ""; brand: str = ""
+    image_url: str = ""; notes: str = ""; active: bool = True
     used_in: list[str] = []
 
 class ProductIn(BaseModel):
     sku: str; name: str; category: str = "Other"; unit: str = "EACH"
     cost: Optional[float] = None; sell: Optional[float] = None
-    intec_code: str = ""; notes: str = ""; active: bool = True
+    intec_code: str = ""; product_type: str = ""; brand: str = ""; notes: str = ""; active: bool = True
 
 class SetItemIn(BaseModel):
     product_id: int; qty: int = 1
@@ -44,7 +45,8 @@ class SetIn(BaseModel):
 
 class SetItemOut(BaseModel):
     id: int; product_id: int; sku: str; name: str; category: str; unit: str
-    qty: int; cost: Optional[float] = None; image_url: str = ""
+    qty: int; cost: Optional[float] = None; price: Optional[float] = None; line_value: Optional[float] = None
+    product_type: str = ""; image_url: str = ""
 
 class SetUse(BaseModel):
     project_id: int; project: str; doors: int
@@ -52,7 +54,10 @@ class SetUse(BaseModel):
 class SetOut(BaseModel):
     id: int; code: str; name: str; description: str = ""; fire_rated: bool = False
     notes: str = ""; archived: bool = False; copied_from: Optional[str] = None
+    project_id: Optional[int] = None; is_standard: bool = True
+    locked_by: str = ""; locked_by_me: bool = False
     product_count: int = 0; items_per_door: int = 0; cost_per_door: Optional[float] = None
+    value_per_door: Optional[float] = None; priced_ok: bool = True
     used_on: list[SetUse] = []; items: list[SetItemOut] = []
 
 
@@ -74,10 +79,45 @@ def _used_map(db: Session) -> dict[int, list[str]]:
     return out
 
 
+def product_price(p: models.Product) -> Optional[float]:
+    """The price a schedule uses: Cin7 average cost, else the last Intec price."""
+    return p.cost if p.cost else (p.sell if p.sell else None)
+
+
+_TYPE_BY_CATEGORY = {
+    "hinges": "01", "pivots": "01",
+    "door closers": "02", "closers": "02",
+    "locks": "03", "cylinders": "03", "latches": "03", "thumbturns": "03", "escutcheons": "03",
+    "handles": "04", "push plates": "04", "flush pulls": "04", "pull handles": "04", "knobs": "04",
+    "door signs": "05", "signs": "05", "numerals": "05", "door numerals": "05",
+    "kick plates": "06", "finger plates": "06", "door protection": "06",
+    "door stoppers": "07", "floor sockets": "07", "flush bolts": "07", "intumescent": "07", "hooks": "07",
+    "handrails": "07", "accessories": "07",
+}
+_TYPE_BY_WORD = [("hinge", "01"), ("pivot", "01"), ("closer", "02"), ("cylinder", "03"), ("lock", "03"),
+                 ("latch", "03"), ("thumbturn", "03"), ("escutch", "03"), ("handle", "04"), ("lever", "04"),
+                 ("push plate", "04"), ("pull", "04"), ("knob", "04"), ("sign", "05"), ("numeral", "05"),
+                 ("kick plate", "06"), ("finger plate", "06"), ("flush bolt", "07"), ("intumescent", "07"),
+                 ("door stop", "07"), ("socket", "07"), ("hook", "07")]
+
+
+def guess_product_type(category: str, name: str) -> str:
+    """Intec's type number from a Cin7 category, else from the product name; blank if no idea."""
+    c = (category or "").strip().lower()
+    if c in _TYPE_BY_CATEGORY:
+        return _TYPE_BY_CATEGORY[c]
+    n = (name or "").lower()
+    for word, t in _TYPE_BY_WORD:
+        if word in n:
+            return t
+    return ""
+
+
 def _product_out(p: models.Product, used: dict) -> ProductOut:
     return ProductOut(
         id=p.id, sku=p.sku, name=p.name, category=p.category or "Other", unit=p.unit or "EACH",
-        cost=p.cost, sell=p.sell, intec_code=p.intec_code or "", image_url=_img_url(p),
+        cost=p.cost, sell=p.sell, price=product_price(p), intec_code=p.intec_code or "",
+        product_type=p.product_type or "", brand=p.brand or "", image_url=_img_url(p),
         notes=p.notes or "", active=bool(p.active), used_in=sorted(used.get(p.id, [])),
     )
 
@@ -97,25 +137,56 @@ def _set_uses(db: Session, sid: int) -> list[SetUse]:
             for pid, n in sorted(counts.items())]
 
 
-def _set_out(db: Session, s: models.HardwareSet, with_uses: bool = True) -> SetOut:
+LOCK_SECONDS = 5 * 60
+
+
+def _lock_holder(s: models.HardwareSet, cu) -> tuple[str, bool]:
+    """(name of whoever holds a live lock, whether that is the current user)."""
+    from datetime import datetime, timezone, timedelta
+    if not s.locked_by_id or not s.locked_at:
+        return "", False
+    at = s.locked_at if s.locked_at.tzinfo else s.locked_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - at > timedelta(seconds=LOCK_SECONDS):
+        return "", False
+    name = s.locked_by.name if s.locked_by else "someone"
+    return name, (cu is not None and s.locked_by_id == cu.id)
+
+
+def _type_rank(t: str) -> int:
+    return int(t) if (t or "").isdigit() else 99
+
+
+def _set_out(db: Session, s: models.HardwareSet, with_uses: bool = True, cu=None) -> SetOut:
     items = []
     cost_total, cost_known = 0.0, True
-    for it in s.items:
+    value_total, priced = 0.0, True
+    for it in sorted(s.items, key=lambda i: (_type_rank(i.product.product_type), i.sort_order)):
         p = it.product
+        price = product_price(p)
         items.append(SetItemOut(id=it.id, product_id=p.id, sku=p.sku, name=p.name,
                                 category=p.category or "Other", unit=p.unit or "EACH",
-                                qty=it.qty, cost=p.cost, image_url=_img_url(p)))
+                                qty=it.qty, cost=p.cost, price=price,
+                                line_value=round(price * it.qty, 2) if price is not None else None,
+                                product_type=p.product_type or "", image_url=_img_url(p)))
         if p.cost is None:
             cost_known = False
         else:
             cost_total += p.cost * it.qty
+        if price is None:
+            priced = False
+        else:
+            value_total += price * it.qty
     parent = db.query(models.HardwareSet).get(s.copied_from_id) if s.copied_from_id else None
+    holder, mine = _lock_holder(s, cu)
     return SetOut(
         id=s.id, code=s.code, name=s.name, description=s.description or "",
         fire_rated=bool(s.fire_rated), notes=s.notes or "", archived=bool(s.archived),
         copied_from=f"{parent.code} {parent.name}" if parent else None,
+        project_id=s.project_id, is_standard=s.project_id is None,
+        locked_by=holder, locked_by_me=mine,
         product_count=len(items), items_per_door=sum(i.qty for i in items),
         cost_per_door=round(cost_total, 2) if (items and cost_known) else None,
+        value_per_door=round(value_total, 2) if (items and priced) else None, priced_ok=bool(items) and priced,
         used_on=_set_uses(db, s.id) if with_uses else [], items=items,
     )
 
@@ -131,13 +202,15 @@ def _next_set_code(db: Session) -> str:
 
 # ── Products ──────────────────────────────────────────────────────────────────
 @router.get("/products", response_model=list[ProductOut])
-def list_products(q: str = "", category: str = "", include_inactive: bool = False,
+def list_products(q: str = "", category: str = "", product_type: str = "", include_inactive: bool = False,
                   db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     qry = db.query(models.Product)
     if not include_inactive:
         qry = qry.filter(models.Product.active == True)   # noqa: E712
     if category:
         qry = qry.filter(models.Product.category == category)
+    if product_type:
+        qry = qry.filter(models.Product.product_type == ("" if product_type == "none" else product_type))
     if q:
         like = f"%{q.strip()}%"
         qry = qry.filter((models.Product.sku.ilike(like)) | (models.Product.name.ilike(like))
@@ -154,6 +227,29 @@ def product_categories(db: Session = Depends(get_db), cu=Depends(auth.get_curren
     for cat, _ in rows:
         counts[cat or "Other"] = counts.get(cat or "Other", 0) + 1
     return [{"name": k, "count": v} for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+@router.get("/products/types")
+def product_types(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Intec's product types in set order, with how many products sit under each."""
+    counts: dict[str, int] = {}
+    for (t,) in db.query(models.Product.product_type).filter(models.Product.active == True).all():   # noqa: E712
+        counts[t or ""] = counts.get(t or "", 0) + 1
+    out = [{"code": c, "name": n, "count": counts.get(c, 0)} for c, n in models.PRODUCT_TYPES]
+    out.append({"code": "", "name": "Other", "count": counts.get("", 0)})
+    return out
+
+
+@router.post("/products/assign-types")
+def assign_product_types(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Fill in a type for every product that has none, from its category or name."""
+    n = 0
+    for p in db.query(models.Product).filter((models.Product.product_type == "") | (models.Product.product_type.is_(None))).all():
+        t = guess_product_type(p.category, p.name)
+        if t:
+            p.product_type = t; n += 1
+    db.commit()
+    return {"assigned": n}
 
 
 @router.post("/products/import")
@@ -216,10 +312,11 @@ async def import_products(file: UploadFile = File(...), db: Session = Depends(ge
             p.name, p.category, p.unit = name, cat, unit.upper()
             if cost is not None: p.cost = cost
             if sell is not None: p.sell = sell
+            if not p.product_type: p.product_type = guess_product_type(cat, name)
             updated += 1
         else:
             db.add(models.Product(sku=sku, name=name, category=cat, unit=unit.upper(),
-                                  cost=cost, sell=sell, source="cin7"))
+                                  cost=cost, sell=sell, source="cin7", product_type=guess_product_type(cat, name)))
             added += 1
     db.commit()
     return {"added": added, "updated": updated, "skipped": skipped}
@@ -290,11 +387,17 @@ def serve_product_image(filename: str, cu=Depends(auth.get_current_user)):
 
 # ── Hardware sets ─────────────────────────────────────────────────────────────
 @router.get("/sets", response_model=list[SetOut])
-def list_sets(include_archived: bool = False, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+def list_sets(include_archived: bool = False, project_id: Optional[int] = None,
+              db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """The standard library, plus (when project_id is given) that job's own copies."""
     qry = db.query(models.HardwareSet)
     if not include_archived:
         qry = qry.filter(models.HardwareSet.archived == False)   # noqa: E712
-    return [_set_out(db, s) for s in qry.order_by(models.HardwareSet.code).all()]
+    if project_id is None:
+        qry = qry.filter(models.HardwareSet.project_id.is_(None))
+    else:
+        qry = qry.filter((models.HardwareSet.project_id.is_(None)) | (models.HardwareSet.project_id == project_id))
+    return [_set_out(db, s, cu=cu) for s in qry.order_by(models.HardwareSet.code).all()]
 
 
 @router.get("/sets/next-code")
@@ -307,7 +410,7 @@ def get_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current
     s = db.query(models.HardwareSet).get(sid)
     if not s:
         raise HTTPException(404, "Set not found")
-    return _set_out(db, s)
+    return _set_out(db, s, cu=cu)
 
 
 def _apply_items(db: Session, s: models.HardwareSet, items: list[SetItemIn]):
@@ -328,7 +431,7 @@ def create_set(payload: SetIn, db: Session = Depends(get_db), cu=Depends(auth.ge
     code = payload.code.strip() or _next_set_code(db)
     if not payload.name.strip():
         raise HTTPException(400, "A set needs a name")
-    if db.query(models.HardwareSet).filter(models.HardwareSet.code == code,
+    if db.query(models.HardwareSet).filter(models.HardwareSet.code == code, models.HardwareSet.project_id.is_(None),
                                            models.HardwareSet.archived == False).first():   # noqa: E712
         raise HTTPException(409, f"Set {code} already exists")
     s = models.HardwareSet(code=code, name=payload.name.strip(), description=payload.description,
@@ -336,7 +439,7 @@ def create_set(payload: SetIn, db: Session = Depends(get_db), cu=Depends(auth.ge
     db.add(s); db.flush()
     _apply_items(db, s, payload.items)
     db.commit(); db.refresh(s)
-    return _set_out(db, s)
+    return _set_out(db, s, cu=cu)
 
 
 @router.put("/sets/{sid}", response_model=SetOut)
@@ -344,8 +447,13 @@ def update_set(sid: int, payload: SetIn, db: Session = Depends(get_db), cu=Depen
     s = db.query(models.HardwareSet).get(sid)
     if not s:
         raise HTTPException(404, "Set not found")
+    holder, mine = _lock_holder(s, cu)
+    if holder and not mine:
+        raise HTTPException(423, f"{holder} is editing this set")
     code = payload.code.strip() or s.code
     clash = db.query(models.HardwareSet).filter(models.HardwareSet.code == code, models.HardwareSet.id != sid,
+                                                models.HardwareSet.project_id.is_(s.project_id) if s.project_id is None
+                                                else models.HardwareSet.project_id == s.project_id,
                                                 models.HardwareSet.archived == False).first()   # noqa: E712
     if clash:
         raise HTTPException(409, f"Another set already uses code {code}")
@@ -353,7 +461,7 @@ def update_set(sid: int, payload: SetIn, db: Session = Depends(get_db), cu=Depen
     s.description, s.fire_rated, s.notes = payload.description, payload.fire_rated, payload.notes
     _apply_items(db, s, payload.items)
     db.commit(); db.refresh(s)
-    return _set_out(db, s)
+    return _set_out(db, s, cu=cu)
 
 
 @router.post("/sets/{sid}/copy", response_model=SetOut, status_code=201)
@@ -367,7 +475,7 @@ def copy_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_curren
     for i, it in enumerate(src.items):
         s.items.append(models.SetItem(product_id=it.product_id, qty=it.qty, sort_order=i))
     db.commit(); db.refresh(s)
-    return _set_out(db, s)
+    return _set_out(db, s, cu=cu)
 
 
 @router.delete("/sets/{sid}", status_code=204)
@@ -436,7 +544,7 @@ class DoorsSummary(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _own_project(pid: int, db: Session, cu) -> models.Project:
-    p = db.query(models.Project).filter(models.Project.id == pid, models.Project.owner_id == cu.id).first()
+    p = db.query(models.Project).filter(models.Project.id == pid).first()
     if not p:
         raise HTTPException(404, "Project not found")
     return p
@@ -1090,3 +1198,389 @@ async def import_intec_schedule(file: UploadFile = File(...), create_project: bo
         raise HTTPException(400, f"Could not read that as an Intec schedule: {e}")
     return import_intec(db, parsed, cu.id, create_project=create_project,
                         source_name=Path(file.filename or "").stem)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Jobs: sets on a job, doors by quantity, locks, copies, packing list
+# ═════════════════════════════════════════════════════════════════════════════
+from datetime import datetime, timezone as _tz  # noqa: E402
+
+
+class DoorsByQuantityIn(BaseModel):
+    set_id: int; count: int = 1; prefix: str = "D"; start: Optional[int] = None
+    pad: int = 2; separator: str = ""; floor: str = ""
+
+class DoorsByRangeIn(BaseModel):
+    set_id: int; prefix: str = "D"; from_no: int; to_no: int; pad: int = 2; separator: str = ""; floor: str = ""
+
+class JobSetOut(BaseModel):
+    set: SetOut; doors: int; door_refs: list[str] = []; value: Optional[float] = None
+    from_types: int = 0
+
+class JobOut(BaseModel):
+    project_id: int; name: str; quote_no: str = ""; client: str = ""; site: str = ""; rep: str = ""; kind: str = ""
+    sets: list[JobSetOut] = []; library: list[SetOut] = []
+    doors_total: int = 0; doors_no_set: int = 0; types_to_decide: int = 0; plans: int = 0
+    items: int = 0; value: Optional[float] = None; priced_ok: bool = False
+    checks: list[dict] = []
+
+class PackingIn(BaseModel):
+    door_ids: list[int] = []; deliver_to: str = ""; your_ref: str = ""
+
+
+def _set_or_404(sid: int, db: Session) -> models.HardwareSet:
+    s = db.query(models.HardwareSet).get(sid)
+    if not s or s.archived:
+        raise HTTPException(404, "Set not found")
+    return s
+
+
+def _effective_set_id(d: models.Door) -> Optional[int]:
+    if d.set_id:
+        return d.set_id
+    t = d.door_type
+    if t and t.status != "excluded":
+        return t.set_id
+    return None
+
+
+def _link_set(db: Session, pid: int, sid: int):
+    if not db.query(models.ProjectSet).filter_by(project_id=pid, set_id=sid).first():
+        n = db.query(models.ProjectSet).filter_by(project_id=pid).count()
+        db.add(models.ProjectSet(project_id=pid, set_id=sid, sort_order=n))
+
+
+def _ref_key(ref: str):
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", ref or "")]
+
+
+def _make_refs(db: Session, pid: int, prefix: str, sep: str, pad: int, start: int, count: int) -> list[str]:
+    """prefix + sep + zero-padded number, skipping any reference already on the job."""
+    existing = {d.ref for d in db.query(models.Door).filter(models.Door.project_id == pid).all()}
+    out, n = [], start
+    while len(out) < count and n < start + count + 10000:
+        ref = f"{prefix}{sep}{n:0{pad}d}"
+        if ref not in existing:
+            out.append(ref); existing.add(ref)
+        n += 1
+    return out
+
+
+def _next_number(db: Session, pid: int, prefix: str, sep: str) -> int:
+    best = 0
+    pat = re.compile(rf"^{re.escape(prefix + sep)}(\d+)$")
+    for (ref,) in db.query(models.Door.ref).filter(models.Door.project_id == pid).all():
+        m = pat.match(ref or "")
+        if m:
+            best = max(best, int(m.group(1)))
+    return best + 1
+
+
+# ── The job, in one call ──────────────────────────────────────────────────────
+@router.get("/projects/{pid}/job", response_model=JobOut)
+def get_job(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _own_project(pid, db, cu)
+    doors = db.query(models.Door).filter(models.Door.project_id == pid).all()
+    by_set: dict[int, list] = {}
+    no_set = 0
+    for d in doors:
+        eff = _effective_set_id(d)
+        if eff:
+            by_set.setdefault(eff, []).append(d)
+        elif not (d.door_type and d.door_type.status == "excluded"):
+            no_set += 1
+    linked = [ps.set_id for ps in db.query(models.ProjectSet).filter_by(project_id=pid).order_by(models.ProjectSet.sort_order).all()]
+    order = linked + [sid for sid in by_set if sid not in linked]
+    sets_out, items_total, value_total, priced = [], 0, 0.0, True
+    types = db.query(models.DoorType).filter(models.DoorType.project_id == pid).all()
+    types_by_set: dict[int, int] = {}
+    for t in types:
+        if t.set_id and t.status != "excluded":
+            types_by_set[t.set_id] = types_by_set.get(t.set_id, 0) + 1
+    for sid in order:
+        s = db.query(models.HardwareSet).get(sid)
+        if not s or s.archived:
+            continue
+        so = _set_out(db, s, with_uses=False, cu=cu)
+        ds = sorted(by_set.get(sid, []), key=lambda d: _ref_key(d.ref))
+        n = len(ds)
+        items_total += so.items_per_door * n
+        if so.value_per_door is None:
+            if n: priced = False
+            val = None
+        else:
+            val = round(so.value_per_door * n, 2); value_total += val
+        sets_out.append(JobSetOut(set=so, doors=n, door_refs=[d.ref + ("h" if d.handed else "") for d in ds],
+                                  value=val, from_types=types_by_set.get(sid, 0)))
+    on_job = {js.set.id for js in sets_out}
+    library = [_set_out(db, s, with_uses=False, cu=cu)
+               for s in db.query(models.HardwareSet).filter(models.HardwareSet.archived == False,   # noqa: E712
+                                                            models.HardwareSet.project_id.is_(None)).order_by(models.HardwareSet.code).all()
+               if s.id not in on_job]
+    decide = sum(1 for t in types if t.status == "decide")
+    checks = []
+    if decide:
+        checks.append({"level": "warn", "text": f"{decide} door type{'s' if decide != 1 else ''} from the plans still to decide"})
+    if no_set:
+        checks.append({"level": "warn", "text": f"{no_set} door{'s' if no_set != 1 else ''} without a set"})
+    empty = [js.set.code for js in sets_out if js.doors == 0]
+    if empty:
+        checks.append({"level": "info", "text": "Sets with no doors yet: " + ", ".join(empty) + ". They are left off the schedule."})
+    unpriced = [js.set.code for js in sets_out if js.doors and not js.set.priced_ok]
+    if unpriced:
+        checks.append({"level": "info", "text": "No price yet on every product in: " + ", ".join(unpriced)})
+    if not p.quote_no:
+        checks.append({"level": "info", "text": "No quote number on the job"})
+    if sets_out and not checks:
+        checks.append({"level": "ok", "text": "Every door has a set and every set is priced"})
+    return JobOut(project_id=pid, name=p.name, quote_no=p.quote_no or "", client=p.client or "", site=p.site or "",
+                  rep=p.rep or "", kind=p.kind or "symbols", sets=sets_out, library=library,
+                  doors_total=len(doors), doors_no_set=no_set, types_to_decide=decide,
+                  plans=len(p.drawings), items=items_total,
+                  value=round(value_total, 2) if (sets_out and priced) else None, priced_ok=bool(sets_out) and priced,
+                  checks=checks)
+
+
+@router.post("/projects/{pid}/sets/{sid}/add")
+def add_set_to_job(pid: int, sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Put a set on the job with no doors yet."""
+    _own_project(pid, db, cu); s = _set_or_404(sid, db)
+    if s.project_id not in (None, pid):
+        raise HTTPException(400, "That set belongs to another job")
+    _link_set(db, pid, sid); db.commit()
+    return {"ok": True}
+
+
+@router.delete("/projects/{pid}/sets/{sid}")
+def remove_set_from_job(pid: int, sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Take a set off the job. Its doors lose their set; a job-only copy is deleted."""
+    _own_project(pid, db, cu); s = _set_or_404(sid, db)
+    n = 0
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        if _effective_set_id(d) == sid:
+            d.set_id = None; n += 1
+    for t in db.query(models.DoorType).filter(models.DoorType.project_id == pid, models.DoorType.set_id == sid).all():
+        t.set_id = None; t.status = "decide"
+    db.query(models.ProjectSet).filter_by(project_id=pid, set_id=sid).delete(synchronize_session=False)
+    if s.project_id == pid:
+        db.delete(s)
+    db.commit()
+    return {"doors_unassigned": n}
+
+
+@router.post("/projects/{pid}/doors/add-quantity")
+def add_doors_by_quantity(pid: int, payload: DoorsByQuantityIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Intec's 'give me 20 of them': N doors on a set, numbered from the next free number."""
+    _own_project(pid, db, cu); _set_or_404(payload.set_id, db)
+    if payload.count < 1 or payload.count > 2000:
+        raise HTTPException(400, "Count must be between 1 and 2000")
+    prefix, sep, pad = payload.prefix.strip(), payload.separator, max(1, min(payload.pad, 4))
+    start = payload.start if payload.start is not None else _next_number(db, pid, prefix, sep)
+    refs = _make_refs(db, pid, prefix, sep, pad, start, payload.count)
+    for ref in refs:
+        db.add(models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), set_id=payload.set_id, source="manual"))
+    _link_set(db, pid, payload.set_id); db.commit()
+    return {"added": len(refs), "first": refs[0] if refs else "", "last": refs[-1] if refs else ""}
+
+
+@router.post("/projects/{pid}/doors/add-range")
+def add_doors_by_range(pid: int, payload: DoorsByRangeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Doors numbered from one number to another, e.g. D101 to D125."""
+    _own_project(pid, db, cu); _set_or_404(payload.set_id, db)
+    lo, hi = min(payload.from_no, payload.to_no), max(payload.from_no, payload.to_no)
+    if hi - lo + 1 > 2000:
+        raise HTTPException(400, "That range is too big")
+    prefix, sep, pad = payload.prefix.strip(), payload.separator, max(1, min(payload.pad, 4))
+    existing = {d.ref for d in db.query(models.Door).filter(models.Door.project_id == pid).all()}
+    added, skipped = 0, []
+    for n in range(lo, hi + 1):
+        ref = f"{prefix}{sep}{n:0{pad}d}"
+        if ref in existing:
+            skipped.append(ref); continue
+        db.add(models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), set_id=payload.set_id, source="manual"))
+        added += 1
+    _link_set(db, pid, payload.set_id); db.commit()
+    return {"added": added, "skipped": skipped}
+
+
+# ── Locks: one person edits a set at a time ───────────────────────────────────
+@router.post("/sets/{sid}/lock")
+def lock_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    s = _set_or_404(sid, db)
+    holder, mine = _lock_holder(s, cu)
+    if holder and not mine:
+        raise HTTPException(423, f"{holder} is editing this set")
+    s.locked_by_id = cu.id; s.locked_at = datetime.now(_tz.utc); db.commit()
+    return {"locked": True, "expires_in": LOCK_SECONDS}
+
+
+@router.delete("/sets/{sid}/lock")
+def unlock_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    s = _set_or_404(sid, db)
+    if s.locked_by_id == cu.id:
+        s.locked_by_id = None; s.locked_at = None; db.commit()
+    return {"locked": False}
+
+
+# ── Copies ────────────────────────────────────────────────────────────────────
+@router.post("/projects/{pid}/sets/{sid}/copy-for-job", response_model=SetOut, status_code=201)
+def copy_set_for_job(pid: int, sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """
+    A job wants a different hinge but the standard set must not change:
+    copy the set for this job only and move the job's doors onto the copy.
+    """
+    _own_project(pid, db, cu); src = _set_or_404(sid, db)
+    if src.project_id == pid:
+        return _set_out(db, src, cu=cu)
+    s = models.HardwareSet(code=src.code, name=src.name, description=src.description, fire_rated=src.fire_rated,
+                           notes=src.notes, copied_from_id=src.id, created_by_id=cu.id, project_id=pid)
+    db.add(s); db.flush()
+    for i, it in enumerate(src.items):
+        s.items.append(models.SetItem(product_id=it.product_id, qty=it.qty, sort_order=i))
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        if _effective_set_id(d) == sid:
+            d.set_id = s.id
+    for t in db.query(models.DoorType).filter(models.DoorType.project_id == pid, models.DoorType.set_id == sid).all():
+        t.set_id = s.id
+    link = db.query(models.ProjectSet).filter_by(project_id=pid, set_id=sid).first()
+    if link:
+        link.set_id = s.id
+    else:
+        _link_set(db, pid, s.id)
+    db.commit(); db.refresh(s)
+    return _set_out(db, s, cu=cu)
+
+
+@router.post("/projects/{pid}/copy")
+def copy_project(pid: int, name: str = "", db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Start a new quote from an old one: job details, sets, door types and doors."""
+    src = _own_project(pid, db, cu)
+    p = models.Project(name=(name.strip() or f"{src.name} (copy)"), client=src.client, site=src.site,
+                       description=src.description, drawing_firm=src.drawing_firm, quote_no="", rep=src.rep,
+                       kind=src.kind or "symbols", owner_id=cu.id)
+    db.add(p); db.flush()
+    set_map: dict[int, int] = {}
+    for s in db.query(models.HardwareSet).filter(models.HardwareSet.project_id == pid).all():
+        c = models.HardwareSet(code=s.code, name=s.name, description=s.description, fire_rated=s.fire_rated,
+                               notes=s.notes, copied_from_id=s.copied_from_id or s.id, created_by_id=cu.id, project_id=p.id)
+        db.add(c); db.flush()
+        for i, it in enumerate(s.items):
+            c.items.append(models.SetItem(product_id=it.product_id, qty=it.qty, sort_order=i))
+        set_map[s.id] = c.id
+    ms = lambda sid: set_map.get(sid, sid) if sid else None   # noqa: E731
+    type_map: dict[int, int] = {}
+    for t in db.query(models.DoorType).filter(models.DoorType.project_id == pid).all():
+        nt = models.DoorType(project_id=p.id, code=t.code, description=t.description, fire_rating=t.fire_rating,
+                             acoustic=t.acoustic, width=t.width, height=t.height, spec_text=t.spec_text,
+                             status=t.status, set_id=ms(t.set_id), sort_order=t.sort_order)
+        db.add(nt); db.flush(); type_map[t.id] = nt.id
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        db.add(models.Door(project_id=p.id, door_type_id=type_map.get(d.door_type_id), ref=d.ref, floor=d.floor,
+                           handed=d.handed, set_id=ms(d.set_id), source="manual" if d.source == "plan" else d.source, note=d.note))
+    for ps in db.query(models.ProjectSet).filter_by(project_id=pid).order_by(models.ProjectSet.sort_order).all():
+        db.add(models.ProjectSet(project_id=p.id, set_id=ms(ps.set_id), sort_order=ps.sort_order))
+    db.commit()
+    return {"id": p.id, "name": p.name}
+
+
+# ── Packing list for chosen doors ─────────────────────────────────────────────
+@router.post("/projects/{pid}/schedule/packing")
+def packing_list(pid: int, payload: PackingIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _own_project(pid, db, cu)
+    from schedule_output import build_schedule, picking_list_pdf as packing_list_pdf
+    data = build_schedule(db, p, estimator=cu.name)
+    chosen = set(payload.door_ids)
+    if chosen:
+        ids_by_ref = {d.id: d.ref for d in db.query(models.Door).filter(models.Door.project_id == pid).all()}
+        keep = {ids_by_ref[i] for i in chosen if i in ids_by_ref}
+        for s in data["sets"]:
+            s["door_refs"] = [r for r in s["door_refs"] if r["ref"] in keep]
+            s["doors"] = len(s["door_refs"])
+            s["value"] = round(s["per_door"] * s["doors"], 2)
+        data["sets"] = [s for s in data["sets"] if s["doors"]]
+        summary: dict = {}
+        for s in data["sets"]:
+            for it in s["items"]:
+                agg = summary.setdefault(it["sku"], {"sku": it["sku"], "name": it["name"], "unit": it["unit"],
+                                                     "category": it["category"], "qty": 0, "price": it["price"]})
+                agg["qty"] += it["qty"] * s["doors"]
+        data["summary"] = sorted(summary.values(), key=lambda r: r["sku"].upper())
+        data["doors_scheduled"] = sum(s["doors"] for s in data["sets"])
+        data["item_count"] = sum(r["qty"] for r in data["summary"])
+    data["deliver_to"] = payload.deliver_to; data["your_ref"] = payload.your_ref
+    pdf = packing_list_pdf(data)
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Packing_List")}.pdf"'})
+
+
+# ── Standard sets from a file (Evan's library) ────────────────────────────────
+@router.post("/sets/import-json")
+async def import_sets_json(file: UploadFile = File(...), db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """
+    A JSON file of standard sets: {"sets":[{"code","name","items":[[sku, qty, price, type], …]}],
+    "product_names":{sku: name}}. Missing products are created; existing sets with the
+    same code are refreshed.
+    """
+    import json
+    try:
+        data = json.loads((await file.read()).decode("utf-8"))
+    except Exception:
+        raise HTTPException(400, "Not a readable JSON file")
+    names = data.get("product_names", {})
+    by_sku = {p.sku.strip().upper(): p for p in db.query(models.Product).all()}
+    for p in list(by_sku.values()):
+        if p.intec_code:
+            by_sku.setdefault(p.intec_code.strip().upper(), p)
+    prod_added = sets_added = sets_updated = 0
+    for s in data.get("sets", []):
+        code, name = (s.get("code") or "").strip(), (s.get("name") or "").strip()
+        if not code or not name:
+            continue
+        items_in = []
+        for row in s.get("items", []):
+            sku, qty, price, ptype = (list(row) + ["", 1, None, ""])[:4]
+            key = str(sku).strip().upper()
+            p = by_sku.get(key)
+            if p is None:
+                pname = names.get(sku, str(sku))
+                p = models.Product(sku=str(sku).strip(), name=pname, category="Other", unit="EACH",
+                                   sell=price, product_type=ptype or guess_product_type("Other", pname),
+                                   intec_code=str(sku).strip(), source="intec",
+                                   notes="From the standard set library", active=True)
+                db.add(p); db.flush(); by_sku[key] = p; prod_added += 1
+            else:
+                if price and p.sell is None: p.sell = price
+                if ptype and not p.product_type: p.product_type = ptype
+            items_in.append(SetItemIn(product_id=p.id, qty=int(qty or 1)))
+        hs = db.query(models.HardwareSet).filter(models.HardwareSet.code == code, models.HardwareSet.project_id.is_(None),
+                                                 models.HardwareSet.archived == False).first()   # noqa: E712
+        if hs:
+            hs.name = name; sets_updated += 1
+        else:
+            hs = models.HardwareSet(code=code, name=name, description=s.get("description", ""),
+                                    fire_rated=bool(re.search(r"\bFR\b", name) and not re.search(r"\bNFR\b", name)),
+                                    created_by_id=cu.id)
+            db.add(hs); db.flush(); sets_added += 1
+        _apply_items(db, hs, items_in)
+    db.commit()
+    return {"products_added": prod_added, "sets_added": sets_added, "sets_updated": sets_updated}
+
+
+# ── Products by set: the grid Evan checks a job on ────────────────────────────
+@router.get("/projects/{pid}/grid")
+def products_by_set(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Sets down, products across, quantity per door in each cell, totals for the job."""
+    job = get_job(pid, db, cu)
+    products: dict[str, dict] = {}
+    rows = []
+    for js in job.sets:
+        cells = {}
+        for it in js.set.items:
+            cells[it.sku] = it.qty
+            products.setdefault(it.sku, {"sku": it.sku, "name": it.name, "type": it.product_type or "", "total": 0})
+            products[it.sku]["total"] += it.qty * js.doors
+        rows.append({"set_id": js.set.id, "code": js.set.code, "name": js.set.name, "doors": js.doors,
+                     "value_per_door": js.set.value_per_door, "value": js.value, "cells": cells})
+    cols = sorted(products.values(), key=lambda p: (_type_rank(p["type"]), p["sku"].upper()))
+    return {"project_id": pid, "name": job.name, "sets": rows, "products": cols,
+            "doors_total": job.doors_total, "value": job.value}

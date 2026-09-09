@@ -119,6 +119,15 @@ def _ensure_columns():
             if "kind" not in pexisting:
                 conn.execute(_sa.text("ALTER TABLE projects ADD COLUMN kind TEXT DEFAULT 'symbols'"))
                 logger.info("Migrated: added projects.kind")
+            for table, cols in (("products", {"product_type": "TEXT DEFAULT ''", "brand": "TEXT DEFAULT ''"}),
+                                ("hardware_sets", {"project_id": "INTEGER", "locked_by_id": "INTEGER", "locked_at": "DATETIME"})):
+                have = {row[1] for row in conn.execute(_sa.text(f"PRAGMA table_info({table})")).fetchall()}
+                if not have:
+                    continue          # table not created yet; create_all handles it
+                for colname, ddl in cols.items():
+                    if colname not in have:
+                        conn.execute(_sa.text(f"ALTER TABLE {table} ADD COLUMN {colname} {ddl}"))
+                        logger.info("Migrated: added %s.%s", table, colname)
     except Exception as exc:
         logger.error("Column migration failed: %s", exc)
 
@@ -179,6 +188,7 @@ class ProjectOut(BaseModel):
     verified_count: int = 0; approved_count: int = 0
     quote_no: str = ""; rep: str = ""; kind: str = "symbols"
     door_count: int = 0; door_types_to_decide: int = 0
+    owner_name: str = ""; created_at: Optional[str] = None; updated_at: Optional[str] = None
     class Config: from_attributes = True
 
 
@@ -192,7 +202,10 @@ def _project_out(p: models.Project, db: Session) -> ProjectOut:
                       description=p.description or "", drawing_firm=p.drawing_firm or "",
                       drawing_count=len(p.drawings), verified_count=vc, approved_count=ac,
                       quote_no=p.quote_no or "", rep=p.rep or "", kind=p.kind or "symbols",
-                      door_count=doors, door_types_to_decide=decide)
+                      door_count=doors, door_types_to_decide=decide,
+                      owner_name=p.owner.name if p.owner else "",
+                      created_at=p.created_at.isoformat() if p.created_at else None,
+                      updated_at=(p.updated_at or p.created_at).isoformat() if (p.updated_at or p.created_at) else None)
 
 class DrawingOut(BaseModel):
     id: int; original_name: str; block: str; level: str
@@ -304,7 +317,7 @@ def serve_template_image(filename: str, cu=Depends(auth.get_current_user)):
 # ── Projects ──────────────────────────────────────────────────────────────────
 @app.get("/api/projects", response_model=list[ProjectOut])
 def list_projects(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    ps = db.query(models.Project).filter(models.Project.owner_id == cu.id).order_by(models.Project.id.desc()).all()
+    ps = db.query(models.Project).order_by(models.Project.id.desc()).all()
     return [_project_out(p, db) for p in ps]
 
 @app.post("/api/projects", response_model=ProjectOut, status_code=201)
@@ -352,6 +365,9 @@ def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_
             shutil.rmtree(sd, ignore_errors=True)
     db.query(models.Door).filter(models.Door.project_id == pid).delete(synchronize_session=False)
     db.query(models.DoorType).filter(models.DoorType.project_id == pid).delete(synchronize_session=False)
+    db.query(models.ProjectSet).filter(models.ProjectSet.project_id == pid).delete(synchronize_session=False)
+    for s_ in db.query(models.HardwareSet).filter(models.HardwareSet.project_id == pid).all():
+        db.delete(s_)
     db.delete(p)
     db.commit()
 
@@ -1287,15 +1303,15 @@ async def serve_frontend(full_path: str = ""):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _proj404(pid, uid, db):
-    p = db.query(models.Project).filter(
-        models.Project.id == pid, models.Project.owner_id == uid).first()
+    # Every estimator sees every job; ownership only records who created it.
+    p = db.query(models.Project).filter(models.Project.id == pid).first()
     if not p: raise HTTPException(404, "Project not found")
     return p
 
 def _draw404(did, uid, db):
     d = db.query(models.Drawing).filter(models.Drawing.id == did).first()
     if not d: raise HTTPException(404, "Drawing not found")
-    if d.project.owner_id != uid: raise HTTPException(403, "Access denied")
+    pass
     return d
 
 def _drawing_out(d: models.Drawing) -> DrawingOut:

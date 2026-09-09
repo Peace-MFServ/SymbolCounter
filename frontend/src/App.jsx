@@ -9,6 +9,8 @@ import { ProductsView } from './ProductsView'
 import { SetsView, SetEditor } from './SetsView'
 import { DoorsView } from './DoorsView'
 import { ScheduleView } from './ScheduleView'
+import { JobView } from './JobView'
+import { GridView } from './GridView'
 
 export default function App() {
   const { user, loading } = useAuth()
@@ -60,7 +62,11 @@ export default function App() {
     case 'sets':
       return <SetsView onNavigate={navigate} autoImport={!!params.importIntec} />
     case 'set':
-      return <SetEditor id={params.id} onNavigate={navigate} />
+      return <SetEditor id={params.id} projectId={params.projectId} onNavigate={navigate} />
+    case 'job':
+      return <JobView projectId={params.id} onNavigate={navigate} />
+    case 'grid':
+      return <GridView projectId={params.id} onNavigate={navigate} />
     case 'doors':
       return <DoorsView projectId={params.id} onNavigate={navigate} />
     case 'schedule':

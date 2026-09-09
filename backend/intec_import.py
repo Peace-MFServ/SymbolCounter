@@ -188,8 +188,10 @@ def import_intec(db, data: dict, owner_id: int, create_project: bool = True, sou
         info = data["products"][code]
         p = existing.get(code.strip().upper())
         if p is None:
+            from schedule import guess_product_type
             p = models.Product(sku=code, name=info["name"] or code, category="Other", unit=info.get("unit") or "EACH",
                                sell=info.get("price"), intec_code=code, source="intec",
+                               product_type=guess_product_type("Other", info["name"] or ""),
                                notes=f"From Intec schedule {data['job'].get('quote_no') or source_name}".strip(), active=True)
             db.add(p); db.flush(); existing[code.upper()] = p; prod_added += 1
         else:

@@ -12,6 +12,7 @@ export function ScheduleView({ projectId, onNavigate }) {
   const [job,    setJob]    = useState(null)      // editable job details
   const [busy,   setBusy]   = useState('')
   const [priced, setPriced] = useState(false)
+  const [packing, setPacking] = useState(false)
 
   const load = async () => {
     const [d, p] = await Promise.all([apiFetch(`/projects/${projectId}/schedule`), apiFetch(`/projects/${projectId}`)])
@@ -41,7 +42,7 @@ export function ScheduleView({ projectId, onNavigate }) {
 
   const crumbs = job?.kind === 'doors'
     ? [{ label: 'Projects', onClick: () => onNavigate('dashboard') },
-       { label: job?.name || '…', onClick: () => onNavigate('doors', { id: projectId }) },
+       { label: job?.name || '…', onClick: () => onNavigate('job', { id: projectId }) },
        { label: 'Schedule' }]
     : [{ label: 'Projects', onClick: () => onNavigate('dashboard') },
        { label: job?.name || '…', onClick: () => onNavigate('project', { id: projectId }) },
@@ -72,7 +73,10 @@ export function ScheduleView({ projectId, onNavigate }) {
                 <label className="check" style={{ marginRight: 8 }} title={data.priced_ok ? '' : 'Some products have no cost in Cin7 yet'}>
                   <input type="checkbox" checked={priced} disabled={!data.priced_ok} onChange={e => setPriced(e.target.checked)} /> With prices
                 </label>
-                <button className="btn" onClick={() => download('picking')} disabled={!!busy}>{busy === 'picking' ? <span className="spinner" /> : 'Picking list'}</button>
+                <Menu label="Lists" items={[
+                  { label: 'Picking list (whole job)', onClick: () => download('picking') },
+                  { label: 'Packing list (chosen doors)', onClick: () => setPacking(true) },
+                ]} />
                 <button className="btn" onClick={() => download('excel')} disabled={!!busy}>{busy === 'excel' ? <span className="spinner" /> : 'Excel'}</button>
                 <button className="btn btn-primary" onClick={() => download('pdf')} disabled={!!busy}>{busy === 'pdf' ? <span className="spinner" /> : 'Download schedule PDF'}</button>
               </>
@@ -146,7 +150,64 @@ export function ScheduleView({ projectId, onNavigate }) {
           </aside>
         </div>
       </div>
+      {packing && <PackingModal projectId={projectId} data={data} onClose={() => setPacking(false)}
+                                stem={`${job.quote_no ? job.quote_no + '_' : ''}${job.name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_')}`} />}
     </>
+  )
+}
+
+function PackingModal({ projectId, data, stem, onClose }) {
+  const [chosen, setChosen] = useState(() => new Set())
+  const [deliverTo, setDeliverTo] = useState('')
+  const [yourRef, setYourRef] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [doors, setDoors] = useState(null)
+  useEffect(() => { apiFetch(`/projects/${projectId}/doors`).then(ds => setDoors((ds || []).filter(d => d.effective_set_id))) }, [projectId])
+  const toggle = id => setChosen(c => { const n = new Set(c); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleSet = ids => setChosen(c => { const n = new Set(c); const all = ids.every(i => n.has(i)); ids.forEach(i => all ? n.delete(i) : n.add(i)); return n })
+  const run = async () => {
+    setBusy(true)
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/projects/${projectId}/schedule/packing`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ door_ids: Array.from(chosen), deliver_to: deliverTo, your_ref: yourRef }) })
+      if (!res.ok) throw new Error('Could not make the packing list')
+      const blob = await res.blob(); const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `${stem}_Packing_List.pdf`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url)
+      onClose()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy(false)
+  }
+  const bySet = {}
+  for (const d of doors || []) (bySet[d.effective_set_code || '?'] ||= []).push(d)
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 720 }}>
+        <h2>Packing list</h2>
+        <p className="muted" style={{ marginTop: -6 }}>Tick the doors going out in this delivery. Leave all unticked for every door.</p>
+        <div className="form-grid">
+          <div className="form-group"><label>Deliver to</label><input className="form-control" value={deliverTo} onChange={e => setDeliverTo(e.target.value)} placeholder="Site office, Pleasants Street" /></div>
+          <div className="form-group"><label>Your ref</label><input className="form-control" value={yourRef} onChange={e => setYourRef(e.target.value)} placeholder="Client's order number" /></div>
+        </div>
+        <div className="pack-doors">
+          {doors === null ? <span className="spinner" /> : Object.entries(bySet).map(([code, ds]) => (
+            <div key={code} className="pack-set">
+              <label className="check pack-set-head"><input type="checkbox" checked={ds.every(d => chosen.has(d.id))} onChange={() => toggleSet(ds.map(d => d.id))} /> <strong>{code}</strong> <span className="muted">{ds.length} door{ds.length !== 1 ? 's' : ''}</span></label>
+              <div className="pack-refs">
+                {ds.map(d => <label key={d.id} className={`door-chip pick${chosen.has(d.id) ? ' on' : ''}`}><input type="checkbox" checked={chosen.has(d.id)} onChange={() => toggle(d.id)} />{d.ref}{d.handed ? 'h' : ''}</label>)}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <span className="muted">{chosen.size ? `${chosen.size} door${chosen.size !== 1 ? 's' : ''} chosen` : 'All doors'}</span>
+          <div className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={run} disabled={busy}>{busy ? <span className="spinner" /> : 'Download packing list'}</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
