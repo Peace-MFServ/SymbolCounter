@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { apiFetch } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
+import { IconTrash } from './icons'
 import { TYPE_NAMES, TYPE_ORDER, groupItems, money } from './JobView'
 
 /* ── The standard set library ─────────────────────────────────────────────── */
@@ -230,7 +231,6 @@ export function SetEditor({ id, projectId, onNavigate }) {
           </div>
           <div className="spacer" />
           <div className="actions">
-            {!isNew && !readOnly && <button className="btn btn-ghost danger" onClick={archive}>{set.is_standard ? 'Delete set' : 'Delete this copy'}</button>}
             <button className="btn btn-ghost" onClick={back}>{projectId ? 'Back to job' : 'Back to sets'}</button>
             <button className="btn btn-primary" onClick={save} disabled={busy || readOnly}>{busy ? <span className="spinner" /> : dirty || isNew ? 'Save set' : 'Saved'}</button>
           </div>
@@ -293,7 +293,13 @@ export function SetEditor({ id, projectId, onNavigate }) {
               </div>
             )}
             {set.copied_from && <div className="rail-panel" style={{ marginTop: 20 }}><h3>Started from</h3><p className="muted">{set.copied_from}</p></div>}
-
+            {!isNew && !readOnly && (
+              <div className="rail-panel" style={{ marginTop: 20 }}>
+                <h3>{set.is_standard ? 'Delete set' : 'Delete this copy'}</h3>
+                <p className="muted" style={{ marginBottom: 12 }}>{set.is_standard ? 'Removes it from the set library. You will be asked to confirm.' : 'Removes this copy from the job. You will be asked to confirm.'}</p>
+                <button className="btn btn-outline-danger wide" onClick={archive}><IconTrash size={16} /> {set.is_standard ? 'Delete set' : 'Delete this copy'}</button>
+              </div>
+            )}
           </aside>
         </div>
       </div>

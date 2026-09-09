@@ -3,11 +3,10 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { useAuth } from './auth'
 import logo from './assets/mf-logo.jpeg'
-import { IconSearch, IconRight, IconPlus } from './icons'
+import { IconRight, IconPlus } from './icons'
 
 export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false }) {
   const { user, logout } = useAuth()
-  const [q, setQ] = useState('')
   const handleLogout = () => { logout(); onNavigate && onNavigate('login') }
   const initials = (user?.name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase()
   return (
@@ -27,12 +26,6 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
         )}
         <div className="spacer" />
         {right}
-        {user && onNavigate && !compact && (
-          <form className="topsearch" onSubmit={e => { e.preventDefault(); onNavigate('dashboard', { q }); }}>
-            <IconSearch size={16} />
-            <input placeholder="Search jobs…" value={q} onChange={e => setQ(e.target.value)} />
-          </form>
-        )}
         {user && !compact && (
           <div className="userchip">
             <span className="avatar">{initials}</span>
