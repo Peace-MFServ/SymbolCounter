@@ -264,7 +264,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
                     ))}
                   </React.Fragment>
                 ))}
-                {items.length === 0 && <tr><td colSpan={6} className="muted" style={{ padding: 24 }}>No products yet. Search below to add the first one.</td></tr>}
+                {items.length === 0 && <tr><td colSpan={6} className="muted" style={{ padding: 24 }}>No products yet. Use the box above to add the first one.</td></tr>}
               </tbody>
               {items.length > 0 && (
                 <tfoot><tr><td colSpan={3} /><td className="num" style={{ fontWeight: 600 }}>Set value</td><td className="num" style={{ fontWeight: 600 }}>{priced ? money(value) : <span className="muted" style={{ fontWeight: 400 }}>not all priced</span>}</td><td /></tr></tfoot>
