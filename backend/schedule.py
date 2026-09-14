@@ -447,6 +447,8 @@ def update_set(sid: int, payload: SetIn, db: Session = Depends(get_db), cu=Depen
     s = db.query(models.HardwareSet).get(sid)
     if not s:
         raise HTTPException(404, "Set not found")
+    if s.project_id:
+        _edit_project(s.project_id, db, cu)
     holder, mine = _lock_holder(s, cu)
     if holder and not mine:
         raise HTTPException(423, f"{holder} is editing this set")
@@ -484,6 +486,8 @@ def archive_set(sid: int, force: bool = False, db: Session = Depends(get_db), cu
     s = db.query(models.HardwareSet).get(sid)
     if not s:
         raise HTTPException(404, "Set not found")
+    if s.project_id:
+        _edit_project(s.project_id, db, cu)
     uses = _set_uses(db, sid)
     if uses and not force:
         raise HTTPException(409, "This set is on " + ", ".join(u.project for u in uses) + ".")
@@ -558,6 +562,15 @@ def _own_project(pid: int, db: Session, cu) -> models.Project:
     return p
 
 
+def _edit_project(pid: int, db: Session, cu) -> models.Project:
+    """Anyone can look at a job; only the person who created it can change it."""
+    p = _own_project(pid, db, cu)
+    if p.owner_id and p.owner_id != cu.id:
+        who = p.owner.name if p.owner else "its owner"
+        raise HTTPException(403, f"Only {who} can change this job. Use Copy this job to work on your own version.")
+    return p
+
+
 def _own_door_type(dtid: int, db: Session, cu) -> models.DoorType:
     dt = db.query(models.DoorType).get(dtid)
     if not dt:
@@ -565,6 +578,11 @@ def _own_door_type(dtid: int, db: Session, cu) -> models.DoorType:
     _own_project(dt.project_id, db, cu)
     return dt
 
+
+def _edit_door_type(dtid: int, db: Session, cu) -> models.DoorType:
+    dt = _own_door_type(dtid, db, cu)
+    _edit_project(dt.project_id, db, cu)
+    return dt
 
 def _norm_code(code: str) -> str:
     c = re.sub(r"\s+", "", (code or "").upper())
@@ -857,7 +875,7 @@ def _apply_type_payload(dt: models.DoorType, payload: DoorTypeIn, db: Session):
 
 @router.post("/projects/{pid}/door-types", response_model=DoorTypeOut, status_code=201)
 def create_door_type(pid: int, payload: DoorTypeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    _own_project(pid, db, cu)
+    _edit_project(pid, db, cu)
     code = _norm_code(payload.code)
     if not code:
         raise HTTPException(400, "Door type needs a code")
@@ -871,7 +889,7 @@ def create_door_type(pid: int, payload: DoorTypeIn, db: Session = Depends(get_db
 
 @router.put("/door-types/{dtid}", response_model=DoorTypeOut)
 def update_door_type(dtid: int, payload: DoorTypeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    dt = _own_door_type(dtid, db, cu)
+    dt = _edit_door_type(dtid, db, cu)
     new_code = _norm_code(payload.code)
     if new_code and new_code != _norm_code(dt.code) and new_code in _type_cache(db, dt.project_id):
         raise HTTPException(409, f"{new_code} already exists on this project")
@@ -883,7 +901,7 @@ def update_door_type(dtid: int, payload: DoorTypeIn, db: Session = Depends(get_d
 
 @router.delete("/door-types/{dtid}", status_code=204)
 def delete_door_type(dtid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    dt = _own_door_type(dtid, db, cu)
+    dt = _edit_door_type(dtid, db, cu)
     n = db.query(models.Door).filter(models.Door.door_type_id == dt.id).count()
     if n:
         raise HTTPException(409, f"{dt.code} has {n} door{'s' if n != 1 else ''}. Move or remove them first.")
@@ -893,6 +911,7 @@ def delete_door_type(dtid: int, db: Session = Depends(get_db), cu=Depends(auth.g
 @router.post("/projects/{pid}/doors/apply-suggestions")
 def apply_suggestions(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Assign every suggested set to its door type in one go."""
+    _edit_project(pid, db, cu)
     summary = doors_summary(pid, db, cu)
     applied = 0
     for o in summary.door_types:
@@ -906,7 +925,7 @@ def apply_suggestions(pid: int, db: Session = Depends(get_db), cu=Depends(auth.g
 @router.post("/projects/{pid}/doors/rescan")
 def rescan_doors(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Re-read door tags from every plan on the project."""
-    p = _own_project(pid, db, cu)
+    p = _edit_project(pid, db, cu)
     total, plans = 0, 0
     for d in p.drawings:
         if d.status in ("uploaded", "processing"):
@@ -921,11 +940,11 @@ def rescan_doors(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cu
 @router.put("/projects/{pid}/doors/bulk")
 def bulk_update_doors(pid: int, payload: BulkDoorsIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Give many doors a set or a type at once: a list of ids, or every door with no type."""
-    _own_project(pid, db, cu)
+    _edit_project(pid, db, cu)
     if payload.set_id is not None and not db.query(models.HardwareSet).get(payload.set_id):
         raise HTTPException(404, "Set not found")
     if payload.door_type_id is not None:
-        _own_door_type(payload.door_type_id, db, cu)
+        _edit_door_type(payload.door_type_id, db, cu)
     q = db.query(models.Door).filter(models.Door.project_id == pid)
     if payload.untyped:
         q = q.filter(models.Door.door_type_id.is_(None))
@@ -988,7 +1007,7 @@ async def import_door_schedule(pid: int, file: UploadFile = File(...),
     Room Entrance Door, 1010 x 2135, FD30s, 37dB) fills in the door types;
     one row per door (D01-001 …) also creates the doors.
     """
-    _own_project(pid, db, cu)
+    _edit_project(pid, db, cu)
     if not (file.filename or "").lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(400, "Upload the schedule as an Excel file (.xlsx)")
     import openpyxl
@@ -1094,6 +1113,12 @@ def _own_door(did: int, db: Session, cu) -> models.Door:
     return d
 
 
+def _edit_door(did: int, db: Session, cu) -> models.Door:
+    d = _own_door(did, db, cu)
+    _edit_project(d.project_id, db, cu)
+    return d
+
+
 def _door_single_out(db: Session, d: models.Door) -> DoorOut:
     dwg = db.query(models.Drawing).get(d.drawing_id) if d.drawing_id else None
     set_codes = {s.id: s.code for s in db.query(models.HardwareSet).all()}
@@ -1102,9 +1127,9 @@ def _door_single_out(db: Session, d: models.Door) -> DoorOut:
 
 @router.post("/projects/{pid}/doors", response_model=DoorOut, status_code=201)
 def create_door(pid: int, payload: DoorIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    _own_project(pid, db, cu)
+    _edit_project(pid, db, cu)
     if payload.door_type_id is not None:
-        _own_door_type(payload.door_type_id, db, cu)
+        _edit_door_type(payload.door_type_id, db, cu)
     ref = payload.ref.strip()
     if not ref:
         n = db.query(models.Door).filter(models.Door.project_id == pid, models.Door.source == "manual").count()
@@ -1117,9 +1142,9 @@ def create_door(pid: int, payload: DoorIn, db: Session = Depends(get_db), cu=Dep
 
 @router.put("/doors/{did}", response_model=DoorOut)
 def update_door(did: int, payload: DoorIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    d = _own_door(did, db, cu)
+    d = _edit_door(did, db, cu)
     if payload.door_type_id is not None:
-        _own_door_type(payload.door_type_id, db, cu)
+        _edit_door_type(payload.door_type_id, db, cu)
     if payload.set_id is not None and not db.query(models.HardwareSet).get(payload.set_id):
         raise HTTPException(404, "Set not found")
     d.ref = payload.ref.strip() or d.ref; d.floor = payload.floor.strip(); d.handed = payload.handed
@@ -1130,7 +1155,7 @@ def update_door(did: int, payload: DoorIn, db: Session = Depends(get_db), cu=Dep
 
 @router.delete("/doors/{did}", status_code=204)
 def delete_door(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    d = _own_door(did, db, cu)
+    d = _edit_door(did, db, cu)
     db.delete(d); db.commit()
 
 
@@ -1231,6 +1256,7 @@ class JobOut(BaseModel):
     doors_total: int = 0; doors_no_set: int = 0; types_to_decide: int = 0; plans: int = 0
     items: int = 0; value: Optional[float] = None; priced_ok: bool = False
     checks: list[dict] = []
+    owner_id: Optional[int] = None; owner_name: str = ""
 
 class PackingIn(BaseModel):
     door_ids: list[int] = []; deliver_to: str = ""; your_ref: str = ""
@@ -1346,13 +1372,13 @@ def get_job(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current
                   doors_total=len(doors), doors_no_set=no_set, types_to_decide=decide,
                   plans=len(p.drawings), items=items_total,
                   value=round(value_total, 2) if (sets_out and priced) else None, priced_ok=bool(sets_out) and priced,
-                  checks=checks)
+                  checks=checks, owner_id=p.owner_id, owner_name=p.owner.name if p.owner else "")
 
 
 @router.post("/projects/{pid}/sets/{sid}/add")
 def add_set_to_job(pid: int, sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Put a set on the job with no doors yet."""
-    _own_project(pid, db, cu); s = _set_or_404(sid, db)
+    _edit_project(pid, db, cu); s = _set_or_404(sid, db)
     if s.project_id not in (None, pid):
         raise HTTPException(400, "That set belongs to another job")
     _link_set(db, pid, sid); db.commit()
@@ -1362,7 +1388,7 @@ def add_set_to_job(pid: int, sid: int, db: Session = Depends(get_db), cu=Depends
 @router.delete("/projects/{pid}/sets/{sid}")
 def remove_set_from_job(pid: int, sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Take a set off the job. Its doors lose their set; a job-only copy is deleted."""
-    _own_project(pid, db, cu); s = _set_or_404(sid, db)
+    _edit_project(pid, db, cu); s = _set_or_404(sid, db)
     n = 0
     for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
         if _effective_set_id(d) == sid:
@@ -1379,7 +1405,7 @@ def remove_set_from_job(pid: int, sid: int, db: Session = Depends(get_db), cu=De
 @router.post("/projects/{pid}/doors/add-quantity")
 def add_doors_by_quantity(pid: int, payload: DoorsByQuantityIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Intec's 'give me 20 of them': N doors on a set, numbered from the next free number."""
-    _own_project(pid, db, cu); _set_or_404(payload.set_id, db)
+    _edit_project(pid, db, cu); _set_or_404(payload.set_id, db)
     if payload.count < 1 or payload.count > 2000:
         raise HTTPException(400, "Count must be between 1 and 2000")
     prefix, sep, pad = payload.prefix.strip(), payload.separator, max(1, min(payload.pad, 4))
@@ -1394,7 +1420,7 @@ def add_doors_by_quantity(pid: int, payload: DoorsByQuantityIn, db: Session = De
 @router.post("/projects/{pid}/doors/add-range")
 def add_doors_by_range(pid: int, payload: DoorsByRangeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Doors numbered from one number to another, e.g. D101 to D125."""
-    _own_project(pid, db, cu); _set_or_404(payload.set_id, db)
+    _edit_project(pid, db, cu); _set_or_404(payload.set_id, db)
     lo, hi = min(payload.from_no, payload.to_no), max(payload.from_no, payload.to_no)
     if hi - lo + 1 > 2000:
         raise HTTPException(400, "That range is too big")
@@ -1415,6 +1441,8 @@ def add_doors_by_range(pid: int, payload: DoorsByRangeIn, db: Session = Depends(
 @router.post("/sets/{sid}/lock")
 def lock_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     s = _set_or_404(sid, db)
+    if s.project_id:
+        _edit_project(s.project_id, db, cu)
     holder, mine = _lock_holder(s, cu)
     if holder and not mine:
         raise HTTPException(423, f"{holder} is editing this set")
@@ -1437,7 +1465,7 @@ def copy_set_for_job(pid: int, sid: int, db: Session = Depends(get_db), cu=Depen
     A job wants a different hinge but the standard set must not change:
     copy the set for this job only and move the job's doors onto the copy.
     """
-    _own_project(pid, db, cu); src = _set_or_404(sid, db)
+    _edit_project(pid, db, cu); src = _set_or_404(sid, db)
     if src.project_id == pid:
         return _set_out(db, src, cu=cu)
     s = models.HardwareSet(code=src.code, name=src.name, description=src.description, fire_rated=src.fire_rated,

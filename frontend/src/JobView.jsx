@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { apiFetch } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
+import { useAuth } from './auth'
 import { Menu } from './ProjectView'
 import { IconPlus, IconEdit, IconSave, IconBars, IconDoc, IconCheck, IconWarn, IconFile, IconRight, IconDoor, IconLayers, IconFolder, IconTrash } from './icons'
 
@@ -20,6 +21,7 @@ export function groupItems(items) {
 }
 
 export function JobView({ projectId, onNavigate }) {
+  const { user } = useAuth()
   const [job,      setJob]      = useState(null)
   const [selected, setSelected] = useState(null)      // set id
   const [doors,    setDoors]    = useState([])        // doors of the selected set
@@ -109,6 +111,7 @@ export function JobView({ projectId, onNavigate }) {
   if (!job || !details) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div></>
 
   const warn = job.checks.filter(c => c.level === 'warn').length
+  const mine = !job.owner_id || job.owner_id === user?.id
 
   return (
     <>
@@ -124,11 +127,17 @@ export function JobView({ projectId, onNavigate }) {
         </>
       } />
       <div className="page-wrap wide">
+        {!mine && (
+          <div className="suggest-bar readonly-bar">
+            <div><strong>{job.owner_name}'s job.</strong><span className="muted"> You can look and produce the schedule. Only {job.owner_name} can change it.</span></div>
+            <button className="btn" onClick={copyJob}>Copy this job</button>
+          </div>
+        )}
         <div className="job-grid">
           {/* Left: sets on this job */}
           <aside className="job-sets card-panel">
             <h2 className="card-title"><IconLayers size={20} /> Sets on this job</h2>
-            {job.sets.length === 0 && <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>None yet. Add one below.</p>}
+            {job.sets.length === 0 && <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>{mine ? 'None yet. Add one below.' : 'None yet.'}</p>}
             <ul className="set-list">
               {job.sets.map(js => (
                 <li key={js.set.id} className={js.set.id === selected && !choosing ? 'on' : ''} onClick={() => { setSelected(js.set.id); setChoosing(false) }}>
@@ -141,14 +150,18 @@ export function JobView({ projectId, onNavigate }) {
                 </li>
               ))}
             </ul>
-            <div className="set-add">
-              <button className={'btn ' + (choosing || !current ? 'btn-primary' : 'btn-soft')} onClick={() => setChoosing(true)} disabled={!job.library.length}><IconPlus size={16} /> Add set</button>
-            </div>
-            <div className="side-block">
-              <button className="link-btn strong" onClick={() => onNavigate('set', { id: 'new', projectId })}>New set for this job</button>
-              <p className="muted">Build one from scratch. It stays on this job only.</p>
-            </div>
-            {job.types_to_decide > 0 && (
+            {mine && (
+              <div className="set-add">
+                <button className={'btn ' + (choosing || !current ? 'btn-primary' : 'btn-soft')} onClick={() => setChoosing(true)} disabled={!job.library.length}><IconPlus size={16} /> Add set</button>
+              </div>
+            )}
+            {mine && (
+              <div className="side-block">
+                <button className="link-btn strong" onClick={() => onNavigate('set', { id: 'new', projectId })}>New set for this job</button>
+                <p className="muted">Build one from scratch. It stays on this job only.</p>
+              </div>
+            )}
+            {mine && job.types_to_decide > 0 && (
               <div className="rail-note">
                 {job.types_to_decide} door type{job.types_to_decide !== 1 ? 's' : ''} from the plans still to decide.{' '}
                 <button className="link-btn" onClick={() => onNavigate('doors', { id: projectId })}>Decide them</button>
@@ -158,13 +171,15 @@ export function JobView({ projectId, onNavigate }) {
 
           {/* Middle: the selected set */}
           <main className="job-main">
-            {choosing || !current ? (
+            {!mine && !current ? (
+              <div className="card-panel"><p className="muted" style={{ margin: 0 }}>No sets on this job yet.</p></div>
+            ) : choosing || !current ? (
               <SetChooser library={job.library} onJob={job.sets.map(js => js.set.id)} onPick={addSet} onDelete={deleteFromLibrary}
                           onCancel={current ? () => setChoosing(false) : null} />
             ) : (
               <SetPanel js={current} doors={doors} projectId={projectId}
                         onEdit={() => editSet(current)} onCopy={() => copyForJob(current)} onRemove={() => removeSet(current)} onDelete={() => deleteFromLibrary(current.set)}
-                        onChanged={load} onRemoveDoor={removeDoor} />
+                        onChanged={load} onRemoveDoor={removeDoor} readOnly={!mine} />
             )}
           </main>
 
@@ -183,14 +198,14 @@ export function JobView({ projectId, onNavigate }) {
             </div>
             <div className="card-panel">
               <h2 className="card-title"><IconDoc size={18} /> Job details</h2>
-              <div className="form-group"><label>Job name</label><input className="form-control" value={details.name} onChange={e => setDetails({ ...details, name: e.target.value })} /></div>
+              <div className="form-group"><label>Job name</label><input className="form-control" value={details.name} onChange={e => setDetails({ ...details, name: e.target.value })} disabled={!mine} /></div>
               <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                <div className="form-group"><label>Quote no</label><input className="form-control" value={details.quote_no} onChange={e => setDetails({ ...details, quote_no: e.target.value })} /></div>
-                <div className="form-group"><label>Rep</label><input className="form-control" value={details.rep} onChange={e => setDetails({ ...details, rep: e.target.value })} /></div>
+                <div className="form-group"><label>Quote no</label><input className="form-control" value={details.quote_no} onChange={e => setDetails({ ...details, quote_no: e.target.value })} disabled={!mine} /></div>
+                <div className="form-group"><label>Rep</label><input className="form-control" value={details.rep} onChange={e => setDetails({ ...details, rep: e.target.value })} disabled={!mine} /></div>
               </div>
-              <div className="form-group"><label>Client</label><input className="form-control" value={details.client} onChange={e => setDetails({ ...details, client: e.target.value })} /></div>
-              <div className="form-group"><label>Site</label><input className="form-control" value={details.site} onChange={e => setDetails({ ...details, site: e.target.value })} /></div>
-              <button className="btn btn-soft wide" onClick={saveDetails} disabled={busy === 'details'}>{busy === 'details' ? <span className="spinner" /> : <><IconSave size={16} /> Save details</>}</button>
+              <div className="form-group"><label>Client</label><input className="form-control" value={details.client} onChange={e => setDetails({ ...details, client: e.target.value })} disabled={!mine} /></div>
+              <div className="form-group"><label>Site</label><input className="form-control" value={details.site} onChange={e => setDetails({ ...details, site: e.target.value })} disabled={!mine} /></div>
+              {mine && <button className="btn btn-soft wide" onClick={saveDetails} disabled={busy === 'details'}>{busy === 'details' ? <span className="spinner" /> : <><IconSave size={16} /> Save details</>}</button>}
             </div>
           </aside>
         </div>
@@ -270,7 +285,7 @@ function SetChooser({ library, onJob, onPick, onCancel, onDelete }) {
   )
 }
 
-function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, onChanged, onRemoveDoor }) {
+function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, onChanged, onRemoveDoor, readOnly = false }) {
   const s = js.set
   const groups = groupItems(s.items)
   const [prefix, setPrefix] = useState('D')
@@ -336,21 +351,22 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
         </div>
         <div className="spacer" />
         <div className="actions">
-          <Menu label="Set actions" items={menuItems} />
-          <button className="btn btn-primary" onClick={onEdit}><IconEdit size={16} /> Edit set</button>
+          {!readOnly && <Menu label="Set actions" items={menuItems} />}
+          {!readOnly && <button className="btn btn-primary" onClick={onEdit}><IconEdit size={16} /> Edit set</button>}
         </div>
       </div>
 
       <div className="card-panel">
-        <h2 className="card-title">Add doors</h2>
-        <form onSubmit={addQty} className="add-doors-grid">
+        <h2 className="card-title">{readOnly ? 'Doors' : 'Add doors'}</h2>
+        {readOnly && doors.length === 0 && <p className="muted" style={{ margin: 0 }}>No doors on this set yet.</p>}
+        {!readOnly && <form onSubmit={addQty} className="add-doors-grid">
           <label>Quantity<input className="form-control" type="number" min="1" max="2000" value={count} onChange={e => setCount(e.target.value)} /></label>
           <label>Prefix<input className="form-control" value={prefix + sep} onChange={e => { const m = e.target.value.match(/^(.*?)([.\-\/ ]?)$/); setPrefix(m ? m[1] : e.target.value); setSep(m ? m[2] : '') }} placeholder="D" /></label>
           <label>Start number<input className="form-control" value={start} onChange={e => setStart(e.target.value.replace(/\D/g, ''))} placeholder="01" /></label>
           <label>Floor (optional)<input className="form-control" value={floor} onChange={e => setFloor(e.target.value)} placeholder="e.g. Ground" /></label>
           <button className="btn btn-primary" type="submit" disabled={busy === 'qty'}>{busy === 'qty' ? <span className="spinner" /> : <><IconPlus size={16} /> Add doors</>}</button>
-        </form>
-        <div className="add-range-row">
+        </form>}
+        {!readOnly && <div className="add-range-row">
           {showRange ? (
             <form onSubmit={addRange} className="add-range-form">
               <span className="muted">Or add a range</span>
@@ -361,13 +377,13 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
           ) : (
             <button className="link-btn" onClick={() => setShowRange(true)}>Or add a range, e.g. 101 to 125</button>
           )}
-        </div>
+        </div>}
         {doors.length > 0 && (
           <div className="door-ref-list">
             {shown.map(d => (
               <span key={d.id} className="door-chip" title={[d.floor, d.source === 'plan' ? 'from the plan' : ''].filter(Boolean).join(' · ')}>
                 {d.ref}{d.handed ? 'h' : ''}
-                {d.source !== 'plan' && <button onClick={() => onRemoveDoor(d)} title="Remove this door">×</button>}
+                {!readOnly && d.source !== 'plan' && <button onClick={() => onRemoveDoor(d)} title="Remove this door">×</button>}
               </span>
             ))}
             {doors.length > 40 && !showAll && <button className="link-btn" onClick={() => setShowAll(true)}>and {doors.length - 40} more</button>}

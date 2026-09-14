@@ -1015,3 +1015,6 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .crumbs:has(.crumbs-right) { padding-top: 12px; }
 .crumbs:has(.crumbs-right) + .page-wrap { padding-top: 14px; }
 .set-panel-head h1 { font-size: 26px; }
+
+.readonly-bar { background: #FEF3E8; border: 1px solid #F5D9BF; border-radius: var(--radius-card); }
+.readonly-bar .btn { margin-left: auto; }

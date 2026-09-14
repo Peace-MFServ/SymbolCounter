@@ -60,6 +60,7 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
 }
 
 export function Dashboard({ onNavigate, q = '' }) {
+  const { user } = useAuth()
   const [projects, setProjects] = useState([])
   const [loading,  setLoading]  = useState(true)
   const [showNew,  setShowNew]  = useState(false)
@@ -136,8 +137,10 @@ export function Dashboard({ onNavigate, q = '' }) {
                           {p.door_types_to_decide > 0 && <span className="of" title="Door types still to decide"> {p.door_types_to_decide} to decide</span>}
                         </td>
                         <td style={{ textAlign: 'right', width: 90 }}>
-                          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }}
-                                  onClick={e => deleteProject(e, p.id)}>Delete</button>
+                          {(!p.owner_id || p.owner_id === user?.id) && (
+                            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }}
+                                    onClick={e => deleteProject(e, p.id)}>Delete</button>
+                          )}
                         </td>
                       </tr>
                     ))}

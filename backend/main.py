@@ -191,7 +191,7 @@ class ProjectOut(BaseModel):
     verified_count: int = 0; approved_count: int = 0
     quote_no: str = ""; rep: str = ""; kind: str = "symbols"
     door_count: int = 0; door_types_to_decide: int = 0
-    owner_name: str = ""; created_at: Optional[str] = None; updated_at: Optional[str] = None
+    owner_id: Optional[int] = None; owner_name: str = ""; created_at: Optional[str] = None; updated_at: Optional[str] = None
     class Config: from_attributes = True
 
 
@@ -206,7 +206,7 @@ def _project_out(p: models.Project, db: Session) -> ProjectOut:
                       drawing_count=len(p.drawings), verified_count=vc, approved_count=ac,
                       quote_no=p.quote_no or "", rep=p.rep or "", kind=p.kind or "symbols",
                       door_count=doors, door_types_to_decide=decide,
-                      owner_name=p.owner.name if p.owner else "",
+                      owner_id=p.owner_id, owner_name=p.owner.name if p.owner else "",
                       created_at=p.created_at.isoformat() if p.created_at else None,
                       updated_at=(p.updated_at or p.created_at).isoformat() if (p.updated_at or p.created_at) else None)
 
@@ -342,7 +342,7 @@ def get_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cur
 @app.put("/api/projects/{pid}", response_model=ProjectOut)
 def update_project(pid: int, payload: ProjectCreate, db: Session = Depends(get_db),
                    cu=Depends(auth.get_current_user)):
-    p = _proj404(pid, cu.id, db)
+    p = _proj_edit(pid, cu, db)
     for k, v in payload.model_dump().items():
         if k == "kind" and v not in ("symbols", "doors"):
             continue
@@ -352,7 +352,7 @@ def update_project(pid: int, payload: ProjectCreate, db: Session = Depends(get_d
 
 @app.delete("/api/projects/{pid}", status_code=204)
 def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    p = _proj404(pid, cu.id, db)
+    p = _proj_edit(pid, cu, db)
     drawing_ids = [d.id for d in p.drawings]
     # Verification feedback and harvested templates outlive the project —
     # detach their references so the FK doesn't block deletion (this was
@@ -396,7 +396,7 @@ def get_symbol_types(pid: int, db: Session = Depends(get_db), cu=Depends(auth.ge
 @app.post("/api/projects/{pid}/symbol-types", response_model=SymbolTypeOut, status_code=201)
 def add_symbol_type(pid: int, payload: SymbolTypeCreate, db: Session = Depends(get_db),
                     cu=Depends(auth.get_current_user)):
-    _proj404(pid, cu.id, db)
+    _proj_edit(pid, cu, db)
     st = models.ProjectSymbolType(**payload.model_dump(), project_id=pid)
     db.add(st)
     try:
@@ -427,7 +427,7 @@ def delete_symbol_type(st_id: int, db: Session = Depends(get_db), cu=Depends(aut
 
 @app.post("/api/projects/{pid}/symbol-types/reset", response_model=list[SymbolTypeOut])
 def reset_symbol_types(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    p = _proj404(pid, cu.id, db)
+    p = _proj_edit(pid, cu, db)
     for st in p.symbol_types: db.delete(st)
     db.flush()
     for st in models.DEFAULT_SYMBOL_TYPES:
@@ -539,7 +539,7 @@ def drawing_processing_count(pid: int, db: Session = Depends(get_db), cu=Depends
 async def upload_drawing(pid: int, background_tasks: BackgroundTasks,
                          file: UploadFile = File(...),
                          db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    p = _proj404(pid, cu.id, db)
+    p = _proj_edit(pid, cu, db)
 
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDF files accepted")
@@ -633,7 +633,7 @@ def get_drawing_pages(did: int, db: Session = Depends(get_db), cu=Depends(auth.g
 @app.patch("/api/drawings/{did}/meta", response_model=DrawingOut)
 def update_meta(did: int, payload: BlockMetaUpdate, db: Session = Depends(get_db),
                 cu=Depends(auth.get_current_user)):
-    d = _draw404(did, cu.id, db)
+    d = _draw_edit(did, cu, db)
     d.block = payload.block; d.level = payload.level; d.revision = payload.revision
     db.commit(); db.refresh(d)
     return _drawing_out(d)
@@ -642,7 +642,7 @@ def update_meta(did: int, payload: BlockMetaUpdate, db: Session = Depends(get_db
 def save_detections(did: int, payload: DetectionUpdate,
                     db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Save verified detections and capture implicit feedback (idempotent on first save)."""
-    d    = _draw404(did, cu.id, db)
+    d    = _draw_edit(did, cu, db)
     page = next((p for p in d.pages if p.page_number == payload.page_number), None)
     if not page: raise HTTPException(404, f"Page {payload.page_number} not found")
 
@@ -675,7 +675,7 @@ def save_detections(did: int, payload: DetectionUpdate,
 @app.post("/api/drawings/{did}/approve")
 def approve_drawing(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Mark a verified drawing as approved — locks it for the learning loop."""
-    d = _draw404(did, cu.id, db)
+    d = _draw_edit(did, cu, db)
     if d.status not in ("verified", "approved"):
         raise HTTPException(400, "Drawing must be verified before approving")
     d.status = "approved"
@@ -688,7 +688,7 @@ def approve_drawing(did: int, db: Session = Depends(get_db), cu=Depends(auth.get
 def update_door_ref(did: int, payload: DoorRefUpdate,
                     db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Correct a door-ref association for a specific detection."""
-    d    = _draw404(did, cu.id, db)
+    d    = _draw_edit(did, cu, db)
     page = next((p for p in d.pages if p.page_number == payload.page_number), None)
     if not page: raise HTTPException(404, f"Page {payload.page_number} not found")
 
@@ -717,7 +717,7 @@ def record_position_feedback(did: int, payload: PositionCorrectionPayload,
                               db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Record a position correction: user dragged a detection to a better location.
     Stored in DetectionFeedback so the pipeline can learn offset patterns per symbol type."""
-    d = _draw404(did, cu.id, db)
+    d = _draw_edit(did, cu, db)
     if payload.feedback_type != "position_correction":
         raise HTTPException(400, "Only position_correction supported via this endpoint")
 
@@ -752,7 +752,7 @@ def record_position_feedback(did: int, payload: PositionCorrectionPayload,
 
 @app.delete("/api/drawings/{did}", status_code=204)
 def delete_drawing(did: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    d = _draw404(did, cu.id, db)
+    d = _draw_edit(did, cu, db)
     # Detach feedback (it keeps its learning value without the drawing link)
     # and delete pages first to satisfy FK constraints
     db.query(models.DetectionFeedback).filter(models.DetectionFeedback.drawing_id == did) \
@@ -1312,6 +1312,19 @@ def _proj404(pid, uid, db):
     p = db.query(models.Project).filter(models.Project.id == pid).first()
     if not p: raise HTTPException(404, "Project not found")
     return p
+
+def _proj_edit(pid, cu, db):
+    """Anyone can open a job; only its creator can change or delete it."""
+    p = _proj404(pid, cu.id, db)
+    if p.owner_id and p.owner_id != cu.id:
+        who = p.owner.name if p.owner else "its owner"
+        raise HTTPException(403, f"Only {who} can change this job. Use Copy this job to work on your own version.")
+    return p
+
+def _draw_edit(did, cu, db):
+    d = _draw404(did, cu.id, db)
+    _proj_edit(d.project_id, cu, db)
+    return d
 
 def _draw404(did, uid, db):
     d = db.query(models.Drawing).filter(models.Drawing.id == did).first()
