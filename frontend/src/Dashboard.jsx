@@ -5,13 +5,6 @@ import { useAuth } from './auth'
 import logo from './assets/mf-logo.jpeg'
 import { IconRight, IconPlus } from './icons'
 
-const FEEDBACK_TO = import.meta.env.VITE_FEEDBACK_EMAIL || 'peace.samuel@mfservices.ie'
-const feedbackHref = crumbs => {
-  const page = crumbs.length ? crumbs.map(c => c.label).join(' / ') : 'Jobs'
-  const body = `Page: ${page}\n\nWhat happened / what I expected:\n`
-  return `mailto:${FEEDBACK_TO}?subject=${encodeURIComponent('Door Schedules feedback: ' + page)}&body=${encodeURIComponent(body)}`
-}
-
 export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false, crumbsRight = null }) {
   const { user, logout } = useAuth()
   const handleLogout = () => { logout(); onNavigate && onNavigate('login') }
@@ -36,7 +29,6 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
           <div className="userchip">
             <span className="avatar">{initials}</span>
             <span className="user-name">{user.name}<small>Estimator</small></span>
-            <a className="btn btn-ghost btn-sm" href={feedbackHref(crumbs)}>Feedback</a>
             <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
           </div>
         )}
