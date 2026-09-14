@@ -168,7 +168,10 @@ if (FRONTEND_DIST / "assets").exists():
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 class UserCreate(BaseModel):
-    email: EmailStr; name: str; password: str
+    email: EmailStr; name: str; password: str; code: str = ""
+
+# When set (shared server), new accounts need this word. Empty = open sign-up (office PC).
+REGISTER_CODE = os.getenv("REGISTER_CODE", "").strip()
 
 class UserOut(BaseModel):
     id: int; email: str; name: str
@@ -270,6 +273,8 @@ app.include_router(schedule_router)
 
 @app.post("/api/auth/register", response_model=Token, status_code=201)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
+    if REGISTER_CODE and payload.code.strip() != REGISTER_CODE:
+        raise HTTPException(403, "Invite code needed. Ask Peace for it." if not payload.code.strip() else "That invite code is not right.")
     if db.query(models.User).filter(models.User.email == payload.email).first():
         raise HTTPException(400, "Email already registered")
     user = models.User(email=payload.email, name=payload.name,

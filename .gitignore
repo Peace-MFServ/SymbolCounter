@@ -20,3 +20,6 @@ backend/backups/
 
 # Environment
 .env
+
+# Server data (docker compose)
+data/

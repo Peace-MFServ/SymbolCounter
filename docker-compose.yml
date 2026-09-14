@@ -1,0 +1,30 @@
+# Door Schedules on one server. Everything that must survive a rebuild lives in ./data.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data/db:/data                       # symbol_counter.db
+      - ./data/uploads:/app/backend/uploads   # plans, product images
+      - ./data/assets:/app/backend/assets     # logo.png for the PDFs
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:

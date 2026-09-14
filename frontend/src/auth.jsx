@@ -33,10 +33,10 @@ export function AuthProvider({ children }) {
     return data.user
   }
 
-  const register = async (email, name, password) => {
+  const register = async (email, name, password, code = '') => {
     const data = await apiFetch('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, name, password }),
+      body: JSON.stringify({ email, name, password, code }),
     })
     if (!data) throw new Error('Registration failed')
     localStorage.setItem('token', data.access_token)
@@ -134,6 +134,7 @@ export function RegisterPage({ onNavigate }) {
   const [name,  setName]  = useState('')
   const [email, setEmail] = useState('')
   const [pass,  setPass]  = useState('')
+  const [code,  setCode]  = useState('')
   const [busy,  setBusy]  = useState(false)
   const { showToast } = useToastHelper()
 
@@ -141,7 +142,7 @@ export function RegisterPage({ onNavigate }) {
     e.preventDefault()
     setBusy(true)
     try {
-      await register(email, name, pass)
+      await register(email, name, pass, code)
       onNavigate('dashboard')
     } catch (err) {
       showToast(err.message, 'error')
@@ -171,6 +172,11 @@ export function RegisterPage({ onNavigate }) {
               <label>Password</label>
               <input className="form-control" type="password" placeholder="Minimum 8 characters"
                      value={pass} onChange={e => setPass(e.target.value)} required minLength={8} />
+            </div>
+            <div className="form-group">
+              <label>Invite code</label>
+              <input className="form-control" placeholder="Only needed on the shared site"
+                     value={code} onChange={e => setCode(e.target.value)} />
             </div>
             <button className="btn btn-primary btn-lg" style={{ width: '100%' }}
                     type="submit" disabled={busy}>

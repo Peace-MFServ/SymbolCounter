@@ -1,0 +1,8 @@
+# HTTPS in front of the app. SITE_ADDRESS comes from .env, e.g. 34.12.34.56.nip.io
+{$SITE_ADDRESS}
+
+encode gzip
+request_body {
+    max_size 200MB
+}
+reverse_proxy app:8000
