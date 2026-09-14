@@ -28,7 +28,6 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
             <a className={active === 'projects' ? 'on' : ''} onClick={() => onNavigate('dashboard')}>Jobs</a>
             <a className={active === 'products' ? 'on' : ''} onClick={() => onNavigate('products')}>Products</a>
             <a className={active === 'sets' ? 'on' : ''} onClick={() => onNavigate('sets')}>Sets</a>
-            <a className={active === 'accuracy' ? 'on' : ''} onClick={() => onNavigate('accuracy')}>Accuracy</a>
           </nav>
         )}
         <div className="spacer" />
@@ -159,13 +158,15 @@ export function Dashboard({ onNavigate, q = '' }) {
                 <div className="total-row"><span>Drawings</span><strong>{totalDrawings}</strong></div>
                 <div className="total-row" style={{ borderBottom: 0 }}><span>Verified</span><strong>{totalVerified}</strong></div>
               </div>
-              <div className="rail-panel">
-                <h3>Tools</h3>
-                <div className="rail-links">
-                  <a onClick={() => onNavigate('accuracy')}>Accuracy scoreboard</a>
-                  <a onClick={() => onNavigate('templates')}>Template library</a>
+              {projects.some(p => p.kind === 'symbols') && (
+                <div className="rail-panel">
+                  <h3>Device counting</h3>
+                  <div className="rail-links">
+                    <a onClick={() => onNavigate('accuracy')}>Accuracy scoreboard</a>
+                    <a onClick={() => onNavigate('templates')}>Template library</a>
+                  </div>
                 </div>
-              </div>
+              )}
             </aside>
           </div>
         )}
