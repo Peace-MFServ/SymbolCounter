@@ -10,6 +10,18 @@ export function MatchImagesView({ onNavigate }) {
   const [items, setItems] = useState(null)
   const [products, setProducts] = useState([])
   const [busy, setBusy] = useState('')
+  const mapRef = React.useRef()
+  const applyMap = async file => {
+    if (!file) return
+    setBusy('map')
+    try {
+      const form = new FormData(); form.append('file', file)
+      const r = await apiFetch('/products/pending-images/apply-map', { method: 'POST', body: form })
+      showToast(`${r.placed} pictures placed${r.missing_product.length ? `, ${r.missing_product.length} codes not found` : ''}${r.missing_file.length ? `, ${r.missing_file.length} files not waiting` : ''}`, r.placed ? 'success' : 'error')
+      await load()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy('')
+  }
   const load = () => apiFetch('/products/pending-images').then(setItems)
   useEffect(() => { load(); apiFetch('/products').then(ps => setProducts(ps || [])) }, [])
 
@@ -47,6 +59,8 @@ export function MatchImagesView({ onNavigate }) {
           <div className="spacer" />
           <div className="actions">
             {strong > 0 && <button className="btn btn-primary" onClick={acceptAll} disabled={!!busy}>{busy === 'accept' ? <span className="spinner" /> : `Accept ${strong} confident guesses`}</button>}
+            <button className="btn" onClick={() => mapRef.current.click()} disabled={!!busy}>{busy === 'map' ? <span className="spinner" /> : 'Apply mapping file'}</button>
+            <input ref={mapRef} type="file" accept=".csv,.txt" style={{ display: 'none' }} onChange={e => { applyMap(e.target.files[0]); e.target.value = '' }} />
             <button className="btn" onClick={() => onNavigate('products')}>Back to products</button>
           </div>
         </div>

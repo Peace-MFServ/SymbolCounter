@@ -566,6 +566,39 @@ def accept_suggestions(payload: AcceptIn, db: Session = Depends(get_db), cu=Depe
     return {"accepted": done}
 
 
+@router.post("/products/pending-images/apply-map")
+async def apply_image_map(file: UploadFile = File(...), db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """
+    A CSV of 'file name,product code' (one per line, header optional) that places
+    waiting pictures on products. Lines whose file or product is not found are reported.
+    """
+    import csv
+    text = (await file.read()).decode("utf-8-sig", errors="replace")
+    placed, missing_file, missing_product, taken = 0, [], [], set()
+    lookup: dict[str, models.Product] = {}
+    for prod in db.query(models.Product).all():
+        for k in _code_keys(prod.sku) + _code_keys(prod.intec_code):
+            lookup.setdefault(k, prod)
+    pending = {f.name.lower(): f.name for f in PENDING_IMG_DIR.iterdir()} if PENDING_IMG_DIR.exists() else {}
+    for row in csv.reader(io.StringIO(text)):
+        if len(row) < 2:
+            continue
+        fname, code = row[0].strip(), row[1].strip()
+        if not fname or not code or fname.lower() in ("file", "filename", "image"):
+            continue
+        real = pending.get(Path(fname).name.lower())
+        if not real:
+            missing_file.append(fname); continue
+        prod = next((lookup[k] for k in _code_keys(code) if k in lookup), None)
+        if not prod:
+            missing_product.append(f"{fname} -> {code}"); continue
+        if prod.id in taken:
+            continue
+        _attach_pending(db, real, prod.id); taken.add(prod.id); placed += 1
+    db.commit()
+    return {"placed": placed, "missing_file": missing_file, "missing_product": missing_product}
+
+
 @router.delete("/products/{pid}", status_code=204)
 def archive_product(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     p = db.query(models.Product).get(pid)
