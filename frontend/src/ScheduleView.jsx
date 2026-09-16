@@ -12,6 +12,7 @@ export function ScheduleView({ projectId, onNavigate }) {
   const [job,    setJob]    = useState(null)      // editable job details
   const [busy,   setBusy]   = useState('')
   const [priced, setPriced] = useState(false)
+  const [summary, setSummary] = useState(true)
   const [packing, setPacking] = useState(false)
 
   const load = async () => {
@@ -33,8 +34,8 @@ export function ScheduleView({ projectId, onNavigate }) {
     setBusy(kind)
     const stem = `${job.quote_no ? job.quote_no + '_' : ''}${job.name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_')}`
     try {
-      if (kind === 'pdf')     await downloadBlob(`/projects/${projectId}/schedule/pdf?priced=${priced}`, `${stem}_Schedule${priced ? '_Priced' : ''}.pdf`)
-      if (kind === 'excel')   await downloadBlob(`/projects/${projectId}/schedule/excel?priced=${priced}`, `${stem}_Schedule.xlsx`)
+      if (kind === 'pdf')     await downloadBlob(`/projects/${projectId}/schedule/pdf?priced=${priced}&summary=${summary}`, `${stem}_Schedule${priced ? '_Priced' : ''}.pdf`)
+      if (kind === 'excel')   await downloadBlob(`/projects/${projectId}/schedule/excel?priced=${priced}&summary=${summary}`, `${stem}_Schedule.xlsx`)
       if (kind === 'picking') await downloadBlob(`/projects/${projectId}/schedule/picking`, `${stem}_Picking_List.pdf`)
     } catch (err) { showToast(err.message, 'error') }
     setBusy('')
@@ -73,6 +74,9 @@ export function ScheduleView({ projectId, onNavigate }) {
                 <label className="check" style={{ marginRight: 8 }} title={data.priced_ok ? '' : 'Some products have no cost in Cin7 yet'}>
                   <input type="checkbox" checked={priced} disabled={!data.priced_ok} onChange={e => setPriced(e.target.checked)} /> With prices
                 </label>
+                <label className="check" style={{ marginRight: 8 }} title="Include the product summary page in the PDF and Excel">
+                  <input type="checkbox" checked={summary} onChange={e => setSummary(e.target.checked)} /> Product summary
+                </label>
                 <Menu label="Lists" items={[
                   { label: 'Picking list (whole job)', onClick: () => download('picking') },
                   { label: 'Packing list (chosen doors)', onClick: () => setPacking(true) },
@@ -94,7 +98,7 @@ export function ScheduleView({ projectId, onNavigate }) {
               </div>
             ) : data.sets.map(s => <SetCard key={s.id} s={s} priced={priced} onNavigate={onNavigate} />)}
 
-            {!nothing && (
+            {!nothing && summary && (
               <div className="sched-set">
                 <div className="sched-set-head">
                   <h2>Product summary</h2>

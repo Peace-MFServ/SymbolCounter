@@ -374,12 +374,13 @@ class SchedulePDF(FPDF):
         self.set_xy(18, 36); self.cell(40, 6, "Notes:")
 
 
-def schedule_pdf(data: dict, priced: bool = False) -> bytes:
+def schedule_pdf(data: dict, priced: bool = False, summary: bool = True) -> bytes:
     pdf = SchedulePDF(data, priced=priced and data.get("priced_ok", False))
     pdf.cover()
     for s in data["sets"]:
         pdf.set_page(s)
-    pdf.summary_page()
+    if summary:
+        pdf.summary_page()
     pdf.notes_page()
     return bytes(pdf.output())
 
@@ -410,7 +411,7 @@ def picking_list_pdf(data: dict) -> bytes:
 
 
 # ── Excel ─────────────────────────────────────────────────────────────────────
-def schedule_excel(data: dict, priced: bool = False) -> bytes:
+def schedule_excel(data: dict, priced: bool = False, summary: bool = True) -> bytes:
     import openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
@@ -458,14 +459,15 @@ def schedule_excel(data: dict, priced: bool = False) -> bytes:
             ws2.append([r["ref"], r["floor"], r["type_code"], "Yes" if r["handed"] else "", s["code"], s["name"]])
     widths(ws2, [14, 14, 12, 8, 10, 40])
 
-    # Product summary
-    ws3 = wb.create_sheet("Product summary")
-    header(ws3, ["Product Code", "Description", "Category", "Qty", "Unit"] + (["Price", "Value"] if priced else []))
-    for r in data["summary"]:
-        ws3.append([r["sku"], r["name"], r["category"], r["qty"], r["unit"]] + ([r["price"], r["value"]] if priced else []))
-    if priced:
-        ws3.append([]); ws3.append(["", "", "", "", "", "Total", data["total"]]); ws3[ws3.max_row][6].font = bold
-    widths(ws3, [24, 70, 18, 8, 8, 10, 12])
+    # Product summary (optional, like prices)
+    if summary:
+        ws3 = wb.create_sheet("Product summary")
+        header(ws3, ["Product Code", "Description", "Category", "Qty", "Unit"] + (["Price", "Value"] if priced else []))
+        for r in data["summary"]:
+            ws3.append([r["sku"], r["name"], r["category"], r["qty"], r["unit"]] + ([r["price"], r["value"]] if priced else []))
+        if priced:
+            ws3.append([]); ws3.append(["", "", "", "", "", "Total", data["total"]]); ws3[ws3.max_row][6].font = bold
+        widths(ws3, [24, 70, 18, 8, 8, 10, 12])
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return buf.read()

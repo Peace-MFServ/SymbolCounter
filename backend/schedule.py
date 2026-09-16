@@ -1134,6 +1134,8 @@ def create_door(pid: int, payload: DoorIn, db: Session = Depends(get_db), cu=Dep
     if not ref:
         n = db.query(models.Door).filter(models.Door.project_id == pid, models.Door.source == "manual").count()
         ref = f"M-{n + 1:02d}"
+    if db.query(models.Door).filter(models.Door.project_id == pid, models.Door.ref == ref).first():
+        raise HTTPException(409, f"Door already exists on this job: {ref}.")
     d = models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), handed=payload.handed,
                     door_type_id=payload.door_type_id, set_id=payload.set_id, note=payload.note, source="manual")
     db.add(d); db.commit(); db.refresh(d)
@@ -1184,21 +1186,21 @@ def get_schedule(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cu
 
 
 @router.get("/projects/{pid}/schedule/pdf")
-def schedule_pdf_download(pid: int, priced: bool = False, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+def schedule_pdf_download(pid: int, priced: bool = False, summary: bool = True, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     p = _own_project(pid, db, cu)
     data = build_schedule(db, p, estimator=cu.name)
     if priced and not data["priced_ok"]:
         raise HTTPException(409, "Not every product on the schedule has a sell price")
-    pdf = schedule_pdf(data, priced=priced)
+    pdf = schedule_pdf(data, priced=priced, summary=summary)
     return Response(pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Schedule" + ("_Priced" if priced else ""))}.pdf"'})
 
 
 @router.get("/projects/{pid}/schedule/excel")
-def schedule_excel_download(pid: int, priced: bool = False, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+def schedule_excel_download(pid: int, priced: bool = False, summary: bool = True, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     p = _own_project(pid, db, cu)
     data = build_schedule(db, p, estimator=cu.name)
-    xlsx = schedule_excel(data, priced=priced and data["priced_ok"])
+    xlsx = schedule_excel(data, priced=priced and data["priced_ok"], summary=summary)
     return Response(xlsx, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Schedule")}.xlsx"'})
 
@@ -1298,6 +1300,14 @@ def _make_refs(db: Session, pid: int, prefix: str, sep: str, pad: int, start: in
             out.append(ref); existing.add(ref)
         n += 1
     return out
+
+
+def _refuse_existing(existing: set, refs: list[str]):
+    """Intec-style: a door reference that is already on the job is an error, not a silent skip."""
+    dup = [r for r in refs if r in existing]
+    if dup:
+        shown = ", ".join(dup[:6]) + (f" and {len(dup) - 6} more" if len(dup) > 6 else "")
+        raise HTTPException(409, f"Door {'already exists' if len(dup) == 1 else 'references already exist'} on this job: {shown}. Nothing added.")
 
 
 def _next_number(db: Session, pid: int, prefix: str, sep: str) -> int:
@@ -1409,8 +1419,14 @@ def add_doors_by_quantity(pid: int, payload: DoorsByQuantityIn, db: Session = De
     if payload.count < 1 or payload.count > 2000:
         raise HTTPException(400, "Count must be between 1 and 2000")
     prefix, sep, pad = payload.prefix.strip(), payload.separator, max(1, min(payload.pad, 4))
-    start = payload.start if payload.start is not None else _next_number(db, pid, prefix, sep)
-    refs = _make_refs(db, pid, prefix, sep, pad, start, payload.count)
+    if payload.start is not None:
+        start = payload.start
+        refs = [f"{prefix}{sep}{n:0{pad}d}" for n in range(start, start + payload.count)]
+        existing = {d.ref for d in db.query(models.Door).filter(models.Door.project_id == pid).all()}
+        _refuse_existing(existing, refs)
+    else:
+        start = _next_number(db, pid, prefix, sep)
+        refs = _make_refs(db, pid, prefix, sep, pad, start, payload.count)
     for ref in refs:
         db.add(models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), set_id=payload.set_id, source="manual"))
     _link_set(db, pid, payload.set_id); db.commit()
@@ -1426,15 +1442,12 @@ def add_doors_by_range(pid: int, payload: DoorsByRangeIn, db: Session = Depends(
         raise HTTPException(400, "That range is too big")
     prefix, sep, pad = payload.prefix.strip(), payload.separator, max(1, min(payload.pad, 4))
     existing = {d.ref for d in db.query(models.Door).filter(models.Door.project_id == pid).all()}
-    added, skipped = 0, []
-    for n in range(lo, hi + 1):
-        ref = f"{prefix}{sep}{n:0{pad}d}"
-        if ref in existing:
-            skipped.append(ref); continue
+    refs = [f"{prefix}{sep}{n:0{pad}d}" for n in range(lo, hi + 1)]
+    _refuse_existing(existing, refs)
+    for ref in refs:
         db.add(models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), set_id=payload.set_id, source="manual"))
-        added += 1
     _link_set(db, pid, payload.set_id); db.commit()
-    return {"added": added, "skipped": skipped}
+    return {"added": len(refs), "skipped": []}
 
 
 # ── Locks: one person edits a set at a time ───────────────────────────────────

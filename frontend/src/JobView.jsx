@@ -325,7 +325,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
     try {
       const r = await apiFetch(`/projects/${projectId}/doors/add-range`, { method: 'POST',
         body: JSON.stringify({ set_id: s.id, prefix, separator: sep, from_no: Number(from), to_no: Number(to), pad: Math.max(pad(), String(to).length), floor }) })
-      showToast(`${r.added} door${r.added !== 1 ? 's' : ''} added${r.skipped.length ? `, ${r.skipped.length} already there` : ''}`, 'success')
+      showToast(`${r.added} door${r.added !== 1 ? 's' : ''} added`, 'success')
       setFrom(''); setTo(''); await onChanged()
     } catch (err) { showToast(err.message, 'error') }
     setBusy('')
