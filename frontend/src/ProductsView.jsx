@@ -14,6 +14,7 @@ export function ProductsView({ onNavigate }) {
   const [q,          setQ]          = useState('')
   const [cat,        setCat]        = useState('')
   const [ptype,      setPtype]      = useState(null)    // null = all, '' = untyped, '01'…
+  const [withPhoto,  setWithPhoto]  = useState(false)
   const [editing,    setEditing]    = useState(null)   // product object or EMPTY for new
   const [importing,  setImporting]  = useState(false)
   const [pasting,    setPasting]    = useState(false)
@@ -44,10 +45,11 @@ export function ProductsView({ onNavigate }) {
     const needle = q.trim().toLowerCase()
     return products.filter(p =>
       (ptype === null || (p.product_type || '') === ptype) &&
+      (!withPhoto || p.image_url) &&
       (!cat || p.category === cat) &&
       (!needle || p.sku.toLowerCase().includes(needle) || p.name.toLowerCase().includes(needle)
         || (p.intec_code || '').toLowerCase().includes(needle)))
-  }, [products, q, cat, ptype])
+  }, [products, q, cat, ptype, withPhoto])
 
   const importFile = async file => {
     if (!file) return
@@ -104,6 +106,7 @@ export function ProductsView({ onNavigate }) {
               <input className="form-control search" placeholder="Search code, name or Intec code…"
                      value={q} onChange={e => setQ(e.target.value)} />
               <div className="chips">
+                <button className={`chip-btn${withPhoto ? ' on' : ''}`} onClick={() => setWithPhoto(v => !v)} title="Only products that have a picture">With picture {products.filter(p => p.image_url).length}</button>
                 <button className={`chip-btn${ptype === null ? ' on' : ''}`} onClick={() => setPtype(null)}>All types</button>
                 {TYPE_ORDER.map(t => {
                   const n = products.filter(p => (p.product_type || '') === t).length
@@ -142,7 +145,7 @@ export function ProductsView({ onNavigate }) {
                     </td>
                     <td>{p.product_type ? TYPE_NAMES[p.product_type] : <span className="muted">Not set</span>}<div className="proj-meta">{p.category}</div></td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{p.cost != null ? p.cost.toFixed(2) : <span className="muted">—</span>}</td>
-                    <td>{p.image_url ? <span className="badge badge-green">Yes</span> : <span className="badge badge-grey">None</span>}</td>
+                    <td>{p.image_url ? <ProdThumb url={p.image_url} /> : <span className="badge badge-grey">None</span>}</td>
                     <td className="muted" style={{ fontSize: 13 }}>{p.used_in.length ? p.used_in.join(', ') : 'Not used yet'}</td>
                     <td className="row-actions"><button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setEditing(p) }}>Edit</button></td>
                   </tr>
@@ -321,4 +324,9 @@ function ImageReportModal({ r, onClose, onMatch }) {
       </div>
     </div>
   )
+}
+
+function ProdThumb({ url }) {
+  const src = useAuthImage(url)
+  return <span className="prod-thumb">{src ? <img src={src} alt="" /> : null}</span>
 }
