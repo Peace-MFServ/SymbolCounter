@@ -91,7 +91,7 @@ def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
                 per_door += price * it.qty
             if not p.image_path or not Path(p.image_path).exists():
                 photo_missing.add(p.sku)
-            items.append({"sku": p.sku, "name": p.name, "qty": it.qty, "unit": p.unit or "EACH",
+            items.append({"product_id": p.id, "sku": p.sku, "name": p.name, "qty": it.qty, "unit": p.unit or "EACH",
                           "price": price, "value": (price * it.qty) if price is not None else None,
                           "image_path": p.image_path if p.image_path and Path(p.image_path).exists() else "",
                           "category": p.category or "Other"})

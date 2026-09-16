@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { apiFetch, downloadBlob } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
@@ -96,7 +96,7 @@ export function ScheduleView({ projectId, onNavigate }) {
                 <p>Go to Doors and pick a hardware set for each door type. The schedule builds itself from those choices.</p>
                 <button className="btn btn-primary" onClick={() => onNavigate('doors', { id: projectId })}>Go to doors</button>
               </div>
-            ) : data.sets.map(s => <SetCard key={s.id} s={s} priced={priced} onNavigate={onNavigate} />)}
+            ) : data.sets.map(s => <SetCard key={s.id} s={s} priced={priced} onNavigate={onNavigate} onPhoto={load} />)}
 
             {!nothing && summary && (
               <div className="sched-set">
@@ -215,7 +215,7 @@ function PackingModal({ projectId, data, stem, onClose }) {
   )
 }
 
-function SetCard({ s, priced, onNavigate }) {
+function SetCard({ s, priced, onNavigate, onPhoto }) {
   const [showDoors, setShowDoors] = useState(false)
   return (
     <div className="sched-set">
@@ -231,7 +231,7 @@ function SetCard({ s, priced, onNavigate }) {
             <tr key={it.sku}>
               <td className="mono">{it.sku}</td><td>{it.name}</td><td className="count-num">{it.qty}</td><td className="muted">{it.unit}</td>
               {priced && <><td className="num-cell">{money(it.price)}</td><td className="num-cell">{money(it.value)}</td></>}
-              <td><Thumb url={it.image_url} /></td>
+              <td><Thumb url={it.image_url} productId={it.product_id} onChanged={onPhoto} /></td>
             </tr>
           ))}
           {s.items.length === 0 && <tr><td colSpan={priced ? 7 : 5} className="muted" style={{ padding: 16 }}>This set has no products yet.</td></tr>}
@@ -245,8 +245,27 @@ function SetCard({ s, priced, onNavigate }) {
   )
 }
 
-function Thumb({ url }) {
+/* The product's picture. With no picture, a click lets the estimator add one from
+   their PC; it is saved on the product, so every job shows it from then on. */
+function Thumb({ url, productId, onChanged }) {
   const src = useAuthImage(url)
-  if (!url) return <span className="badge badge-grey">None</span>
+  const [busy, setBusy] = useState(false)
+  const ref = useRef()
+  const upload = async file => {
+    if (!file || !productId) return
+    setBusy(true)
+    try {
+      const form = new FormData(); form.append('file', file)
+      await apiFetch(`/products/${productId}/image`, { method: 'POST', body: form })
+      showToast('Picture saved on the product', 'success'); onChanged && await onChanged()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy(false)
+  }
+  if (!url) return (
+    <>
+      <button className="btn btn-ghost btn-sm add-photo" onClick={() => ref.current.click()} disabled={busy} title="Add a picture for this product">{busy ? <span className="spinner" /> : 'Add photo'}</button>
+      <input ref={ref} type="file" accept=".png,.jpg,.jpeg,.webp,.gif" style={{ display: 'none' }} onChange={e => { upload(e.target.files[0]); e.target.value = '' }} />
+    </>
+  )
   return <div className="thumb">{src && <img src={src} alt="" />}</div>
 }
