@@ -21,6 +21,7 @@ from database import get_db
 router = APIRouter(prefix="/api", tags=["schedule"])
 
 PRODUCT_IMG_DIR = Path("uploads") / "products"
+PENDING_IMG_DIR = Path("uploads") / "pending_images"
 PRODUCT_IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -418,6 +419,15 @@ async def import_product_images(file: UploadFile = File(...), db: Session = Depe
                 if k in lookup:
                     prod = lookup[k]; break
             if not prod:
+                # keep it: the Match images screen suggests a product from the words in the name
+                PENDING_IMG_DIR.mkdir(parents=True, exist_ok=True)
+                safe = re.sub(r"[^A-Za-z0-9._ \-()&+]+", "_", Path(info.filename).name)[-120:]
+                dest = PENDING_IMG_DIR / safe
+                n = 1
+                while dest.exists():
+                    dest = PENDING_IMG_DIR / f"{Path(safe).stem}~{n}{ext}"; n += 1
+                with zf.open(info) as src, open(dest, "wb") as out:
+                    shutil.copyfileobj(src, out)
                 unmatched.append(info.filename); continue
             if prod.id in seen:
                 dups.append({"file": info.filename, "sku": prod.sku}); continue
@@ -436,6 +446,124 @@ async def import_product_images(file: UploadFile = File(...), db: Session = Depe
         except OSError: pass
     return {"matched": len(matched), "unmatched": sorted(unmatched), "duplicates": dups,
             "matched_files": matched}
+
+
+_STOP = {"the", "a", "an", "and", "with", "for", "of", "to", "in", "on", "is", "uk", "using", "grade", "image",
+         "images", "img", "photo", "pic", "pics", "download", "copy", "final", "new", "png", "jpg", "jpeg", "webp",
+         "stainless", "steel", "sss", "satin", "finish", "mm", "x", "door", "doors", "product", "products"}
+
+
+def _tokens(text: str) -> set[str]:
+    t = re.sub(r"[-_]?\d{2,}[_-]\d+$", "", (text or "").lower())      # web suffixes like -979_40
+    return {w for w in re.split(r"[^a-z0-9]+", t) if len(w) > 1 and w not in _STOP}
+
+
+def _suggest_product(stem: str, products: list) -> Optional[tuple]:
+    """Best product for a picture called e.g. 'ts73v', 'savoy lever' or 'thumb turn croft'."""
+    flat = re.sub(r"[^a-z0-9]+", "", stem.lower())
+    ftoks = _tokens(stem)
+    best, best_score = None, 0.0
+    for p, keys, ptoks in products:
+        score = 0.0
+        for k in keys:                                  # the code hidden in the file name, e.g. ts73emf
+            if k and len(k) >= 4 and (k in flat or flat in k):
+                score = max(score, 0.9 + min(len(k), 12) / 100)
+        if ftoks and ptoks:
+            hit = len(ftoks & ptoks)
+            if hit:
+                score = max(score, hit / len(ftoks) * 0.8 + (hit / len(ptoks)) * 0.2)
+        if score > best_score:
+            best, best_score = p, score
+    return (best, round(best_score, 2)) if best and best_score >= 0.34 else None
+
+
+def _product_index(db: Session) -> list:
+    out = []
+    for p in db.query(models.Product).filter(models.Product.active == True).all():   # noqa: E712
+        keys = [k for k in (_code_keys(p.sku)[1:2] + _code_keys(p.intec_code)[1:2]) if k]
+        out.append((p, keys, _tokens(f"{p.sku} {p.name} {p.brand or ''}")))
+    return out
+
+
+def _pending_out(f: Path, idx) -> dict:
+    sug = _suggest_product(f.stem, idx)
+    return {"file": f.name, "url": f"/api/files/pending/{f.name}",
+            "suggestion": {"product_id": sug[0].id, "sku": sug[0].sku, "name": sug[0].name,
+                           "has_image": bool(sug[0].image_path), "score": sug[1]} if sug else None}
+
+
+@router.get("/products/pending-images")
+def list_pending_images(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Pictures from the zip that no code matched, each with the app's best guess."""
+    if not PENDING_IMG_DIR.exists():
+        return []
+    idx = _product_index(db)
+    files = sorted((f for f in PENDING_IMG_DIR.iterdir() if f.is_file()), key=lambda f: f.name.lower())
+    return [_pending_out(f, idx) for f in files]
+
+
+@router.get("/files/pending/{filename}")
+def serve_pending_image(filename: str, cu=Depends(auth.get_current_user)):
+    path = PENDING_IMG_DIR / Path(filename).name
+    if not path.exists():
+        raise HTTPException(404, "Image not found")
+    return FileResponse(str(path))
+
+
+class AssignIn(BaseModel):
+    product_id: int
+
+
+def _attach_pending(db: Session, fname: str, product_id: int) -> models.Product:
+    src = PENDING_IMG_DIR / Path(fname).name
+    if not src.exists():
+        raise HTTPException(404, "That picture is no longer waiting")
+    p = db.query(models.Product).get(product_id)
+    if not p:
+        raise HTTPException(404, "Product not found")
+    PRODUCT_IMG_DIR.mkdir(parents=True, exist_ok=True)
+    dest = PRODUCT_IMG_DIR / f"{uuid.uuid4().hex}{src.suffix.lower()}"
+    src.replace(dest)
+    if p.image_path and Path(p.image_path).exists():
+        try: Path(p.image_path).unlink()
+        except OSError: pass
+    p.image_path = str(dest)
+    return p
+
+
+@router.post("/products/pending-images/{fname}/assign")
+def assign_pending_image(fname: str, payload: AssignIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _attach_pending(db, fname, payload.product_id); db.commit()
+    return {"ok": True, "sku": p.sku}
+
+
+@router.delete("/products/pending-images/{fname}", status_code=204)
+def skip_pending_image(fname: str, cu=Depends(auth.get_current_user)):
+    path = PENDING_IMG_DIR / Path(fname).name
+    if path.exists():
+        path.unlink()
+
+
+class AcceptIn(BaseModel):
+    min_score: float = 0.9
+
+
+@router.post("/products/pending-images/accept-suggestions")
+def accept_suggestions(payload: AcceptIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Take every confident guess in one go (products that already have a picture are left alone)."""
+    if not PENDING_IMG_DIR.exists():
+        return {"accepted": 0}
+    idx = _product_index(db)
+    done, taken = 0, set()
+    for f in sorted(PENDING_IMG_DIR.iterdir()):
+        if not f.is_file():
+            continue
+        sug = _suggest_product(f.stem, idx)
+        if not sug or sug[1] < payload.min_score or sug[0].image_path or sug[0].id in taken:
+            continue
+        _attach_pending(db, f.name, sug[0].id); taken.add(sug[0].id); done += 1
+    db.commit()
+    return {"accepted": done}
 
 
 @router.delete("/products/{pid}", status_code=204)

@@ -18,6 +18,8 @@ export function ProductsView({ onNavigate }) {
   const [importing,  setImporting]  = useState(false)
   const [pasting,    setPasting]    = useState(false)
   const [imgReport,  setImgReport]  = useState(null)
+  const [pendingN,   setPendingN]   = useState(0)
+  useEffect(() => { apiFetch('/products/pending-images').then(xs => setPendingN((xs || []).length)).catch(() => {}) }, [imgReport])
   const [imgBusy,    setImgBusy]    = useState(false)
   const zipRef = useRef()
   const importImages = async file => {
@@ -80,11 +82,12 @@ export function ProductsView({ onNavigate }) {
                    onChange={e => { importFile(e.target.files[0]); e.target.value = '' }} />
             <button className="btn" onClick={() => zipRef.current.click()} disabled={imgBusy}>{imgBusy ? <><span className="spinner" /> Importing images…</> : 'Import images'}</button>
             <input ref={zipRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={e => { importImages(e.target.files[0]); e.target.value = '' }} />
+            {pendingN > 0 && <button className="btn btn-soft" onClick={() => onNavigate('match-images')}>Match images ({pendingN})</button>}
             <button className="btn" onClick={() => setPasting(true)}>Intec prices</button>
             <button className="btn btn-primary" onClick={() => setEditing({ ...EMPTY })}>Add product</button>
           </div>
         </div>
-        {imgReport && <ImageReportModal r={imgReport} onClose={() => setImgReport(null)} />}
+        {imgReport && <ImageReportModal r={imgReport} onClose={() => setImgReport(null)} onMatch={() => { setImgReport(null); onNavigate('match-images') }} />}
         {pasting && <IntecPasteModal onClose={() => setPasting(false)} onDone={async () => { setPasting(false); await load() }} />}
 
         {loading ? (
@@ -294,7 +297,7 @@ function IntecPasteModal({ onClose, onDone }) {
 
 
 /* What the zip did: matched, no product for this file, second picture for the same product. */
-function ImageReportModal({ r, onClose }) {
+function ImageReportModal({ r, onClose, onMatch }) {
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 720 }}>
@@ -303,11 +306,7 @@ function ImageReportModal({ r, onClose }) {
         <div className="total-row"><span>Files with no matching product code</span><strong>{r.unmatched.length}</strong></div>
         <div className="total-row last"><span>Duplicates (a second picture for the same product, skipped)</span><strong>{r.duplicates.length}</strong></div>
         {r.unmatched.length > 0 && (
-          <>
-            <h3 style={{ margin: '16px 0 6px', fontSize: 14 }}>No product for these files</h3>
-            <p className="muted" style={{ marginBottom: 6 }}>Rename the file to the product code, or add the product, then import again.</p>
-            <pre className="report-list">{r.unmatched.join('\n')}</pre>
-          </>
+          <p style={{ margin: '16px 0 0' }}>The {r.unmatched.length} unmatched pictures are kept. On the next screen the app guesses the product from the file name and you confirm each one.</p>
         )}
         {r.duplicates.length > 0 && (
           <>
@@ -315,7 +314,10 @@ function ImageReportModal({ r, onClose }) {
             <pre className="report-list">{r.duplicates.map(d => `${d.sku}  ←  ${d.file}`).join('\n')}</pre>
           </>
         )}
-        <div className="modal-actions"><button className="btn btn-primary" onClick={onClose}>Done</button></div>
+        <div className="modal-actions">
+          {r.unmatched.length > 0 && <button className="btn btn-primary" onClick={onMatch}>Match them now</button>}
+          <button className={r.unmatched.length > 0 ? 'btn btn-ghost' : 'btn btn-primary'} onClick={onClose}>{r.unmatched.length > 0 ? 'Later' : 'Done'}</button>
+        </div>
       </div>
     </div>
   )

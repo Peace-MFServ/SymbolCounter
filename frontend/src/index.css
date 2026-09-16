@@ -1033,3 +1033,15 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .cost-table td.strong { font-weight: 700; }
 
 .report-list { max-height: 220px; overflow: auto; background: var(--bg3); border: 1px solid var(--card-border); border-radius: 6px; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; white-space: pre; margin: 0; }
+
+/* match images */
+.match-list { display: flex; flex-direction: column; gap: 10px; }
+.match-row { display: grid; grid-template-columns: 96px 260px 1fr auto; gap: 18px; align-items: start; background: #fff; border: 1px solid var(--card-border); border-radius: var(--radius-card); padding: 12px 16px; }
+.match-thumb { width: 96px; height: 72px; display: flex; align-items: center; justify-content: center; background: var(--bg3); border-radius: 6px; overflow: hidden; }
+.match-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.match-file { font-size: 12.5px; word-break: break-all; padding-top: 4px; }
+.match-sug { font-size: 14px; min-width: 0; }
+.match-sug .typeahead { margin-top: 8px; max-width: 420px; }
+.match-sug .form-control { padding: 6px 10px; font-size: 13px; }
+.match-meta { margin-top: 3px; font-size: 12.5px; }
+.match-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
