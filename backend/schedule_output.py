@@ -22,7 +22,7 @@ COMPANY = {
 }
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "logo.png"          # office copy, if one has been dropped in
-WEB_LOGO = ASSETS_DIR / "mf-logo.jpeg"        # the logo the web app shows; ships with the code
+WEB_LOGO = Path(__file__).parent / "branding-mf-logo.jpeg"   # ships with the code, outside the mounted assets folder
 NAVY = (0, 56, 123); INK = (16, 25, 34); MUTED = (87, 100, 111); RULE = (196, 204, 212); SOFT = (242, 245, 247); BOX = (248, 250, 252)
 PRODUCT_IMG_DIR = Path("uploads") / "products"
 
