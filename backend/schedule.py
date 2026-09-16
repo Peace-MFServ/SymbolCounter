@@ -369,6 +369,75 @@ async def upload_product_image(pid: int, file: UploadFile = File(...),
     return _product_out(p, _used_map(db))
 
 
+def _code_keys(code: str) -> list[str]:
+    """Ways a file name can spell a product code: exact, and with spaces/dots/dashes/underscores dropped."""
+    c = (code or "").strip().lower()
+    if not c:
+        return []
+    return [c, re.sub(r"[\s._\-/]+", "", c)]
+
+
+@router.post("/products/import-images")
+async def import_product_images(file: UploadFile = File(...), db: Session = Depends(get_db),
+                                cu=Depends(auth.get_current_user)):
+    """
+    One zip of pictures, any folder layout. Each file is matched to a product by
+    its name (without the extension) against the product code or Intec code,
+    ignoring case, spaces, dots and dashes. First match wins; later files for the
+    same product are reported as duplicates. Done once, the pictures show for everyone.
+    """
+    import zipfile, tempfile, shutil
+    if not (file.filename or "").lower().endswith(".zip"):
+        raise HTTPException(400, "Upload a .zip of the image folders")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    try:
+        shutil.copyfileobj(file.file, tmp); tmp.close()
+        try:
+            zf = zipfile.ZipFile(tmp.name)
+        except zipfile.BadZipFile:
+            raise HTTPException(400, "That file is not a zip")
+        lookup: dict[str, models.Product] = {}
+        for prod in db.query(models.Product).all():
+            for k in _code_keys(prod.sku) + _code_keys(prod.intec_code):
+                lookup.setdefault(k, prod)
+        exts = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+        matched, unmatched, dups, seen = [], [], [], set()
+        PRODUCT_IMG_DIR.mkdir(parents=True, exist_ok=True)
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            name = Path(info.filename).name
+            if name.startswith(".") or name.startswith("__MACOSX"):
+                continue
+            ext = Path(name).suffix.lower()
+            if ext not in exts:
+                continue
+            stem = Path(name).stem
+            prod = None
+            for k in _code_keys(stem):
+                if k in lookup:
+                    prod = lookup[k]; break
+            if not prod:
+                unmatched.append(info.filename); continue
+            if prod.id in seen:
+                dups.append({"file": info.filename, "sku": prod.sku}); continue
+            seen.add(prod.id)
+            dest = PRODUCT_IMG_DIR / f"{uuid.uuid4().hex}{ext}"
+            with zf.open(info) as src, open(dest, "wb") as out:
+                shutil.copyfileobj(src, out)
+            if prod.image_path and Path(prod.image_path).exists():
+                try: Path(prod.image_path).unlink()
+                except OSError: pass
+            prod.image_path = str(dest)
+            matched.append({"file": info.filename, "sku": prod.sku})
+        db.commit()
+    finally:
+        try: Path(tmp.name).unlink()
+        except OSError: pass
+    return {"matched": len(matched), "unmatched": sorted(unmatched), "duplicates": dups,
+            "matched_files": matched}
+
+
 @router.delete("/products/{pid}", status_code=204)
 def archive_product(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     p = db.query(models.Product).get(pid)
