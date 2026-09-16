@@ -22,3 +22,5 @@ export const IconTrash   = p => <I {...p}><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H
 export const IconFile    = p => <I {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6" /></I>
 export const IconLayers  = p => <I {...p}><path d="m12 2 10 5-10 5L2 7Z" /><path d="m2 12 10 5 10-5M2 17l10 5 10-5" /></I>
 export const IconFolder  = p => <I {...p}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></I>
+export const IconZoom    = p => <I {...p}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3M11 8v6M8 11h6" /></I>
+export const IconImage   = p => <I {...p}><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-5-5L5 21" /></I>

@@ -3,6 +3,7 @@ import { apiFetch, downloadBlob } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { Menu } from './ProjectView'
+import { IconZoom, IconImage } from './icons'
 import { useAuthImage } from './TemplatesView'
 
 const money = v => (v == null ? '' : v.toLocaleString('en-IE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
@@ -108,7 +109,7 @@ export function ScheduleView({ projectId, onNavigate }) {
                   <thead><tr><th>Code</th><th>Product</th><th style={{ textAlign: 'right' }}>Qty</th><th>Unit</th>{priced && <><th style={{ textAlign: 'right' }}>Price</th><th style={{ textAlign: 'right' }}>Value</th></>}</tr></thead>
                   <tbody>
                     {data.summary.map(r => (
-                      <tr key={r.sku}><td className="mono">{r.sku}</td><td>{r.name}</td><td className="count-num">{r.qty}</td><td className="muted">{r.unit}</td>
+                      <tr key={r.sku}><td className="mono">{r.sku}</td><td>{r.name}</td><td className="qty-cell">{r.qty}</td><td className="muted">{r.unit}</td>
                         {priced && <><td className="num-cell">{money(r.price)}</td><td className="num-cell">{money(r.value)}</td></>}</tr>
                     ))}
                   </tbody>
@@ -225,13 +226,14 @@ function SetCard({ s, priced, onNavigate, onPhoto }) {
         <button className="btn btn-ghost btn-sm" onClick={() => onNavigate('set', { id: s.id })}>Edit set</button>
       </div>
       <table className="ledger sched-items">
-        <thead><tr><th>Code</th><th>Product</th><th style={{ textAlign: 'right' }}>Qty</th><th>Unit</th>{priced && <><th style={{ textAlign: 'right' }}>Price</th><th style={{ textAlign: 'right' }}>Value</th></>}<th>Photo</th></tr></thead>
+        <thead><tr><th className="col-code">Code</th><th className="col-name">Product</th><th className="col-photo">Photo</th><th className="col-qty" style={{ textAlign: 'right' }}>Qty</th><th className="col-unit">Unit</th>{priced && <><th style={{ textAlign: 'right' }}>Price</th><th style={{ textAlign: 'right' }}>Value</th></>}</tr></thead>
         <tbody>
           {s.items.map(it => (
             <tr key={it.sku}>
-              <td className="mono">{it.sku}</td><td>{it.name}</td><td className="count-num">{it.qty}</td><td className="muted">{it.unit}</td>
+              <td className="mono">{it.sku}</td><td>{it.name}</td>
+              <td><Thumb url={it.image_url} productId={it.product_id} sku={it.sku} name={it.name} onChanged={onPhoto} /></td>
+              <td className="qty-cell">{it.qty}</td><td className="muted">{it.unit}</td>
               {priced && <><td className="num-cell">{money(it.price)}</td><td className="num-cell">{money(it.value)}</td></>}
-              <td><Thumb url={it.image_url} productId={it.product_id} onChanged={onPhoto} /></td>
             </tr>
           ))}
           {s.items.length === 0 && <tr><td colSpan={priced ? 7 : 5} className="muted" style={{ padding: 16 }}>This set has no products yet.</td></tr>}
@@ -245,11 +247,13 @@ function SetCard({ s, priced, onNavigate, onPhoto }) {
   )
 }
 
-/* The product's picture. With no picture, a click lets the estimator add one from
-   their PC; it is saved on the product, so every job shows it from then on. */
-function Thumb({ url, productId, onChanged }) {
+/* The product's picture in a fixed box. Click to see it large. With no picture,
+   the same box offers to add one from the estimator's PC; it is saved on the
+   product, so every job shows it from then on. */
+function Thumb({ url, productId, sku, name, onChanged }) {
   const src = useAuthImage(url)
   const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
   const ref = useRef()
   const upload = async file => {
     if (!file || !productId) return
@@ -263,9 +267,35 @@ function Thumb({ url, productId, onChanged }) {
   }
   if (!url) return (
     <>
-      <button className="btn btn-ghost btn-sm add-photo" onClick={() => ref.current.click()} disabled={busy} title="Add a picture for this product">{busy ? <span className="spinner" /> : 'Add photo'}</button>
+      <button className="thumb thumb-empty" onClick={() => ref.current.click()} disabled={busy} title="Add a picture for this product">
+        {busy ? <span className="spinner" /> : <><IconImage size={20} /><span>Add photo</span></>}
+      </button>
       <input ref={ref} type="file" accept=".png,.jpg,.jpeg,.webp,.gif" style={{ display: 'none' }} onChange={e => { upload(e.target.files[0]); e.target.value = '' }} />
     </>
   )
-  return <div className="thumb">{src && <img src={src} alt="" />}</div>
+  return (
+    <>
+      <button className="thumb" onClick={() => setOpen(true)} title="See it larger">
+        {src && <img src={src} alt="" />}
+        <span className="thumb-zoom"><IconZoom size={14} /></span>
+      </button>
+      {open && <Lightbox src={src} sku={sku} name={name} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+function Lightbox({ src, sku, name, onClose }) {
+  useEffect(() => {
+    const key = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', key); return () => document.removeEventListener('keydown', key)
+  }, [onClose])
+  return (
+    <div className="lightbox" onClick={onClose}>
+      <div className="lightbox-card" onClick={e => e.stopPropagation()}>
+        <div className="lightbox-img">{src && <img src={src} alt={name} />}</div>
+        <div className="lightbox-cap"><span className="mono">{sku}</span><span>{name}</span></div>
+        <button className="btn btn-ghost btn-sm lightbox-close" onClick={onClose}>Close</button>
+      </div>
+    </div>
+  )
 }
