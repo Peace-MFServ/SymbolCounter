@@ -579,14 +579,22 @@ async def apply_image_map(file: UploadFile = File(...), db: Session = Depends(ge
     for prod in db.query(models.Product).all():
         for k in _code_keys(prod.sku) + _code_keys(prod.intec_code):
             lookup.setdefault(k, prod)
-    pending = {f.name.lower(): f.name for f in PENDING_IMG_DIR.iterdir()} if PENDING_IMG_DIR.exists() else {}
+    # match by full name, or by the name without extension and any ~1 copy suffix
+    def stem_key(name: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", re.sub(r"~\d+$", "", Path(name).stem).lower())
+    by_name, by_stem = {}, {}
+    if PENDING_IMG_DIR.exists():
+        for f in PENDING_IMG_DIR.iterdir():
+            if f.is_file():
+                by_name[f.name.lower()] = f.name; by_stem.setdefault(stem_key(f.name), f.name)
+    used_files: set[str] = set()
     for row in csv.reader(io.StringIO(text)):
         if len(row) < 2:
             continue
         fname, code = row[0].strip(), row[1].strip()
         if not fname or not code or fname.lower() in ("file", "filename", "image"):
             continue
-        real = pending.get(Path(fname).name.lower())
+        real = by_name.get(fname.lower()) or by_stem.get(stem_key(fname))
         if not real:
             missing_file.append(fname); continue
         prod = next((lookup[k] for k in _code_keys(code) if k in lookup), None)
@@ -594,9 +602,20 @@ async def apply_image_map(file: UploadFile = File(...), db: Session = Depends(ge
             missing_product.append(f"{fname} -> {code}"); continue
         if prod.id in taken:
             continue
-        _attach_pending(db, real, prod.id); taken.add(prod.id); placed += 1
+        # one picture can serve several products (finish variants): copy, delete the pending file at the end
+        src = PENDING_IMG_DIR / real
+        PRODUCT_IMG_DIR.mkdir(parents=True, exist_ok=True)
+        dest = PRODUCT_IMG_DIR / f"{uuid.uuid4().hex}{src.suffix.lower()}"
+        import shutil; shutil.copyfile(src, dest)
+        if prod.image_path and Path(prod.image_path).exists():
+            try: Path(prod.image_path).unlink()
+            except OSError: pass
+        prod.image_path = str(dest); taken.add(prod.id); used_files.add(real); placed += 1
     db.commit()
-    return {"placed": placed, "missing_file": missing_file, "missing_product": missing_product}
+    for real in used_files:
+        try: (PENDING_IMG_DIR / real).unlink()
+        except OSError: pass
+    return {"placed": placed, "missing_file": sorted(set(missing_file)), "missing_product": missing_product}
 
 
 @router.delete("/products/{pid}", status_code=204)
