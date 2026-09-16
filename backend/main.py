@@ -160,6 +160,25 @@ app.add_middleware(
 _HERE         = Path(__file__).resolve().parent
 FRONTEND_DIST = _HERE.parent / "frontend" / "dist"
 
+# One-off: pictures stored before the normaliser existed get tidied at startup.
+@app.on_event("startup")
+def _tidy_product_pictures():
+    import threading
+    def run():
+        from database import SessionLocal
+        from images import normalize_all
+        from schedule import PRODUCT_IMG_DIR
+        db = SessionLocal()
+        try:
+            n = normalize_all(db, models.Product, PRODUCT_IMG_DIR)
+            if n:
+                logger.info("Normalised %d product pictures", n)
+        except Exception as e:
+            logger.warning("Picture tidy skipped: %s", e)
+        finally:
+            db.close()
+    threading.Thread(target=run, daemon=True).start()
+
 # Mount /assets if already built — safe to call at startup even if dist doesn't exist yet
 from fastapi.staticfiles import StaticFiles as _SF
 if (FRONTEND_DIST / "assets").exists():

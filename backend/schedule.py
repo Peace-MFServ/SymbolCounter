@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 import models, auth
+from images import normalize_image
 from database import get_db
 
 router = APIRouter(prefix="/api", tags=["schedule"])
@@ -360,8 +361,16 @@ async def upload_product_image(pid: int, file: UploadFile = File(...),
     ext = Path(file.filename or "").suffix.lower()
     if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
         raise HTTPException(400, "Use a PNG, JPG, WEBP or GIF image")
-    dest = PRODUCT_IMG_DIR / f"{uuid.uuid4().hex}{ext}"
-    dest.write_bytes(await file.read())
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        tmp.write(await file.read()); tmp_path = Path(tmp.name)
+    try:
+        dest = normalize_image(tmp_path, PRODUCT_IMG_DIR)
+    except Exception:
+        raise HTTPException(400, "That file could not be read as an image")
+    finally:
+        try: tmp_path.unlink()
+        except OSError: pass
     if p.image_path and Path(p.image_path).exists():
         try: Path(p.image_path).unlink()
         except OSError: pass
@@ -432,9 +441,14 @@ async def import_product_images(file: UploadFile = File(...), db: Session = Depe
             if prod.id in seen:
                 dups.append({"file": info.filename, "sku": prod.sku}); continue
             seen.add(prod.id)
-            dest = PRODUCT_IMG_DIR / f"{uuid.uuid4().hex}{ext}"
-            with zf.open(info) as src, open(dest, "wb") as out:
+            raw = PRODUCT_IMG_DIR / f"raw-{uuid.uuid4().hex}{ext}"
+            with zf.open(info) as src, open(raw, "wb") as out:
                 shutil.copyfileobj(src, out)
+            try:
+                dest = normalize_image(raw, PRODUCT_IMG_DIR)
+            except Exception:
+                raw.unlink(missing_ok=True); unmatched.append(info.filename + " (unreadable)"); seen.discard(prod.id); continue
+            raw.unlink(missing_ok=True)
             if prod.image_path and Path(prod.image_path).exists():
                 try: Path(prod.image_path).unlink()
                 except OSError: pass
@@ -530,9 +544,11 @@ def _attach_pending(db: Session, fname: str, product_id: int) -> models.Product:
     p = db.query(models.Product).get(product_id)
     if not p:
         raise HTTPException(404, "Product not found")
-    PRODUCT_IMG_DIR.mkdir(parents=True, exist_ok=True)
-    dest = PRODUCT_IMG_DIR / f"{uuid.uuid4().hex}{src.suffix.lower()}"
-    src.replace(dest)
+    try:
+        dest = normalize_image(src, PRODUCT_IMG_DIR)
+    except Exception:
+        raise HTTPException(400, "That picture could not be read")
+    src.unlink(missing_ok=True)
     if p.image_path and Path(p.image_path).exists():
         try: Path(p.image_path).unlink()
         except OSError: pass
@@ -613,9 +629,10 @@ async def apply_image_map(file: UploadFile = File(...), db: Session = Depends(ge
             continue
         # one picture can serve several products (finish variants): copy, delete the pending file at the end
         src = PENDING_IMG_DIR / real
-        PRODUCT_IMG_DIR.mkdir(parents=True, exist_ok=True)
-        dest = PRODUCT_IMG_DIR / f"{uuid.uuid4().hex}{src.suffix.lower()}"
-        import shutil; shutil.copyfile(src, dest)
+        try:
+            dest = normalize_image(src, PRODUCT_IMG_DIR)
+        except Exception:
+            missing_file.append(fname + " (unreadable)"); continue
         if prod.image_path and Path(prod.image_path).exists():
             try: Path(prod.image_path).unlink()
             except OSError: pass
