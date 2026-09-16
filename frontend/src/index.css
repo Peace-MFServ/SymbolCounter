@@ -1045,3 +1045,6 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .match-sug .form-control { padding: 6px 10px; font-size: 13px; }
 .match-meta { margin-top: 3px; font-size: 12.5px; }
 .match-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.match-row { grid-template-columns: 96px minmax(180px, 260px) minmax(0, 1fr) auto; }
+.match-file .mono { white-space: normal; overflow-wrap: anywhere; word-break: break-all; display: block; max-height: 4.6em; overflow: hidden; }
+.match-sug { overflow: hidden; }
