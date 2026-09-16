@@ -283,17 +283,17 @@ class SchedulePDF(FPDF):
         cols = self._cols(); desc_w = cols[2][1]
         self.set_font("Helvetica", "", 8.5)
         lines = self.multi_cell(desc_w, 4, _latin(it["name"]), dry_run=True, output="LINES")
-        h = max(20, 4 * len(lines) + 7)
+        h = max(18, 4 * len(lines) + 6)
         self._need(h, self._table_header)
         y = self.get_y(); x = 20
         # photo box
-        self.set_fill_color(*BOX); self.set_draw_color(*RULE); self.rect(x, y + 1.5, 22, 16, "FD")
+        self.set_fill_color(*BOX); self.set_draw_color(*RULE); self.rect(x, y + 1.5, 21, 14.5, "FD")
         img = it.get("image_path")
         if img:
-            try: self.image(img, x=x + 1, y=y + 2.5, w=20, h=14, keep_aspect_ratio=True)
+            try: self.image(img, x=x + 1, y=y + 2.5, w=19, h=12.5, keep_aspect_ratio=True)
             except Exception: img = None
         if not img:
-            self.set_font("Helvetica", "", 6.5); self._muted(); self.set_xy(x, y + 7.5); self.cell(22, 4, "No photo", align="C")
+            self.set_font("Helvetica", "", 6.5); self._muted(); self.set_xy(x, y + 7); self.cell(21, 4, "No photo", align="C")
         x += cols[0][1]
         self.set_font("Helvetica", "B", 8.5); self._ink(); self.set_xy(x, y + 3); self.cell(cols[1][1], 4, _latin(it["sku"])); x += cols[1][1]
         self.set_font("Helvetica", "", 8.5); self.set_xy(x, y + 3); self.multi_cell(desc_w, 4, _latin(it["name"])); x += desc_w
@@ -321,23 +321,35 @@ class SchedulePDF(FPDF):
             self._muted(); self.set_xy(22, y); self.cell(100, 5, "No doors on this set yet"); self._ink()
         self.set_y(top + h + 4)
 
+    def _refs_line(self, refs: list[str]):
+        """Door references as one wrapped line in a soft panel, straight under the set band."""
+        text = ", ".join(refs) if refs else "No doors on this set yet"
+        self.set_font("Helvetica", "", 8.5)
+        lines = self.multi_cell(150, 4.2, _latin(text), dry_run=True, output="LINES")
+        h = 4.2 * len(lines) + 4
+        top = self.get_y()
+        self.set_fill_color(*SOFT); self.rect(18, top, 174, h, "F")
+        self.set_font("Helvetica", "B", 8); self._navy(); self.set_xy(22, top + 2); self.cell(18, 4.2, "Doors")
+        self.set_font("Helvetica", "", 8.5); self._ink() if refs else self._muted()
+        self.set_xy(40, top + 2); self.multi_cell(150, 4.2, _latin(text))
+        self._ink(); self.set_y(top + h + 3)
+
     def set_page(self, s: dict):
         self.add_page()
         n = s["doors"]
         self.band(s["code"], s["name"], f"{n} door{'s' if n != 1 else ''}")
+        self._refs_line([r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"]])
         self._table_header()
         for it in s["items"]:
             self._row(it)
         if not s["items"]:
             self.set_font("Helvetica", "I", 8.5); self._muted(); self.cell(0, 6, "No products in this set yet", new_y=YPos.NEXT); self._ink()
         if self.priced and s["items"]:
+            self._need(8)
             self.set_font("Helvetica", "B", 8.5); y = self.get_y() + 1
             self.set_xy(110, y); self.cell(40, 5, f"{n} door{'s' if n != 1 else ''} @ {_money(s['per_door'])}", align="R")
             self.set_xy(150, y); self.cell(42, 5, _money(s["value"]), align="R")
             self.set_y(y + 7)
-        else:
-            self.set_y(self.get_y() + 3)
-        self._refs_panel("Door references", [r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"]])
 
     # Summary / picking --------------------------------------------------
     def summary_page(self, picking: bool = False):
