@@ -1458,6 +1458,9 @@ def get_schedule(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cu
         for it in s["items"]:
             it["image_url"] = f"/api/files/products/{Path(it['image_path']).name}" if it["image_path"] else ""
             it.pop("image_path", None)
+    for r in data["summary"]:
+        r["image_url"] = f"/api/files/products/{Path(r['image_path']).name}" if r.get("image_path") else ""
+        r.pop("image_path", None)
     return data
 
 

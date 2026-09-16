@@ -21,7 +21,9 @@ COMPANY = {
     "web": "www.mfservices.ie",
 }
 ASSETS_DIR = Path(__file__).parent / "assets"
-LOGO_PATH = ASSETS_DIR / "logo.png"          # drop the company logo here; text wordmark otherwise
+LOGO_PATH = ASSETS_DIR / "logo.png"          # office copy, if one has been dropped in
+WEB_LOGO = ASSETS_DIR / "mf-logo.jpeg"        # the logo the web app shows; ships with the code
+NAVY = (0, 56, 123); INK = (16, 25, 34); MUTED = (87, 100, 111); RULE = (196, 204, 212); SOFT = (242, 245, 247); BOX = (248, 250, 252)
 PRODUCT_IMG_DIR = Path("uploads") / "products"
 
 _FLOOR_ORDER = ["Basement", "Lower Ground", "Ground", "Mezzanine", "First", "Second", "Third", "Fourth",
@@ -96,7 +98,8 @@ def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
                           "image_path": p.image_path if p.image_path and Path(p.image_path).exists() else "",
                           "category": p.category or "Other"})
             agg = summary.setdefault(p.sku, {"sku": p.sku, "name": p.name, "unit": p.unit or "EACH",
-                                             "category": p.category or "Other", "qty": 0, "price": price})
+                                             "category": p.category or "Other", "qty": 0, "price": price,
+                                             "image_path": p.image_path if p.image_path and Path(p.image_path).exists() else ""})
             agg["qty"] += it.qty * len(refs)
         sets_out.append({
             "id": s.id, "code": s.code, "name": s.name, "fire_rated": bool(s.fire_rated),
@@ -164,6 +167,8 @@ def _money(v) -> str:
 
 
 class SchedulePDF(FPDF):
+    """House style: MF navy for bands and rules, the web logo top right, one photo per line."""
+
     def __init__(self, data: dict, priced: bool, title: str = ""):
         super().__init__(orientation="P", unit="mm", format="A4")
         self.data = data
@@ -174,213 +179,208 @@ class SchedulePDF(FPDF):
         self.alias_nb_pages()
         self.set_title(f"{data['project']['name']} - {title or 'Ironmongery schedule'}")
 
+    # Colour helpers -----------------------------------------------------
+    def _ink(self):   self.set_text_color(*INK)
+    def _muted(self): self.set_text_color(*MUTED)
+    def _navy(self):  self.set_text_color(*NAVY)
+
+    def _logo(self, x, y, w):
+        path = LOGO_PATH if LOGO_PATH.exists() else (WEB_LOGO if WEB_LOGO.exists() else None)
+        if path:
+            self.image(str(path), x=x, y=y, w=w)
+        else:
+            self.set_font("Helvetica", "B", 20); self._navy(); self.set_xy(x, y); self.cell(w, 9, "MF Services", align="R"); self._ink()
+
     # Page furniture -----------------------------------------------------
     def header(self):
         p = self.data["project"]
-        self.set_font("Helvetica", "B", 11)
-        self.set_xy(18, 16)
-        self.cell(100, 6, _latin(f"Re: {p['name']}"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        if LOGO_PATH.exists():
-            self.image(str(LOGO_PATH), x=120, y=12, w=72)
-        else:
-            self.set_font("Helvetica", "B", 22)
-            self.set_xy(120, 13)
-            self.cell(72, 10, "MF", align="L")
-            self.set_font("Helvetica", "", 12)
-            self.set_xy(134, 15.5)
-            self.cell(58, 6, "S E R V I C E S")
-        self.set_y(34)
+        self._logo(x=148, y=12, w=44)
+        self.set_font("Helvetica", "B", 10.5); self._ink()
+        self.set_xy(18, 15); self.cell(120, 6, _latin(p["name"]))
+        self.set_font("Helvetica", "", 8.5); self._muted()
+        self.set_xy(18, 20.5); self.cell(120, 5, _latin(" | ".join(x for x in [self.doc_title or "Ironmongery schedule",
+                                                                   f"Quote {p['quote_no']}" if p.get("quote_no") else ""] if x)))
+        self.set_draw_color(*NAVY); self.set_line_width(0.6); self.line(18, 28, 192, 28); self.set_line_width(0.2)
+        self._ink(); self.set_y(36)
 
     def footer(self):
         self.set_y(-24)
-        self.set_draw_color(120, 120, 120)
-        self.line(18, self.get_y(), 192, self.get_y())
-        self.set_font("Helvetica", "", 8)
-        self.set_text_color(60, 60, 60)
+        self.set_draw_color(*RULE); self.line(18, self.get_y(), 192, self.get_y())
+        self.set_font("Helvetica", "", 8); self._muted()
         y = self.get_y() + 1.5
         for i, line in enumerate([COMPANY["name"], *COMPANY["address"], f"{COMPANY['phone']} {COMPANY['web']}"]):
-            self.set_xy(18, y + i * 3.6)
-            self.cell(120, 3.6, line)
-        self.set_xy(150, y)
-        self.cell(42, 3.6, self.data["project"]["date"], align="R")
-        self.set_xy(150, y + 3.6)
-        self.cell(42, 3.6, f"Page {self.page_no()}/{{nb}}", align="R")
-        self.set_text_color(0, 0, 0)
+            self.set_xy(18, y + i * 3.6); self.cell(120, 3.6, line)
+        self.set_xy(150, y); self.cell(42, 3.6, self.data["project"]["date"], align="R")
+        self.set_xy(150, y + 3.6); self.cell(42, 3.6, f"Page {self.page_no()}/{{nb}}", align="R")
+        self._ink()
 
-    # Pieces -------------------------------------------------------------
+    def band(self, left: str, mid: str = "", right: str = "", y: float = None):
+        """The navy title band used for every section."""
+        y = self.get_y() if y is None else y
+        self.set_fill_color(*NAVY); self.rect(18, y, 174, 11, "F")
+        self.set_text_color(255, 255, 255)
+        self.set_font("Helvetica", "B", 11); self.set_xy(22, y + 2.5); self.cell(30, 6, _latin(left))
+        if mid:
+            self.set_font("Helvetica", "", 11); self.set_xy(48, y + 2.5); self.cell(100, 6, _latin(mid))
+        if right:
+            self.set_font("Helvetica", "", 9); self.set_xy(150, y + 2.5); self.cell(38, 6, _latin(right), align="R")
+        self._ink(); self.set_y(y + 11)
+
+    def _need(self, h: float, on_break=None):
+        if self.get_y() + h > self.h - 28:
+            self.add_page()
+            if on_break: on_break()
+
+    # Cover --------------------------------------------------------------
     def cover(self):
         self.add_page()
-        p = self.data["project"]
-        self.set_font("Helvetica", "", 10)
-        self.set_xy(18, 40); self.cell(80, 5, _latin(p["client"] or ""))
-        rows = [("Date:", p["date"]), ("Quote No:", p["quote_no"]), ("Quote Ref:", p["name"]),
-                ("Your Ref:", ""), ("", ""), ("Estimator:", p["estimator"]), ("Rep:", p["rep"])]
-        y = 40
-        for lbl, val in rows:
-            self.set_xy(105, y); self.cell(28, 5, lbl)
-            self.set_xy(133, y); self.cell(59, 5, _latin(val))
-            y += 5
-        self.set_font("Helvetica", "B", 10)
-        self.set_xy(18, 62); self.cell(90, 5, _latin(f"Re: {p['name']}"))
-        if p["site"]:
-            self.set_font("Helvetica", "", 10)
-            self.set_xy(18, 67); self.cell(90, 5, _latin(p["site"]))
-        self.set_draw_color(0, 0, 0)
-        self.line(18, 80, 192, 80)
-        if self.doc_title:
-            self.set_font("Helvetica", "B", 14)
-            self.set_xy(18, 86); self.cell(100, 8, self.doc_title)
-        self.set_font("Helvetica", "", 9)
-        d = self.data
-        self.set_xy(18, 96)
-        self.cell(100, 5, f"{d['doors_scheduled']} doors across {len(d['sets'])} hardware set{'s' if len(d['sets']) != 1 else ''}, "
-                          f"{d['item_count']} items.")
-        y = 104
+        p, d = self.data["project"], self.data
+        self.band(self.doc_title or "Ironmongery Schedule", "", p["date"], y=40)
+        self.set_y(58)
+        left = [("Client", p["client"]), ("Project", p["name"]), ("Site", p["site"])]
+        right = [("Quote no", p["quote_no"]), ("Your ref", d.get("your_ref", "")), ("Estimator", p["estimator"]), ("Rep", p["rep"])]
+        for col, rows in ((18, left), (110, right)):
+            y = 58
+            for lbl, val in rows:
+                self.set_font("Helvetica", "", 8.5); self._muted(); self.set_xy(col, y); self.cell(24, 6, lbl)
+                self.set_font("Helvetica", "B", 10); self._ink(); self.set_xy(col + 24, y); self.cell(58, 6, _latin(val or ""))
+                y += 8
+        self.set_draw_color(*RULE); self.line(18, 92, 192, 92)
+        self.set_font("Helvetica", "", 9.5); self._ink(); self.set_xy(18, 98)
+        n_sets = len(d["sets"])
+        self.cell(174, 6, f"{d['doors_scheduled']} doors across {n_sets} hardware set{'s' if n_sets != 1 else ''}, {d['item_count']} items.")
+        y = 108
         if d.get("deliver_to"):
-            self.set_font("Helvetica", "B", 9); self.set_xy(18, y); self.cell(28, 5, "Deliver to:")
-            self.set_font("Helvetica", "", 9); self.set_xy(46, y); self.multi_cell(120, 5, _latin(d["deliver_to"]))
-            y = self.get_y() + 1
-        if d.get("your_ref"):
-            self.set_font("Helvetica", "B", 9); self.set_xy(18, y); self.cell(28, 5, "Your ref:")
-            self.set_font("Helvetica", "", 9); self.set_xy(46, y); self.cell(120, 5, _latin(d["your_ref"]))
+            self.set_font("Helvetica", "", 8.5); self._muted(); self.set_xy(18, y); self.cell(24, 5, "Deliver to")
+            self.set_font("Helvetica", "", 10); self._ink(); self.set_xy(42, y); self.multi_cell(120, 5, _latin(d["deliver_to"]))
+            y = self.get_y() + 4
+        # contents
+        self.set_font("Helvetica", "B", 8); self._muted(); self.set_xy(18, y + 4); self.cell(60, 5, "SETS ON THIS SCHEDULE")
+        y += 10
+        for s in d["sets"]:
+            self.set_font("Helvetica", "B", 9); self._navy(); self.set_xy(18, y); self.cell(22, 5, _latin(s["code"]))
+            self.set_font("Helvetica", "", 9); self._ink(); self.set_xy(40, y); self.cell(110, 5, _latin(s["name"]))
+            self._muted(); self.set_xy(150, y); self.cell(42, 5, f"{s['doors']} door{'s' if s['doors'] != 1 else ''}", align="R")
+            y += 5.5
+            if y > self.h - 34: break
+        self._ink()
 
-    def _table_header(self):
-        self.set_font("Helvetica", "B", 8.5)
-        self.set_draw_color(0, 0, 0)
-        cols = self._cols()
-        x = 18
-        for name, w, align in cols:
-            self.set_xy(x, self.get_y()); self.cell(w, 5, name, align=align); x += w
-        self.set_y(self.get_y() + 5)
-        self.line(18, self.get_y(), 192, self.get_y())
-        self.set_y(self.get_y() + 1)
-
+    # Product rows -------------------------------------------------------
     def _cols(self):
         if self.priced:
-            return [("Product Code", 34, "L"), ("Description", 92, "L"), ("Qty", 10, "R"),
-                    ("Price", 14, "R"), ("Unit", 12, "L"), ("Value", 12, "R")]
-        return [("Product Code", 36, "L"), ("Description", 108, "L"), ("Qty", 14, "R"), ("Unit", 16, "L")]
+            return [("Photo", 24, "L"), ("Code", 28, "L"), ("Description", 64, "L"), ("Qty", 10, "R"),
+                    ("Price", 16, "R"), ("Unit", 14, "R"), ("Value", 18, "R")]
+        return [("Photo", 26, "L"), ("Code", 30, "L"), ("Description", 88, "L"), ("Qty", 14, "R"), ("Unit", 16, "R")]
 
-    def _row(self, sku, name, qty, unit, price=None, value=None):
-        cols = self._cols()
+    def _table_header(self):
+        self.set_fill_color(*SOFT); self.rect(18, self.get_y(), 174, 6, "F")
+        self.set_font("Helvetica", "B", 7.5); self._muted(); self.set_xy(20, self.get_y() + 1)
+        for name, w, align in self._cols():
+            self.cell(w, 4, name, align=align)
+        self._ink(); self.set_y(self.get_y() + 7)
+
+    def _row(self, it: dict):
+        cols = self._cols(); desc_w = cols[2][1]
         self.set_font("Helvetica", "", 8.5)
-        desc_w = cols[1][1]
-        lines = self.multi_cell(desc_w, 4, _latin(name), dry_run=True, output="LINES")
-        h = max(4 * len(lines), 4)
-        if self.get_y() + h > self.h - 28:
-            self.add_page(); self._table_header()
-        y = self.get_y()
-        self.set_xy(18, y); self.cell(cols[0][1], 4, _latin(sku))
-        self.set_xy(18 + cols[0][1], y); self.multi_cell(desc_w, 4, _latin(name))
-        x = 18 + cols[0][1] + desc_w
-        vals = [str(qty)] + ([_money(price), unit, _money(value)] if self.priced else [unit])
-        for (n, w, align), v in zip(cols[2:], vals):
-            self.set_xy(x, y); self.cell(w, 4, _latin(v), align=align); x += w
-        self.set_y(y + h + 2)
+        lines = self.multi_cell(desc_w, 4, _latin(it["name"]), dry_run=True, output="LINES")
+        h = max(20, 4 * len(lines) + 7)
+        self._need(h, self._table_header)
+        y = self.get_y(); x = 20
+        # photo box
+        self.set_fill_color(*BOX); self.set_draw_color(*RULE); self.rect(x, y + 1.5, 22, 16, "FD")
+        img = it.get("image_path")
+        if img:
+            try: self.image(img, x=x + 1, y=y + 2.5, w=20, h=14, keep_aspect_ratio=True)
+            except Exception: img = None
+        if not img:
+            self.set_font("Helvetica", "", 6.5); self._muted(); self.set_xy(x, y + 7.5); self.cell(22, 4, "No photo", align="C")
+        x += cols[0][1]
+        self.set_font("Helvetica", "B", 8.5); self._ink(); self.set_xy(x, y + 3); self.cell(cols[1][1], 4, _latin(it["sku"])); x += cols[1][1]
+        self.set_font("Helvetica", "", 8.5); self.set_xy(x, y + 3); self.multi_cell(desc_w, 4, _latin(it["name"])); x += desc_w
+        vals = [str(it["qty"])] + ([_money(it.get("price")), it["unit"], _money(it.get("value"))] if self.priced else [it["unit"]])
+        for (n, w, align), v in zip(cols[3:], vals):
+            self._muted() if n == "Unit" else self._ink()
+            self.set_xy(x, y + 3); self.cell(w, 4, _latin(v), align=align); x += w
+        self._ink(); self.set_draw_color(*RULE); self.line(18, y + h - 1, 192, y + h - 1)
+        self.set_y(y + h)
+
+    def _refs_panel(self, title: str, refs: list[str]):
+        per_row, cw = 7, 24
+        rows = max(1, (len(refs) + per_row - 1) // per_row)
+        h = 9 + rows * 5 + 2
+        self._need(h)
+        top = self.get_y()
+        self.set_fill_color(*SOFT); self.rect(18, top, 174, h, "F")
+        self.set_font("Helvetica", "B", 8); self._navy(); self.set_xy(22, top + 2); self.cell(80, 5, title)
+        self.set_font("Helvetica", "", 8.5); self._ink()
+        x, y = 22, top + 8
+        for i, r in enumerate(refs):
+            if i and i % per_row == 0: x = 22; y += 5
+            self.set_xy(x, y); self.cell(cw, 5, _latin(r)); x += cw
+        if not refs:
+            self._muted(); self.set_xy(22, y); self.cell(100, 5, "No doors on this set yet"); self._ink()
+        self.set_y(top + h + 4)
 
     def set_page(self, s: dict):
         self.add_page()
-        self.set_font("Helvetica", "", 10)
-        self.set_xy(18, 36); self.cell(60, 6, _latin(f"Hardware Set Ref: {s['code']}"))
-        self.set_xy(85, 36); self.cell(107, 6, _latin(s["name"]))
-        self.set_y(46)
+        n = s["doors"]
+        self.band(s["code"], s["name"], f"{n} door{'s' if n != 1 else ''}")
         self._table_header()
         for it in s["items"]:
-            self._row(it["sku"], it["name"], it["qty"], it["unit"], it["price"], it["value"])
+            self._row(it)
         if not s["items"]:
-            self.set_font("Helvetica", "I", 8.5); self.cell(0, 5, "No products in this set yet", new_y=YPos.NEXT)
-        # doors line
-        self.line(18, self.get_y(), 192, self.get_y())
-        self.set_y(self.get_y() + 1)
-        self.set_font("Helvetica", "B", 8.5)
-        n = s["doors"]
-        if self.priced:
-            self.set_xy(120, self.get_y()); self.cell(30, 5, f"{n} Door{'s' if n != 1 else ''} @", align="R")
-            self.set_xy(150, self.get_y()); self.cell(20, 5, _money(s["per_door"]), align="R")
-            self.set_xy(170, self.get_y()); self.cell(22, 5, _money(s["value"]), align="R")
+            self.set_font("Helvetica", "I", 8.5); self._muted(); self.cell(0, 6, "No products in this set yet", new_y=YPos.NEXT); self._ink()
+        if self.priced and s["items"]:
+            self.set_font("Helvetica", "B", 8.5); y = self.get_y() + 1
+            self.set_xy(110, y); self.cell(40, 5, f"{n} door{'s' if n != 1 else ''} @ {_money(s['per_door'])}", align="R")
+            self.set_xy(150, y); self.cell(42, 5, _money(s["value"]), align="R")
+            self.set_y(y + 7)
         else:
-            self.set_xy(120, self.get_y()); self.cell(72, 5, f"{n} Door{'s' if n != 1 else ''}", align="R")
-        self.set_y(self.get_y() + 8)
-        # door references
-        self.set_fill_color(225, 225, 225)
-        self.set_font("Helvetica", "B", 8.5)
-        self.cell(174, 5, "Door Reference", fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.set_y(self.get_y() + 1)
-        self.set_font("Helvetica", "", 8.5)
-        refs = [r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"]]
-        per_row, cw = 6, 29
-        for i in range(0, len(refs), per_row):
-            if self.get_y() + 5 > self.h - 28:
-                self.add_page()
-            x = 18
-            for r in refs[i:i + per_row]:
-                self.set_xy(x, self.get_y()); self.cell(cw, 4.5, _latin(r)); x += cw
-            self.set_y(self.get_y() + 4.5)
-        # photos
-        photos = [it for it in s["items"] if it["image_path"]]
-        if photos:
-            self.set_y(self.get_y() + 4)
-            per_row, bw, bh = 4, 43.5, 34
-            for i in range(0, len(photos), per_row):
-                if self.get_y() + bh + 6 > self.h - 28:
-                    self.add_page()
-                y = self.get_y(); x = 18
-                for it in photos[i:i + per_row]:
-                    try:
-                        self.image(it["image_path"], x=x + 4, y=y, w=bw - 8, h=bh - 6, keep_aspect_ratio=True)
-                    except Exception:
-                        pass
-                    self.set_xy(x, y + bh - 5); self.set_font("Helvetica", "", 7.5)
-                    self.cell(bw, 4, _latin(it["sku"]), align="C")
-                    x += bw
-                self.set_y(y + bh + 2)
+            self.set_y(self.get_y() + 3)
+        self._refs_panel("Door references", [r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"]])
 
+    # Summary / picking --------------------------------------------------
     def summary_page(self, picking: bool = False):
         self.add_page()
-        self.set_font("Helvetica", "B", 13)
-        self.set_xy(18, 36); self.cell(100, 7, "Picking List" if picking else "Product Summary")
-        self.set_y(46)
         rows = self.data["summary"]
+        self.band("Picking list" if picking else "Product summary", "", f"{len(rows)} products | {self.data['item_count']} items")
         if picking:
-            self.set_font("Helvetica", "B", 8.5)
-            for name, w in [("", 8), ("Product Code", 34), ("Description", 104), ("Qty", 12), ("Unit", 16)]:
-                self.cell(w, 5, name, align="R" if name == "Qty" else "L")
-            self.set_y(self.get_y() + 5); self.line(18, self.get_y(), 192, self.get_y()); self.set_y(self.get_y() + 1)
             by_cat: dict[str, list] = {}
             for r in rows:
                 by_cat.setdefault(r["category"], []).append(r)
             for cat in sorted(by_cat):
-                if self.get_y() + 12 > self.h - 28:
-                    self.add_page()
-                self.set_font("Helvetica", "B", 8.5); self.set_y(self.get_y() + 2)
-                self.cell(174, 5, _latin(cat), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                self.set_font("Helvetica", "", 8.5)
+                self._need(14)
+                self.set_font("Helvetica", "B", 8); self._navy(); self.set_y(self.get_y() + 2)
+                self.cell(174, 5, _latin(cat), new_x=XPos.LMARGIN, new_y=YPos.NEXT); self._ink()
+                self.set_draw_color(*RULE)
                 for r in by_cat[cat]:
                     lines = self.multi_cell(104, 4, _latin(r["name"]), dry_run=True, output="LINES")
-                    h = max(4 * len(lines), 4)
-                    if self.get_y() + h > self.h - 28:
-                        self.add_page()
+                    h = max(4 * len(lines), 4) + 2
+                    self._need(h)
                     y = self.get_y()
-                    self.rect(19, y + 0.3, 3.4, 3.4)
+                    self.rect(19, y + 0.5, 3.4, 3.4)
+                    self.set_font("Helvetica", "", 8.5)
                     self.set_xy(26, y); self.cell(34, 4, _latin(r["sku"]))
                     self.set_xy(60, y); self.multi_cell(104, 4, _latin(r["name"]))
-                    self.set_xy(164, y); self.cell(12, 4, str(r["qty"]), align="R")
-                    self.set_xy(176, y); self.cell(16, 4, _latin(r["unit"]))
-                    self.set_y(y + h + 2)
+                    self.set_font("Helvetica", "B", 9); self.set_xy(164, y); self.cell(12, 4, str(r["qty"]), align="R")
+                    self.set_font("Helvetica", "", 8.5); self._muted(); self.set_xy(176, y); self.cell(16, 4, _latin(r["unit"]), align="R"); self._ink()
+                    self.set_y(y + h)
             return
         self._table_header()
         for r in rows:
-            self._row(r["sku"], r["name"], r["qty"], r["unit"], r["price"], r["value"])
+            self._row(r)
         if self.priced:
-            self.line(18, self.get_y(), 192, self.get_y()); self.set_y(self.get_y() + 1)
-            self.set_font("Helvetica", "B", 9)
-            self.set_xy(120, self.get_y()); self.cell(50, 6, "Total Price:", align="R")
-            self.set_xy(170, self.get_y()); self.cell(22, 6, _money(self.data["total"]), align="R")
+            self.set_font("Helvetica", "B", 9.5); y = self.get_y() + 2
+            self.set_xy(110, y); self.cell(40, 6, "Total", align="R")
+            self._navy(); self.set_xy(150, y); self.cell(42, 6, _money(self.data["total"]), align="R"); self._ink()
 
     def notes_page(self):
         self.add_page()
-        self.set_font("Helvetica", "B", 10)
-        self.set_xy(18, 36); self.cell(40, 6, "Notes:")
+        self.band("Notes")
+        self.set_draw_color(*RULE)
+        y = self.get_y() + 6
+        while y < self.h - 40:
+            self.line(18, y, 192, y); y += 8
 
 
 def schedule_pdf(data: dict, priced: bool = False, summary: bool = True) -> bytes:
@@ -395,31 +395,21 @@ def schedule_pdf(data: dict, priced: bool = False, summary: bool = True) -> byte
 
 
 def picking_list_pdf(data: dict) -> bytes:
-    pdf = SchedulePDF(data, priced=False, title="Packing List" if data.get("deliver_to") or data.get("your_ref") else "Picking List")
+    packing = bool(data.get("deliver_to") or data.get("your_ref"))
+    pdf = SchedulePDF(data, priced=False, title="Packing List" if packing else "Picking List")
     pdf.cover()
-    if data.get("deliver_to") or data.get("your_ref"):
-        # A packing list says which doors are in the box, set by set
+    if packing:
         pdf.add_page()
-        pdf.set_font("Helvetica", "B", 13); pdf.set_xy(18, 36); pdf.cell(100, 7, "Doors in this delivery")
-        pdf.set_y(46)
+        pdf.band("Doors in this delivery", "", f"{data['doors_scheduled']} doors")
+        pdf.set_y(pdf.get_y() + 3)
         for s in data["sets"]:
-            if pdf.get_y() + 14 > pdf.h - 28:
-                pdf.add_page()
-            pdf.set_font("Helvetica", "B", 9)
-            pdf.cell(174, 5, _latin(f"{s['code']}  {s['name']}  ({s['doors']} door{'s' if s['doors'] != 1 else ''})"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            pdf.set_font("Helvetica", "", 8.5)
-            refs = [r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"]]
-            for i in range(0, len(refs), 6):
-                x = 18
-                for r in refs[i:i + 6]:
-                    pdf.set_xy(x, pdf.get_y()); pdf.cell(29, 4.5, _latin(r)); x += 29
-                pdf.set_y(pdf.get_y() + 4.5)
-            pdf.set_y(pdf.get_y() + 3)
+            n = s["doors"]
+            pdf._refs_panel(f"{s['code']}  {s['name']}  ({n} door{'s' if n != 1 else ''})",
+                            [r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"]])
     pdf.summary_page(picking=True)
     return bytes(pdf.output())
 
 
-# ── Excel ─────────────────────────────────────────────────────────────────────
 def schedule_excel(data: dict, priced: bool = False, summary: bool = True) -> bytes:
     import openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
