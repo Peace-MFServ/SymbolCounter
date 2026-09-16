@@ -3,6 +3,7 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { useAuthImage } from './TemplatesView'
+import { TYPE_NAMES, TYPE_ORDER } from './JobView'
 
 /* Pictures the zip could not match by code. Each row: the picture, the app's best
    guess, one click to accept, a search to pick something else, or skip. */
@@ -73,7 +74,8 @@ export function MatchImagesView({ onNavigate }) {
         {items.length === 0 ? <div className="empty-state"><h2>Nothing waiting.</h2><p>Import a zip of pictures under Products and anything the codes don't match ends up here.</p></div> : (
           <>
             <div className="match-list">
-              {items.map(it => <MatchRow key={it.file} it={it} products={products} onAssign={pid => assign(it, pid)} onSkip={() => skip(it)} />)}
+              {items.map(it => <MatchRow key={it.file} it={it} products={products} onAssign={pid => assign(it, pid)} onSkip={() => skip(it)}
+                                         onCreated={p => { setItems(xs => xs.filter(x => x.file !== it.file)); setTotal(t => t - 1); setProducts(ps => [...ps, p]) }} />)}
             </div>
             {items.length < total && (
               <div style={{ textAlign: 'center', marginTop: 16 }}>
@@ -87,9 +89,20 @@ export function MatchImagesView({ onNavigate }) {
   )
 }
 
-function MatchRow({ it, products, onAssign, onSkip }) {
+function MatchRow({ it, products, onAssign, onSkip, onCreated }) {
   const src = useAuthImage(it.url)
   const [q, setQ] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [nf, setNf] = useState({ sku: '', name: '', product_type: '' })
+  const [saving, setSaving] = useState(false)
+  const create = async e => {
+    e.preventDefault(); setSaving(true)
+    try {
+      const p = await apiFetch(`/products/pending-images/${encodeURIComponent(it.file)}/create`, { method: 'POST', body: JSON.stringify(nf) })
+      showToast(`${p.sku} added with this picture`, 'success'); onCreated && onCreated(p)
+    } catch (err) { showToast(err.message, 'error') }
+    setSaving(false)
+  }
   const matches = useMemo(() => {
     const n = q.trim().toLowerCase()
     if (!n) return []
@@ -120,8 +133,20 @@ function MatchRow({ it, products, onAssign, onSkip }) {
       </div>
       <div className="match-actions">
         {s && <button className="btn btn-primary btn-sm" onClick={() => onAssign(s.product_id)}>Use {s.sku}</button>}
+        <button className="btn btn-soft btn-sm" onClick={() => setCreating(v => !v)}>{creating ? 'Cancel' : 'New product'}</button>
         <button className="btn btn-ghost btn-sm" onClick={onSkip}>Skip</button>
       </div>
+      {creating && (
+        <form className="match-new" onSubmit={create}>
+          <input className="form-control" placeholder="Product code, e.g. CH825" value={nf.sku} onChange={e => setNf({ ...nf, sku: e.target.value })} required autoFocus />
+          <input className="form-control" placeholder="Name, e.g. Roller catch stainless steel" value={nf.name} onChange={e => setNf({ ...nf, name: e.target.value })} required />
+          <select className="form-control" value={nf.product_type} onChange={e => setNf({ ...nf, product_type: e.target.value })}>
+            <option value="">Type…</option>
+            {TYPE_ORDER.filter(t => t).map(t => <option key={t} value={t}>{TYPE_NAMES[t]}</option>)}
+          </select>
+          <button className="btn btn-primary btn-sm" type="submit" disabled={saving}>{saving ? <span className="spinner" /> : 'Save product with this picture'}</button>
+        </form>
+      )}
     </div>
   )
 }

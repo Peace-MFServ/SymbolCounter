@@ -562,6 +562,27 @@ def assign_pending_image(fname: str, payload: AssignIn, db: Session = Depends(ge
     return {"ok": True, "sku": p.sku}
 
 
+class NewFromPictureIn(BaseModel):
+    sku: str; name: str; product_type: str = ""; category: str = "Other"
+
+
+@router.post("/products/pending-images/{fname}/create", response_model=ProductOut, status_code=201)
+def create_product_from_picture(fname: str, payload: NewFromPictureIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """The estimator knows what the picture is: make the product and put the picture on it in one go."""
+    sku, name = payload.sku.strip(), payload.name.strip()
+    if not sku or not name:
+        raise HTTPException(400, "A code and a name are needed")
+    if db.query(models.Product).filter(func.lower(models.Product.sku) == sku.lower()).first():
+        raise HTTPException(409, f"{sku} already exists. Use the search to put the picture on it instead.")
+    p = models.Product(sku=sku, name=name, category=payload.category or "Other", unit="EACH",
+                       product_type=payload.product_type or guess_product_type(payload.category or "", name),
+                       source="manual", active=True)
+    db.add(p); db.flush()
+    _attach_pending(db, fname, p.id)
+    db.commit(); db.refresh(p)
+    return _product_out(p, _used_map(db))
+
+
 @router.delete("/products/pending-images/{fname}", status_code=204)
 def skip_pending_image(fname: str, cu=Depends(auth.get_current_user)):
     path = PENDING_IMG_DIR / Path(fname).name
