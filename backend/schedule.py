@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 import models, auth
 from database import get_db
@@ -1448,6 +1449,69 @@ def add_doors_by_range(pid: int, payload: DoorsByRangeIn, db: Session = Depends(
         db.add(models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), set_id=payload.set_id, source="manual"))
     _link_set(db, pid, payload.set_id); db.commit()
     return {"added": len(refs), "skipped": []}
+
+
+# ── Intec Cost Summary paste: seed the product file with real sell prices ─────
+class CostPasteIn(BaseModel):
+    text: str = ""; update_cost: bool = False
+
+
+def parse_intec_cost_rows(text: str) -> list[dict]:
+    """
+    Rows copied out of Intec's Cost Summary grid: tab-separated
+    code, description, qty, cost, markup, sell, disc A, disc B, actual, line value, margin.
+    Descriptions can contain line breaks, so lines are joined until a row has enough columns.
+    """
+    def num(v):
+        try:
+            return float(str(v).replace(",", "").strip())
+        except ValueError:
+            return None
+    rows, buf = [], ""
+    for line in text.splitlines():
+        buf = (buf + "\n" + line) if buf else line
+        parts = buf.split("\t")
+        if parts and parts[0].strip() == "":
+            parts = parts[1:]
+        if len(parts) >= 11 and num(parts[-1]) is not None and num(parts[-9]) is not None:
+            code = parts[0].strip()
+            desc = " ".join(" ".join(parts[1:-9]).split())
+            qty, cost, markup, sell = num(parts[-9]), num(parts[-8]), num(parts[-7]), num(parts[-6])
+            if code and sell is not None:
+                rows.append({"sku": code, "name": desc, "qty": qty or 0.0, "cost": cost or 0.0, "sell": sell})
+            buf = ""
+    return rows
+
+
+@router.post("/products/import-intec-costs")
+def import_intec_costs(payload: CostPasteIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """
+    Takes the rows pasted from an Intec Cost Summary and puts the sell prices on the
+    product file. Products are matched by code (or Intec code); missing ones are created.
+    Cin7 stays the source of cost: Intec's cost is only used where a product has none,
+    unless update_cost is set.
+    """
+    rows = parse_intec_cost_rows(payload.text)
+    if not rows:
+        raise HTTPException(400, "No rows found. Copy the lines from Intec's Cost Summary grid and paste them in.")
+    added = updated = 0
+    for r in rows:
+        key = r["sku"].lower()
+        p = (db.query(models.Product).filter(func.lower(models.Product.sku) == key).first()
+             or db.query(models.Product).filter(func.lower(models.Product.intec_code) == key).first())
+        if not p:
+            p = models.Product(sku=r["sku"], name=r["name"] or r["sku"], category="Other", unit="EACH",
+                               intec_code=r["sku"], product_type=guess_product_type("", r["name"]), source="intec", active=True)
+            db.add(p); added += 1
+        else:
+            updated += 1
+        p.sell = r["sell"] if r["sell"] > 0 else p.sell
+        if r["cost"] > 0 and (payload.update_cost or not p.cost):
+            p.cost = r["cost"]
+        if not p.intec_code:
+            p.intec_code = r["sku"]
+    db.commit()
+    return {"rows": len(rows), "added": added, "updated": updated}
 
 
 # ── Cost summary: Intec's cost / markup / sell / discount / margin table ──────

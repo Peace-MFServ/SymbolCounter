@@ -16,6 +16,7 @@ export function ProductsView({ onNavigate }) {
   const [ptype,      setPtype]      = useState(null)    // null = all, '' = untyped, '01'…
   const [editing,    setEditing]    = useState(null)   // product object or EMPTY for new
   const [importing,  setImporting]  = useState(false)
+  const [pasting,    setPasting]    = useState(false)
   const fileRef = useRef()
 
   const load = async () => {
@@ -64,9 +65,11 @@ export function ProductsView({ onNavigate }) {
             </button>
             <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }}
                    onChange={e => { importFile(e.target.files[0]); e.target.value = '' }} />
+            <button className="btn" onClick={() => setPasting(true)}>Intec prices</button>
             <button className="btn btn-primary" onClick={() => setEditing({ ...EMPTY })}>Add product</button>
           </div>
         </div>
+        {pasting && <IntecPasteModal onClose={() => setPasting(false)} onDone={async () => { setPasting(false); await load() }} />}
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner spinner-lg" /></div>
@@ -229,6 +232,45 @@ function ProductModal({ product, categories, onClose, onSaved }) {
             <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? <span className="spinner" /> : 'Save'}</button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+
+/* Paste the rows out of Intec's Cost Summary grid: sell prices land on the product file. */
+function IntecPasteModal({ onClose, onDone }) {
+  const [text, setText] = useState('')
+  const [updateCost, setUpdateCost] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    try {
+      const r = await apiFetch('/products/import-intec-costs', { method: 'POST', body: JSON.stringify({ text, update_cost: updateCost }) })
+      showToast(`${r.rows} rows read: ${r.updated} products updated, ${r.added} added`, 'success')
+      await onDone()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy(false)
+  }
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 720 }}>
+        <h2>Sell prices from Intec</h2>
+        <p className="muted" style={{ marginBottom: 12 }}>
+          In Intec, open a job's Cost Summary, select all the rows, copy, and paste them here.
+          Each product's sell price is updated. Products not in the file yet are added.
+        </p>
+        <textarea className="form-control" rows={12} value={text} onChange={e => setText(e.target.value)}
+                  placeholder={'CH311\tEuro Profile Escutcheon 4mm Stainless steel\t21.00\t0.87\t49.43\t1.30\t0.00\t0.00\t1.30\t27.30\t33.08'}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, whiteSpace: 'pre' }} />
+        <label className="check" style={{ marginTop: 12 }}>
+          <input type="checkbox" checked={updateCost} onChange={e => setUpdateCost(e.target.checked)} />
+          Also overwrite costs with Intec's (normally leave off: Cin7 is the source of cost)
+        </label>
+        <div className="modal-actions">
+          <button className="btn btn-primary" onClick={submit} disabled={busy || !text.trim()}>{busy ? <span className="spinner" /> : 'Import prices'}</button>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        </div>
       </div>
     </div>
   )
