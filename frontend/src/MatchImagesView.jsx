@@ -138,8 +138,8 @@ function MatchRow({ it, products, onAssign, onSkip, onCreated }) {
       </div>
       {creating && (
         <form className="match-new" onSubmit={create}>
-          <input className="form-control" placeholder="Product code, e.g. CH825" value={nf.sku} onChange={e => setNf({ ...nf, sku: e.target.value })} required autoFocus />
-          <input className="form-control" placeholder="Name, e.g. Roller catch stainless steel" value={nf.name} onChange={e => setNf({ ...nf, name: e.target.value })} required />
+          <input className="form-control" placeholder="Name, e.g. Gold lever handle" value={nf.name} onChange={e => setNf({ ...nf, name: e.target.value })} required autoFocus />
+          <input className="form-control" placeholder="Code (optional)" value={nf.sku} onChange={e => setNf({ ...nf, sku: e.target.value })} />
           <select className="form-control" value={nf.product_type} onChange={e => setNf({ ...nf, product_type: e.target.value })}>
             <option value="">Type…</option>
             {TYPE_ORDER.filter(t => t).map(t => <option key={t} value={t}>{TYPE_NAMES[t]}</option>)}
