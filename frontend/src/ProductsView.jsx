@@ -19,7 +19,7 @@ export function ProductsView({ onNavigate }) {
   const [pasting,    setPasting]    = useState(false)
   const [imgReport,  setImgReport]  = useState(null)
   const [pendingN,   setPendingN]   = useState(0)
-  useEffect(() => { apiFetch('/products/pending-images').then(xs => setPendingN((xs || []).length)).catch(() => {}) }, [imgReport])
+  useEffect(() => { apiFetch('/products/pending-images?limit=1').then(r => setPendingN(r?.total || 0)).catch(() => {}) }, [imgReport])
   const [imgBusy,    setImgBusy]    = useState(false)
   const zipRef = useRef()
   const importImages = async file => {

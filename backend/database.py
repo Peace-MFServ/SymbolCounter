@@ -7,9 +7,12 @@ import os
 _DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "symbol_counter.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///" + _DEFAULT_DB.replace("\\", "/"))
 
+# SQLite connections are cheap; a big pool stops a burst of small requests
+# (hundreds of thumbnails on one page) from queueing behind each other.
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
+    connect_args={"check_same_thread": False, "timeout": 30} if "sqlite" in DATABASE_URL else {},
+    pool_size=30, max_overflow=60, pool_timeout=60,
 )
 
 # Enable WAL mode and foreign keys for SQLite

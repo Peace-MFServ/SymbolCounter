@@ -8,8 +8,11 @@ import { useAuthImage } from './TemplatesView'
    guess, one click to accept, a search to pick something else, or skip. */
 export function MatchImagesView({ onNavigate }) {
   const [items, setItems] = useState(null)
+  const [total, setTotal] = useState(0)
+  const [strong, setStrong] = useState(0)
   const [products, setProducts] = useState([])
   const [busy, setBusy] = useState('')
+  const PAGE = 40
   const mapRef = React.useRef()
   const applyMap = async file => {
     if (!file) return
@@ -22,21 +25,24 @@ export function MatchImagesView({ onNavigate }) {
     } catch (err) { showToast(err.message, 'error') }
     setBusy('')
   }
-  const load = () => apiFetch('/products/pending-images').then(setItems)
+  const load = async (offset = 0) => {
+    const r = await apiFetch(`/products/pending-images?offset=${offset}&limit=${PAGE}`)
+    setTotal(r.total); setStrong(r.strong)
+    setItems(xs => offset && xs ? [...xs, ...r.items] : r.items)
+  }
   useEffect(() => { load(); apiFetch('/products').then(ps => setProducts(ps || [])) }, [])
 
   const crumbs = [{ label: 'Products', onClick: () => onNavigate('products') }, { label: 'Match images' }]
   if (!items) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} active="products" /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div></>
 
-  const strong = items.filter(i => i.suggestion && i.suggestion.score >= 0.9 && !i.suggestion.has_image).length
   const assign = async (it, product_id) => {
     try {
       const r = await apiFetch(`/products/pending-images/${encodeURIComponent(it.file)}/assign`, { method: 'POST', body: JSON.stringify({ product_id }) })
-      setItems(xs => xs.filter(x => x.file !== it.file)); showToast(`Picture put on ${r.sku}`, 'success')
+      setItems(xs => xs.filter(x => x.file !== it.file)); setTotal(t => t - 1); showToast(`Picture put on ${r.sku}`, 'success')
     } catch (err) { showToast(err.message, 'error') }
   }
   const skip = async it => {
-    try { await apiFetch(`/products/pending-images/${encodeURIComponent(it.file)}`, { method: 'DELETE' }); setItems(xs => xs.filter(x => x.file !== it.file)) }
+    try { await apiFetch(`/products/pending-images/${encodeURIComponent(it.file)}`, { method: 'DELETE' }); setItems(xs => xs.filter(x => x.file !== it.file)); setTotal(t => t - 1) }
     catch (err) { showToast(err.message, 'error') }
   }
   const acceptAll = async () => {
@@ -54,7 +60,7 @@ export function MatchImagesView({ onNavigate }) {
         <div className="page-header">
           <div>
             <h1>Match images</h1>
-            <p className="lede">{items.length} picture{items.length !== 1 ? 's' : ''} waiting. The guess comes from the words in the file name. Accept it, pick another product, or skip the picture.</p>
+            <p className="lede">{total} picture{total !== 1 ? 's' : ''} waiting. The guess comes from the words in the file name. Accept it, pick another product, or skip the picture.</p>
           </div>
           <div className="spacer" />
           <div className="actions">
@@ -65,9 +71,16 @@ export function MatchImagesView({ onNavigate }) {
           </div>
         </div>
         {items.length === 0 ? <div className="empty-state"><h2>Nothing waiting.</h2><p>Import a zip of pictures under Products and anything the codes don't match ends up here.</p></div> : (
-          <div className="match-list">
-            {items.map(it => <MatchRow key={it.file} it={it} products={products} onAssign={pid => assign(it, pid)} onSkip={() => skip(it)} />)}
-          </div>
+          <>
+            <div className="match-list">
+              {items.map(it => <MatchRow key={it.file} it={it} products={products} onAssign={pid => assign(it, pid)} onSkip={() => skip(it)} />)}
+            </div>
+            {items.length < total && (
+              <div style={{ textAlign: 'center', marginTop: 16 }}>
+                <button className="btn" onClick={() => load(items.length)}>Show more ({total - items.length} left)</button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </>

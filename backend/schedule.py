@@ -493,13 +493,22 @@ def _pending_out(f: Path, idx) -> dict:
 
 
 @router.get("/products/pending-images")
-def list_pending_images(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    """Pictures from the zip that no code matched, each with the app's best guess."""
-    if not PENDING_IMG_DIR.exists():
-        return []
-    idx = _product_index(db)
-    files = sorted((f for f in PENDING_IMG_DIR.iterdir() if f.is_file()), key=lambda f: f.name.lower())
-    return [_pending_out(f, idx) for f in files]
+def list_pending_images(offset: int = 0, limit: int = 0, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Pictures from the zip that no code matched, each with the app's best guess.
+    With limit, returns {"total", "items"} for one page; without, the whole list (older callers)."""
+    files = sorted((f for f in PENDING_IMG_DIR.iterdir() if f.is_file()), key=lambda f: f.name.lower()) if PENDING_IMG_DIR.exists() else []
+    if limit <= 0:
+        idx = _product_index(db) if files else []
+        return [_pending_out(f, idx) for f in files]
+    page = files[offset:offset + limit]
+    idx = _product_index(db) if page else []
+    strong = 0
+    if page:
+        for f in files:
+            sug = _suggest_product(f.stem, idx)
+            if sug and sug[1] >= 0.9 and not sug[0].image_path:
+                strong += 1
+    return {"total": len(files), "strong": strong, "items": [_pending_out(f, idx) for f in page]}
 
 
 @router.get("/files/pending/{filename}")
