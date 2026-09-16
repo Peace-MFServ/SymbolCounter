@@ -42,15 +42,24 @@ def _ref_key(ref: str):
 # ── The numbers ───────────────────────────────────────────────────────────────
 def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
     """
-    Everything the documents need, as plain data. Prices come from the
-    products' average cost from Cin7 (already in euro); a zero or blank cost
-    means the stock has not landed yet. A product that is not in Cin7 falls
-    back to the price on the last Intec schedule it appeared on.
-    'priced_ok' says whether every line has a price.
+    Everything the documents need, as plain data. Prices on the documents are
+    the job's sell prices from the Cost Summary (product sell price, or the
+    estimator's own figure on this job, less any discount). A product with no
+    price at all leaves 'priced_ok' false.
     """
     types = {t.id: t for t in db.query(models.DoorType).filter(models.DoorType.project_id == project.id).all()}
     doors = db.query(models.Door).filter(models.Door.project_id == project.id).all()
     sets_by_id = {s.id: s for s in db.query(models.HardwareSet).all()}
+    # Sell prices as set on the job's Cost Summary (actual S.P. after discounts); blank = product file.
+    job_prices = {jp.product_id: jp for jp in db.query(models.JobPrice).filter_by(project_id=project.id).all()}
+
+    def sell_price(p):
+        jp = job_prices.get(p.id)
+        cost = jp.cost if (jp and jp.cost is not None) else (p.cost or 0.0)
+        sell = jp.sell if (jp and jp.sell is not None) else (p.sell if p.sell else cost)
+        if jp:
+            sell = sell * (1 - (jp.disc_a or 0) / 100) * (1 - (jp.disc_b or 0) / 100)
+        return round(sell, 2) if sell else None
 
     groups: dict[int, list] = {}
     no_set, excluded = [], 0
@@ -75,7 +84,7 @@ def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
         items, per_door = [], 0.0
         for it in s.items:
             p = it.product
-            price = p.cost if p.cost else (p.sell if p.sell else None)
+            price = sell_price(p)
             if price is None:
                 priced_ok = False
             else:

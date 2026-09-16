@@ -235,6 +235,20 @@ class HardwareSet(Base):
     locked_by      = relationship("User", foreign_keys=[locked_by_id])
 
 
+class JobPrice(Base):
+    """Per-job pricing for one product: the estimator's cost/sell/discounts on this quote.
+    Blank cost or sell means 'use the product file'. Intec's Cost Summary in a table."""
+    __tablename__ = "job_prices"
+    id         = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    cost       = Column(Float, nullable=True)
+    sell       = Column(Float, nullable=True)
+    disc_a     = Column(Float, default=0.0)
+    disc_b     = Column(Float, default=0.0)
+    product    = relationship("Product")
+
+
 class ProjectSet(Base):
     """A set placed on a job, even before it has doors (Intec keeps sets with 0 doors)."""
     __tablename__ = "project_sets"

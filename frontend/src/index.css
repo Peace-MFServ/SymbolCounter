@@ -1018,3 +1018,16 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 
 .readonly-bar { background: #FEF3E8; border: 1px solid #F5D9BF; border-radius: var(--radius-card); }
 .readonly-bar .btn { margin-left: auto; }
+
+/* cost summary */
+.cost-table td, .cost-table th { white-space: nowrap; }
+.cost-table .cost-name { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cost-table td.flag { background: #FBE6E4; }
+.cost-table td.shade { background: var(--bg3); }
+.cost-table td.cell-edit { cursor: text; }
+.cost-table td.cell-edit:not(.ro):hover { box-shadow: inset 0 0 0 1px var(--accent); }
+.cost-table td.cell-edit.ro { cursor: default; }
+.cost-table td.edited { box-shadow: inset 3px 0 0 var(--accent); }
+.cost-table .cell-input { width: 90px; padding: 4px 6px; font: inherit; font-size: 14px; text-align: right; border: 1px solid var(--accent); border-radius: 4px; outline: none; }
+.cost-table tfoot td { border-top: 2px solid var(--border-strong); padding: 10px 16px; }
+.cost-table td.strong { font-weight: 700; }

@@ -123,6 +123,7 @@ export function JobView({ projectId, onNavigate }) {
             { label: `Plans and door types${job.plans ? ` (${job.plans})` : ''}`, onClick: () => onNavigate('doors', { id: projectId }) },
             { label: 'Set library', onClick: () => onNavigate('sets') },
           ]} />
+          <button className="btn" onClick={() => onNavigate('cost', { id: projectId })} disabled={!job.sets.length}>Cost summary</button>
           <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })} disabled={!job.sets.length}><IconFile size={16} /> Produce schedule</button>
         </>
       } />

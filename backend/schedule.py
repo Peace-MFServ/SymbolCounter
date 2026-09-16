@@ -1450,6 +1450,134 @@ def add_doors_by_range(pid: int, payload: DoorsByRangeIn, db: Session = Depends(
     return {"added": len(refs), "skipped": []}
 
 
+# ── Cost summary: Intec's cost / markup / sell / discount / margin table ──────
+def _job_quantities(db: Session, pid: int) -> dict[int, float]:
+    """Total quantity of each product across the job: per-door qty x doors, over every set on the job."""
+    doors = db.query(models.Door).filter(models.Door.project_id == pid).all()
+    by_set: dict[int, int] = {}
+    for d in doors:
+        eff = _effective_set_id(d)
+        if eff:
+            by_set[eff] = by_set.get(eff, 0) + 1
+    for ps in db.query(models.ProjectSet).filter_by(project_id=pid).all():
+        by_set.setdefault(ps.set_id, 0)
+    qty: dict[int, float] = {}
+    for sid, n in by_set.items():
+        s = db.query(models.HardwareSet).get(sid)
+        if not s or s.archived:
+            continue
+        for it in s.items:
+            qty[it.product_id] = qty.get(it.product_id, 0) + it.qty * n
+    return qty
+
+
+def job_price_lines(db: Session, pid: int) -> list[dict]:
+    """One line per product on the job with the numbers Intec shows on the Cost Summary."""
+    qty = _job_quantities(db, pid)
+    overrides = {jp.product_id: jp for jp in db.query(models.JobPrice).filter_by(project_id=pid).all()}
+    rows = []
+    for product_id, q in qty.items():
+        p = db.query(models.Product).get(product_id)
+        if not p:
+            continue
+        jp = overrides.get(product_id)
+        cost = jp.cost if (jp and jp.cost is not None) else (p.cost or 0.0)
+        sell = jp.sell if (jp and jp.sell is not None) else (p.sell if p.sell else cost)
+        da = (jp.disc_a or 0.0) if jp else 0.0
+        db_ = (jp.disc_b or 0.0) if jp else 0.0
+        actual = sell * (1 - da / 100) * (1 - db_ / 100)
+        markup = ((sell - cost) / cost * 100) if cost else 100.0
+        margin = ((actual - cost) / actual * 100) if actual else 0.0
+        rows.append({
+            "product_id": p.id, "sku": p.sku, "name": p.name, "qty": q,
+            "cost": round(cost, 2), "markup": round(markup, 2), "sell": round(sell, 2),
+            "disc_a": da, "disc_b": db_, "actual": round(actual, 2),
+            "line_value": round(q * actual, 2), "margin": round(margin, 2),
+            "cost_edited": bool(jp and jp.cost is not None), "sell_edited": bool(jp and jp.sell is not None),
+            "product_cost": p.cost, "product_sell": p.sell,
+        })
+    rows.sort(key=lambda r: r["sku"].upper())
+    return rows
+
+
+def _cost_totals(rows: list[dict]) -> dict:
+    cost_total = sum(r["qty"] * r["cost"] for r in rows)
+    line_total = sum(r["line_value"] for r in rows)
+    return {"cost_total": round(cost_total, 2), "line_total": round(line_total, 2),
+            "markup": round((line_total - cost_total) / cost_total * 100, 2) if cost_total else 0.0,
+            "margin": round((line_total - cost_total) / line_total * 100, 2) if line_total else 0.0,
+            "lines": len(rows), "unpriced": sum(1 for r in rows if not r["cost"]), "no_qty": sum(1 for r in rows if not r["qty"])}
+
+
+class CostLineIn(BaseModel):
+    cost: Optional[float] = None; sell: Optional[float] = None; markup: Optional[float] = None
+    disc_a: Optional[float] = None; disc_b: Optional[float] = None
+
+
+class DiscountIn(BaseModel):
+    which: str = "a"; value: float = 0.0
+
+
+@router.get("/projects/{pid}/cost-summary")
+def cost_summary(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _own_project(pid, db, cu)
+    rows = job_price_lines(db, pid)
+    return {"project_id": pid, "name": p.name, "quote_no": p.quote_no or "", "rows": rows, "totals": _cost_totals(rows),
+            "can_edit": not p.owner_id or p.owner_id == cu.id}
+
+
+@router.put("/projects/{pid}/cost-summary/{product_id}")
+def set_cost_line(pid: int, product_id: int, payload: CostLineIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Change one cell. Cost, sell and discounts are stored; a markup is turned into a sell price."""
+    _edit_project(pid, db, cu)
+    prod = db.query(models.Product).get(product_id)
+    if not prod:
+        raise HTTPException(404, "Product not found")
+    jp = db.query(models.JobPrice).filter_by(project_id=pid, product_id=product_id).first()
+    if not jp:
+        jp = models.JobPrice(project_id=pid, product_id=product_id, disc_a=0.0, disc_b=0.0); db.add(jp)
+    if payload.cost is not None:
+        jp.cost = max(0.0, payload.cost)
+    if payload.markup is not None:
+        cost = jp.cost if jp.cost is not None else (prod.cost or 0.0)
+        jp.sell = round(cost * (1 + payload.markup / 100), 2)
+    if payload.sell is not None:
+        jp.sell = max(0.0, payload.sell)
+    if payload.disc_a is not None:
+        jp.disc_a = min(100.0, max(0.0, payload.disc_a))
+    if payload.disc_b is not None:
+        jp.disc_b = min(100.0, max(0.0, payload.disc_b))
+    db.commit()
+    rows = job_price_lines(db, pid)
+    return {"row": next((r for r in rows if r["product_id"] == product_id), None), "totals": _cost_totals(rows)}
+
+
+@router.post("/projects/{pid}/cost-summary/discount")
+def set_discount_all(pid: int, payload: DiscountIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Intec's 'Set' button under Disc. A / Disc. B: the same discount on every line."""
+    _edit_project(pid, db, cu)
+    field = "disc_a" if payload.which != "b" else "disc_b"
+    value = min(100.0, max(0.0, payload.value))
+    for product_id in _job_quantities(db, pid):
+        jp = db.query(models.JobPrice).filter_by(project_id=pid, product_id=product_id).first()
+        if not jp:
+            jp = models.JobPrice(project_id=pid, product_id=product_id, disc_a=0.0, disc_b=0.0); db.add(jp)
+        setattr(jp, field, value)
+    db.commit()
+    rows = job_price_lines(db, pid)
+    return {"rows": rows, "totals": _cost_totals(rows)}
+
+
+@router.post("/projects/{pid}/cost-summary/reset")
+def reset_job_prices(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Intec's 'Update Prices': drop every edit on this job and go back to the product file."""
+    _edit_project(pid, db, cu)
+    db.query(models.JobPrice).filter_by(project_id=pid).delete(synchronize_session=False)
+    db.commit()
+    rows = job_price_lines(db, pid)
+    return {"rows": rows, "totals": _cost_totals(rows)}
+
+
 # ── Locks: one person edits a set at a time ───────────────────────────────────
 @router.post("/sets/{sid}/lock")
 def lock_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
