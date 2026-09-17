@@ -204,7 +204,7 @@ export function SetsView({ onNavigate, autoImport = false }) {
                           <div className="s-actions">
                             <button className="btn btn-soft btn-row" onClick={e => { e.stopPropagation(); onNavigate('set', { id: s.id }) }}>Open</button>
                             <button className="btn btn-line btn-row" onClick={e => { e.stopPropagation(); copy(s) }}>Copy</button>
-                            <SetMenu onOpen={() => onNavigate('set', { id: s.id })} onCopy={() => copy(s)} onDelete={() => remove(s)} />
+                            <SetMenu onDelete={() => remove(s)} />
                           </div>
                         </td>
                       </tr>
@@ -278,8 +278,8 @@ function SetUses({ uses, onOpen }) {
   )
 }
 
-/* Copy and Delete out of the way, drawn on top of the page so the card cannot clip them. */
-function SetMenu({ onOpen, onCopy, onDelete }) {
+/* Deleting a set, kept behind the dots so it cannot be hit by accident. */
+function SetMenu({ onDelete }) {
   const [at, setAt] = useState(null)
   const ref = useRef()
   const pop = useRef()
@@ -305,8 +305,6 @@ function SetMenu({ onOpen, onCopy, onDelete }) {
       {at && createPortal(
         <div className="menu-list row-menu-pop" role="menu" ref={pop}
              style={{ position: 'fixed', top: at.top, right: at.right }} onClick={e => e.stopPropagation()}>
-          <button role="menuitem" onClick={pick(onOpen)}>Open set</button>
-          <button role="menuitem" onClick={pick(onCopy)}>Copy set</button>
           <button role="menuitem" className="danger" onClick={pick(onDelete)}>Delete set</button>
         </div>, document.body)}
     </div>

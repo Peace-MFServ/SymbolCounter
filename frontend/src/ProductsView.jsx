@@ -260,7 +260,7 @@ export function ProductsView({ onNavigate }) {
                         <td className="num">
                           <div className="p-actions">
                             <button className="btn btn-soft btn-edit" onClick={e => { e.stopPropagation(); setEditing(p) }}>Edit</button>
-                            <ProdMenu onEdit={() => setEditing(p)} onRemove={() => removeProduct(p)} />
+                            <ProdMenu onRemove={() => removeProduct(p)} />
                           </div>
                         </td>
                       </tr>
@@ -380,8 +380,8 @@ export function Pager({ page, pages, onGo }) {
   )
 }
 
-/* The row's spare actions, drawn on top of the page so the card cannot clip them. */
-function ProdMenu({ onEdit, onRemove }) {
+/* Removing a product, kept behind the dots so it cannot be hit by accident. */
+function ProdMenu({ onRemove }) {
   const [at, setAt] = useState(null)
   const ref = useRef()
   const pop = useRef()
@@ -407,7 +407,6 @@ function ProdMenu({ onEdit, onRemove }) {
       {at && createPortal(
         <div className="menu-list row-menu-pop" role="menu" ref={pop}
              style={{ position: 'fixed', top: at.top, right: at.right }} onClick={e => e.stopPropagation()}>
-          <button role="menuitem" onClick={pick(onEdit)}>Edit details</button>
           <button role="menuitem" className="danger" onClick={pick(onRemove)}>Remove product</button>
         </div>, document.body)}
     </div>
