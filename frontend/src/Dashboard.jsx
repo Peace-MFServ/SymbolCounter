@@ -212,7 +212,7 @@ function JobTable({ rows, showOwner = false, onOpen, canDelete, onDelete }) {
         </thead>
         <tbody>
           {rows.map(p => (
-            <tr key={p.id} onClick={() => onOpen(p)}>
+            <tr key={p.id} {...rowOpen(() => onOpen(p))}>
               <td>
                 <div className="job-name">{p.name}</div>
                 <div className="job-meta">
@@ -272,6 +272,18 @@ function RowMenu({ onOpen, onDelete }) {
 }
 
 const ownerKey = p => String(p.owner_id ?? `n:${p.owner_name || ''}`)
+/* A row opens on click, but not when the click was really someone picking out
+   text to copy: a drag across it, or a double click on a word. */
+let downAt = { x: 0, y: 0 }
+export const rowOpen = fn => ({
+  onMouseDown: e => { downAt = { x: e.clientX, y: e.clientY } },
+  onClick: e => {
+    if (e.detail > 1) return
+    if (Math.abs(e.clientX - downAt.x) > 4 || Math.abs(e.clientY - downAt.y) > 4) return
+    fn(e)
+  },
+})
+
 export const place = el => {
   const r = el.getBoundingClientRect()
   return { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) }

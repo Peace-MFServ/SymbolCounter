@@ -157,7 +157,7 @@ kbd {
 .form-control:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
 .form-control::placeholder { color: var(--text3); }
 
-select.form-control { cursor: pointer; }
+select.form-control { cursor: pointer; height: 36px; }
 
 /* ── Spinner ─────────────────────────────────────────────────────────────── */
 .spinner {
@@ -638,6 +638,9 @@ select.form-control { cursor: pointer; }
 .prod-table tbody tr { cursor: pointer; }
 .prod-table td:nth-child(2) { max-width: 420px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+/* a label that wraps must not push its field out of line with its neighbours */
+.form-grid > .form-group { display: flex; flex-direction: column; }
+.form-grid > .form-group > .form-control { margin-top: auto; }
 .form-grid.three { grid-template-columns: 1fr 1fr 1fr; }
 .modal-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
 .btn.danger, .btn-ghost.danger { color: var(--red); }
@@ -1244,9 +1247,9 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .th-sort { border: 0; background: transparent; padding: 0; font: inherit; font-size: 12px; font-weight: 700;
   letter-spacing: .03em; text-transform: uppercase; color: #59677A; cursor: pointer; white-space: nowrap; }
 .th-sort:hover { color: #101828; }
-.prod-grid tbody tr { cursor: pointer; }
 .prod-grid tbody tr + tr td { border-top: 1px solid #E8EDF3; }
 .prod-grid tbody tr:hover td { background: #F8FAFC; }
+.prod-grid tbody td { user-select: text; }
 .prod-grid tbody tr.no-hover { cursor: default; }
 .prod-grid tbody tr.no-hover:hover td { background: #fff; }
 .prod-grid td { height: 92px; padding: 10px 16px; vertical-align: middle; }

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { apiFetch } from './api'
 import { showToast } from './toast'
-import { Topbar, place } from './Dashboard'
+import { Topbar, place, rowOpen } from './Dashboard'
 import { IconTrash, IconSearch, IconPlus, IconFile, IconDoc } from './icons'
 import { TYPE_NAMES, groupItems, money } from './JobView'
 import { useLeaveGuard } from './unsaved'
@@ -187,7 +187,7 @@ export function SetsView({ onNavigate, autoImport = false }) {
                   </thead>
                   <tbody>
                     {rows.map(s => (
-                      <tr key={s.id} onClick={() => onNavigate('set', { id: s.id })}>
+                      <tr key={s.id} {...rowOpen(() => onNavigate('set', { id: s.id }))}>
                         <td>
                           <div className="s-name">{s.code} <span>{s.name}</span></div>
                           <div className="s-meta">

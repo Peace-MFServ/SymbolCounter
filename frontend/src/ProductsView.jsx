@@ -235,7 +235,7 @@ export function ProductsView({ onNavigate }) {
                   </thead>
                   <tbody>
                     {rows.map(p => (
-                      <tr key={p.id} onClick={() => setEditing(p)}>
+                      <tr key={p.id}>
                         <td><ProdThumb url={p.image_url} onUpload={() => pickPhoto(p)} /></td>
                         <td className="p-code">{p.sku}</td>
                         <td>
@@ -476,7 +476,7 @@ function ProductModal({ product, categories, onClose, onSaved }) {
           </div>
           <div className="form-group"><label>Name</label><input className="form-control" value={f.name} onChange={set('name')} required /></div>
           <div className="form-grid three">
-            <div className="form-group"><label>Average cost <span className="muted">(EUR, from Cin7)</span></label><input className="form-control" type="number" step="0.01" value={f.cost} onChange={set('cost')} placeholder="not in yet" /></div>
+            <div className="form-group"><label>Average cost <span className="muted">(from Cin7)</span></label><input className="form-control" type="number" step="0.01" value={f.cost} onChange={set('cost')} placeholder="not in yet" /></div>
             <div className="form-group"><label>Last Intec price <span className="muted">(fallback)</span></label><input className="form-control" type="number" step="0.01" value={f.sell} onChange={set('sell')} placeholder="—" /></div>
             <div className="form-group"><label>Unit</label><input className="form-control" value={f.unit} onChange={set('unit')} /></div>
           </div>
