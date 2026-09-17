@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { apiFetch } from './api'
 import { showToast } from './toast'
 import { useAuth } from './auth'
 import logo from './assets/mf-logo.jpeg'
-import { IconRight, IconPlus } from './icons'
+import { IconRight, IconPlus, IconSearch, IconChevron, IconBars } from './icons'
 import { useLeaveGuard } from './unsaved'
 
 export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false, crumbsRight = null }) {
@@ -56,6 +57,9 @@ export function Dashboard({ onNavigate, q = '' }) {
   const [projects, setProjects] = useState([])
   const [loading,  setLoading]  = useState(true)
   const [showNew,  setShowNew]  = useState(false)
+  const [view,     setView]     = useState('owner')     // 'owner' | 'all'
+  const [search,   setSearch]   = useState(q)
+  const [collapsed, setCollapsed] = useState({})        // owner key -> hidden
 
   useEffect(() => {
     apiFetch('/projects')
@@ -63,103 +67,115 @@ export function Dashboard({ onNavigate, q = '' }) {
       .catch(() => setLoading(false))
   }, [])
 
-  const deleteProject = async (e, id) => {
-    e.stopPropagation()
+  const deleteProject = async id => {
     if (!confirm('Delete this project and all its drawings?')) return
     await apiFetch(`/projects/${id}`, { method: 'DELETE' })
     setProjects(ps => ps.filter(p => p.id !== id))
     showToast('Project deleted', 'info')
   }
 
-  const totalDrawings = projects.reduce((s, p) => s + (p.drawing_count || 0), 0)
-  const totalVerified = projects.reduce((s, p) => s + (p.verified_count || 0), 0)
+  const shown = useMemo(() => {
+    const n = search.trim().toLowerCase()
+    if (!n) return projects
+    return projects.filter(p => [p.name, p.client, p.site, p.quote_no, p.owner_name]
+      .filter(Boolean).join(' ').toLowerCase().includes(n))
+  }, [projects, search])
+
+  // one card per owner, in the order the jobs come back
+  const groups = useMemo(() => {
+    const by = new Map()
+    for (const p of shown) {
+      const key = String(p.owner_id ?? `n:${p.owner_name || ''}`)
+      if (!by.has(key)) by.set(key, { key, name: p.owner_name || 'No owner', items: [] })
+      by.get(key).items.push(p)
+    }
+    return [...by.values()]
+  }, [shown])
+
+  const open = p => onNavigate(openView(p), { id: p.id })
+  const canDelete = p => !p.owner_id || p.owner_id === user?.id
+  const drawings = shown.reduce((s, p) => s + (p.drawing_count || 0), 0)
+  const verified = shown.reduce((s, p) => s + (p.verified_count || 0), 0)
 
   return (
     <>
       <Topbar onNavigate={onNavigate} />
-      <div className="page-wrap">
-        <div className="page-header">
-          <div>
-            <h1>Jobs</h1>
-            <p className="lede">{q ? `Jobs matching “${q}”` : `${projects.length} job${projects.length !== 1 ? 's' : ''}`}</p>
-          </div>
-        </div>
-
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner spinner-lg" /></div>
-        ) : (
-          <div className="split">
-            <div>
-              {projects.length === 0 ? (
-                <div className="empty-state">
-                  <h2>No projects yet.</h2>
-                  <p>Create a job to start its door schedule.</p>
-                  <button className="btn btn-primary" onClick={() => setShowNew(true)}>
-                    Create your first project
-                  </button>
-                </div>
-              ) : (
-                <table className="ledger">
-                  <thead>
-                    <tr>
-                      <th>Job</th>
-                      <th>Kind</th>
-                      <th style={{ textAlign: 'right' }}>Drawings</th>
-                      <th style={{ textAlign: 'right' }}>Doors</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {projects.filter(p => !q || [p.name, p.client, p.site, p.quote_no].join(' ').toLowerCase().includes(q.toLowerCase())).map(p => (
-                      <tr key={p.id} onClick={() => onNavigate(openView(p), { id: p.id })}>
-                        <td>
-                          <div className="proj-name">{p.name}</div>
-                          <div className="proj-meta">
-                            {[p.quote_no && `Quote ${p.quote_no}`, p.client, p.site].filter(Boolean).join(' · ') || 'No client / site set'}
-                            {p.owner_name ? ` · ${p.owner_name}` : ''}
-                          </div>
-                        </td>
-                        <td><span className={`badge ${p.kind === 'doors' ? 'badge-orange' : 'badge-grey'}`}>{p.kind === 'doors' ? 'Door schedule' : 'Device count'}</span></td>
-                        <td className="count-num">{p.drawing_count}</td>
-                        <td className="count-num">
-                          {p.door_count || <span className="muted">—</span>}
-                          {p.door_types_to_decide > 0 && <span className="of" title="Door types still to decide"> {p.door_types_to_decide} to decide</span>}
-                        </td>
-                        <td style={{ textAlign: 'right', width: 90 }}>
-                          {(!p.owner_id || p.owner_id === user?.id) && (
-                            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }}
-                                    onClick={e => deleteProject(e, p.id)}>Delete</button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+      <div className="page-wrap jobs-wrap">
+        <div className="jobs-grid">
+          <div className="jobs-main">
+            <div className="jobs-head">
+              <h1>Jobs</h1>
+              <p className="lede">Every job in the office, in one list.</p>
             </div>
 
-            <aside className="rail">
-              <button className="btn btn-primary btn-lg" onClick={() => setShowNew(true)}>
-                <IconPlus size={16} /> New job
-              </button>
-              <div className="rail-panel">
-                <h3>At a glance</h3>
-                <div className="total-row"><span>Projects</span><strong>{projects.length}</strong></div>
-                <div className="total-row"><span>Drawings</span><strong>{totalDrawings}</strong></div>
-                <div className="total-row" style={{ borderBottom: 0 }}><span>Verified</span><strong>{totalVerified}</strong></div>
-              </div>
-              {projects.some(p => p.kind === 'symbols') && (
-                <div className="rail-panel">
-                  <h3>Device counting</h3>
-                  <div className="rail-links">
-                    <a onClick={() => onNavigate('accuracy')}>Accuracy scoreboard</a>
-                    <a onClick={() => onNavigate('templates')}>Template library</a>
-                  </div>
+            {!loading && projects.length > 0 && (
+              <div className="jobs-controls">
+                <div className="seg">
+                  <button className={view === 'owner' ? 'on' : ''} onClick={() => setView('owner')}>By owner</button>
+                  <button className={view === 'all' ? 'on' : ''} onClick={() => setView('all')}>All projects</button>
                 </div>
-              )}
-            </aside>
+                <label className="jobs-search">
+                  <IconSearch size={17} />
+                  <input value={search} onChange={e => setSearch(e.target.value)}
+                         placeholder="Search jobs, quotes, or clients..." />
+                </label>
+              </div>
+            )}
+
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner spinner-lg" /></div>
+            ) : projects.length === 0 ? (
+              <div className="empty-state">
+                <h2>No projects yet.</h2>
+                <p>Create a job to start its door schedule.</p>
+                <button className="btn btn-primary" onClick={() => setShowNew(true)}>Create your first project</button>
+              </div>
+            ) : shown.length === 0 ? (
+              <div className="owner-card"><p className="jobs-none">No jobs match “{search}”.</p></div>
+            ) : view === 'all' ? (
+              <div className="owner-card">
+                <JobTable rows={shown} showOwner onOpen={open} canDelete={canDelete} onDelete={deleteProject} />
+              </div>
+            ) : groups.map(g => (
+              <div className="owner-card" key={g.key}>
+                <div className="owner-head" onClick={() => setCollapsed(c => ({ ...c, [g.key]: !c[g.key] }))}>
+                  <span className="owner-avatar" style={avatarStyle(g.name)}>{initials(g.name)}</span>
+                  <div className="owner-who">
+                    <strong>{g.name}</strong>
+                    <span>{g.items.length} project{g.items.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <button className="owner-toggle" aria-label={collapsed[g.key] ? 'Show projects' : 'Hide projects'}>
+                    <IconChevron size={18} style={{ transform: collapsed[g.key] ? 'none' : 'rotate(180deg)' }} />
+                  </button>
+                </div>
+                {!collapsed[g.key] && (
+                  <JobTable rows={g.items} onOpen={open} canDelete={canDelete} onDelete={deleteProject} />
+                )}
+              </div>
+            ))}
           </div>
-        )}
+
+          <aside className="jobs-rail">
+            <button className="btn btn-primary btn-lg jobs-new" onClick={() => setShowNew(true)}>
+              <IconPlus size={16} /> New job
+            </button>
+            <div className="glance-card">
+              <h3><IconBars size={18} /> At a glance</h3>
+              <div className="glance-row"><span>Projects</span><strong>{shown.length}</strong></div>
+              <div className="glance-row"><span>Drawings</span><strong>{drawings}</strong></div>
+              <div className="glance-row"><span>Verified</span><strong>{verified}</strong></div>
+            </div>
+            {projects.some(p => p.kind === 'symbols') && (
+              <div className="glance-card">
+                <h3>Device counting</h3>
+                <div className="rail-links">
+                  <a onClick={() => onNavigate('accuracy')}>Accuracy scoreboard</a>
+                  <a onClick={() => onNavigate('templates')}>Template library</a>
+                </div>
+              </div>
+            )}
+          </aside>
+        </div>
       </div>
 
       {showNew && (
@@ -174,6 +190,90 @@ export function Dashboard({ onNavigate, q = '' }) {
       )}
     </>
   )
+}
+
+/* The project table that sits inside every owner card. */
+function JobTable({ rows, showOwner = false, onOpen, canDelete, onDelete }) {
+  return (
+    <div className="job-table-scroll">
+      <table className="job-table">
+        <colgroup><col style={{ width: '40%' }} /><col style={{ width: '20%' }} /><col style={{ width: '13%' }} />
+                  <col style={{ width: '13%' }} /><col /></colgroup>
+        <thead>
+          <tr><th>Project</th><th>Kind</th><th className="num">Drawings</th><th className="num">Doors</th><th className="num">Actions</th></tr>
+        </thead>
+        <tbody>
+          {rows.map(p => (
+            <tr key={p.id} onClick={() => onOpen(p)}>
+              <td>
+                <div className="job-name">{p.name}</div>
+                <div className="job-meta">
+                  {[p.quote_no && `Quote ${p.quote_no}`, p.client, p.site, showOwner ? p.owner_name : '']
+                    .filter(Boolean).join(' · ') || 'No client or site set'}
+                </div>
+              </td>
+              <td><span className={`kind-pill ${p.kind === 'doors' ? 'doors' : 'devices'}`}>{p.kind === 'doors' ? 'Door schedule' : 'Device count'}</span></td>
+              <td className="num job-num">{p.drawing_count || <span className="muted">—</span>}</td>
+              <td className="num job-num">
+                {p.door_count || <span className="muted">—</span>}
+                {p.door_types_to_decide > 0 && <span className="of" title="Door types still to decide"> {p.door_types_to_decide} to decide</span>}
+              </td>
+              <td className="num">
+                <RowMenu onOpen={() => onOpen(p)} onDelete={canDelete(p) ? () => onDelete(p.id) : null} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function RowMenu({ onOpen, onDelete }) {
+  const [at, setAt] = useState(null)          // where to draw it, or null when shut
+  const ref = useRef()          // the dots button
+  const pop = useRef()          // the menu, drawn on top of the page
+  useEffect(() => {
+    if (!at) return
+    const away = e => {
+      const inside = (ref.current && ref.current.contains(e.target)) || (pop.current && pop.current.contains(e.target))
+      if (!inside) setAt(null)
+    }
+    const key = e => { if (e.key === 'Escape') setAt(null) }
+    const follow = () => { if (ref.current) setAt(place(ref.current)) }   // stay with the row while the page moves
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', key)
+    window.addEventListener('scroll', follow, true); window.addEventListener('resize', follow)
+    return () => {
+      document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key)
+      window.removeEventListener('scroll', follow, true); window.removeEventListener('resize', follow)
+    }
+  }, [!!at])
+  const toggle = e => setAt(at ? null : place(e.currentTarget))
+  const pick = fn => e => { e.stopPropagation(); setAt(null); fn() }
+  return (
+    <div className="row-menu" ref={ref} onClick={e => e.stopPropagation()}>
+      <button className="row-dots" aria-label="Actions" onClick={toggle}>···</button>
+      {at && createPortal(
+        <div className="menu-list row-menu-pop" role="menu" ref={pop}
+             style={{ position: 'fixed', top: at.top, right: at.right }} onClick={e => e.stopPropagation()}>
+          <button role="menuitem" onClick={pick(onOpen)}>Open</button>
+          {onDelete && <button role="menuitem" className="danger" onClick={pick(onDelete)}>Delete</button>}
+        </div>, document.body)}
+    </div>
+  )
+}
+
+const place = el => {
+  const r = el.getBoundingClientRect()
+  return { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) }
+}
+const initials = name => (name || '?').split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
+const AVATARS = [['#E8EEF9', '#2A4E86'], ['#E7F1EA', '#2C6B47'], ['#F1EAF7', '#5B3B78'], ['#FBEEE6', '#8A4A1C'], ['#E9EFF2', '#3C5866']]
+const avatarStyle = name => {
+  let h = 0
+  for (const ch of name || '') h = (h * 31 + ch.charCodeAt(0)) % 997
+  const [bg, fg] = AVATARS[h % AVATARS.length]
+  return { background: bg, color: fg }
 }
 
 const openView = p => (p.kind === 'doors' ? 'job' : 'project')
