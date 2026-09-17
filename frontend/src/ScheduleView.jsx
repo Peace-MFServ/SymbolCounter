@@ -154,9 +154,8 @@ export function ScheduleView({ projectId, onNavigate }) {
 
             <div className="rail-panel" style={{ marginTop: 20 }}>
               <h3>Notes</h3>
-              <p className="muted" style={{ fontSize: 13, marginBottom: 10 }}>Anything typed here prints on the Notes page of the schedule PDF.</p>
               <textarea className="form-control notes-box" rows={7} value={notes ?? ''} disabled={data.can_edit === false}
-                        placeholder={data.can_edit === false ? 'Only the job owner can change the notes.' : 'e.g. All ironmongery to be SSS unless noted.\nCylinders to be master keyed to site suite.'}
+                        placeholder={data.can_edit === false ? 'Only the job owner can change the notes.' : 'Add notes to this job'}
                         onChange={e => setNotes(e.target.value)} />
               {data.can_edit !== false && (
                 <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={saveNotes} disabled={busy === 'notes' || !notesDirty}>
