@@ -252,6 +252,8 @@ export function SetEditor({ id, projectId, onNavigate }) {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
             <table className="ledger set-items soft">
               <thead><tr><th>Code</th><th>Product</th><th className="num">Per door</th><th className="num">Price</th><th className="num">Value</th><th></th></tr></thead>
               <tbody>
@@ -270,9 +272,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
                 <tfoot><tr><td colSpan={3} /><td className="num" style={{ fontWeight: 600 }}>Set value</td><td className="num" style={{ fontWeight: 600 }}>{priced ? money(value) : <span className="muted" style={{ fontWeight: 400 }}>not all priced</span>}</td><td /></tr></tfoot>
               )}
             </table>
-                {q && matches.length === 0 && <div className="hint" style={{ marginTop: 6 }}>No product matches. Add it under Products first.</div>}
-              </div>
-            )}
+            {!readOnly && q && matches.length === 0 && <div className="hint" style={{ marginTop: 6 }}>No product matches. Add it under Products first.</div>}
           </div>
           <aside>
             <div className="rail-panel">

@@ -1078,3 +1078,10 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 
 .match-new { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 180px 200px auto; gap: 8px; align-items: center; padding-top: 10px; border-top: 1px solid #DDE3EA; margin-top: 4px; }
 .match-new .form-control { padding: 7px 10px; font-size: 13.5px; }
+
+/* product dropdowns keep a readable width even inside a narrow table cell */
+.typeahead-list { right: auto; width: max-content; min-width: 100%; max-width: min(560px, 70vw); }
+.typeahead-list button { grid-template-columns: minmax(92px, max-content) minmax(140px, 1fr) auto; gap: 12px; align-items: start; }
+.typeahead-list .mono { white-space: nowrap; }
+.typeahead-list .ta-name { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+.typeahead-list button > .muted { white-space: nowrap; font-size: 12.5px; }
