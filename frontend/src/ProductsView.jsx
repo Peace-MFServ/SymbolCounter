@@ -73,7 +73,7 @@ export function ProductsView({ onNavigate }) {
           <div>
             <h1>Products</h1>
             <p className="lede">
-              {products.length} products. Prices are Cin7's average cost in euro; a blank one has not landed yet.
+              {products.length} products. Prices are the Cin7 average cost in euro.
             </p>
           </div>
           <div className="spacer" />
@@ -98,7 +98,7 @@ export function ProductsView({ onNavigate }) {
         ) : products.length === 0 ? (
           <div className="empty-state">
             <h2>No products yet.</h2>
-            <p>Export the Products Price List from Cin7 as an Excel file and import it here. Codes, names, categories and costs come across; photos are added as you go.</p>
+            <p>Import the Cin7 Products Price List to load the catalogue.</p>
             <button className="btn btn-primary" onClick={() => fileRef.current.click()}>Import from Cin7</button>
           </div>
         ) : (
@@ -233,7 +233,7 @@ function ProductModal({ product, categories, onClose, onSaved }) {
             <div className="form-group"><label>Unit</label><input className="form-control" value={f.unit} onChange={set('unit')} /></div>
           </div>
           <div className="form-grid">
-            <div className="form-group"><label>Type <span className="muted">(where it sits on a set)</span></label>
+            <div className="form-group"><label>Type</label>
               <select className="form-control" value={f.product_type} onChange={set('product_type')}>
                 {TYPE_ORDER.map(t => <option key={t || 'none'} value={t}>{t ? `${t} ${TYPE_NAMES[t]}` : 'Not set'}</option>)}
               </select>

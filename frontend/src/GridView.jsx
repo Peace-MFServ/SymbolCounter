@@ -25,7 +25,7 @@ export function GridView({ projectId, onNavigate }) {
       <Topbar crumbs={crumbs} onNavigate={onNavigate} />
       <div className="page-wrap wide">
         <div className="page-header">
-          <div><h1>Products by set</h1><p className="lede">{g.sets.length} set{g.sets.length !== 1 ? 's' : ''}, {g.products.length} products, {g.doors_total} doors. Each cell is the quantity per door.</p></div>
+          <div><h1>Products by set</h1><p className="lede">{g.sets.length} set{g.sets.length !== 1 ? 's' : ''}, {g.products.length} products, {g.doors_total} doors</p></div>
           <div className="spacer" />
           <div className="actions"><button className="btn" onClick={() => onNavigate('job', { id: projectId })}>Back to job</button></div>
         </div>

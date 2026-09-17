@@ -81,7 +81,7 @@ export function Dashboard({ onNavigate, q = '' }) {
         <div className="page-header">
           <div>
             <h1>Jobs</h1>
-            <p className="lede">{q ? `Jobs matching “${q}”.` : 'Every job in the office, in one list.'}</p>
+            <p className="lede">{q ? `Jobs matching “${q}”` : `${projects.length} job${projects.length !== 1 ? 's' : ''}`}</p>
           </div>
         </div>
 
@@ -93,10 +93,7 @@ export function Dashboard({ onNavigate, q = '' }) {
               {projects.length === 0 ? (
                 <div className="empty-state">
                   <h2>No projects yet.</h2>
-                  <p>
-                    A project is one job. For a door schedule, drop the architect's floor plans in and
-                    the doors are read off them. For a device count, drop the services drawings in.
-                  </p>
+                  <p>Create a job to start its door schedule.</p>
                   <button className="btn btn-primary" onClick={() => setShowNew(true)}>
                     Create your first project
                   </button>

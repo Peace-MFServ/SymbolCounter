@@ -168,7 +168,7 @@ export function JobView({ projectId, onNavigate }) {
             {mine && (
               <div className="side-block">
                 <button className="link-btn strong" onClick={() => goNav('set', { id: 'new', projectId })}>New set for this job</button>
-                <p className="muted">Build one from scratch. It stays on this job only.</p>
+                <p className="muted">Stays on this job only.</p>
               </div>
             )}
             {mine && job.types_to_decide > 0 && (
@@ -263,7 +263,7 @@ function SetChooser({ library, onJob, onPick, onCancel, onDelete }) {
         <span className="spacer" />
         <span className="muted">{shown.length} set{shown.length !== 1 ? 's' : ''}</span>
       </div>
-      {library.length === 0 && <p className="muted" style={{ marginTop: 16 }}>The set library is empty. Import Evan's set file under Sets, or build a new set for this job.</p>}
+      {library.length === 0 && <p className="muted" style={{ marginTop: 16 }}>No sets in the library yet. Add one under Sets.</p>}
       {library.length > 0 && shown.length === 0 && <p className="muted" style={{ marginTop: 16 }}>No sets match.</p>}
       <div className="lib-pick">
         {shown.map(s => {
@@ -420,7 +420,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
                 ))}
               </React.Fragment>
             ))}
-            {s.items.length === 0 && <tr><td colSpan={5} className="muted" style={{ padding: 18 }}>No products in this set yet. Edit set to add them.</td></tr>}
+            {s.items.length === 0 && <tr><td colSpan={5} className="muted" style={{ padding: 18 }}>No products in this set.</td></tr>}
           </tbody>
           <tfoot>
             <tr><td colSpan={3} /><td className="num">Set value</td><td className="num strong">{s.value_per_door != null ? money(s.value_per_door) : <span className="muted">not all priced</span>}</td></tr>

@@ -252,19 +252,19 @@ export function DoorsView({ projectId, onNavigate }) {
               <div className="suggest-bar">
                 <div>
                   <strong>{summary.suggestions} door type{summary.suggestions !== 1 ? 's' : ''} match{summary.suggestions === 1 ? 'es' : ''} sets used before.</strong>
-                  <span className="muted"> Suggestions are marked in the table. Apply them all, or take them one at a time.</span>
+                  
                 </div>
                 <button className="btn btn-sm" onClick={applyAll} disabled={busy === 'apply'}>{busy === 'apply' ? <span className="spinner" /> : 'Apply all'}</button>
               </div>
             )}
 
             {(types.length > 0 || summary.untyped_doors > 0) && decided === 0 && summary.untyped_with_set === 0 && summary.sets_available > 0 && (
-              <p className="step-hint">Step 2: for each kind of door below, choose the hardware set that goes on it. Every door of that kind gets the set.</p>
+              <p className="step-hint">Choose the hardware set for each kind of door.</p>
             )}
             {(types.length > 0 || summary.untyped_doors > 0) && summary.sets_available === 0 && (
               <div className="suggest-bar">
                 <div><strong>There are no hardware sets yet, so there is nothing to choose.</strong>
-                  <span className="muted"> Import an old Intec schedule to load the sets Evan already uses, or build one by hand.</span></div>
+                  <span className="muted"> Import an old Intec schedule, or build a set by hand.</span></div>
                 <button className="btn btn-sm" onClick={() => onNavigate('sets', { importIntec: true })}>Import Intec schedule</button>
               </div>
             )}

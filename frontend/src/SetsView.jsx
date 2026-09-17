@@ -67,7 +67,7 @@ export function SetsView({ onNavigate, autoImport = false }) {
       <Topbar crumbs={[{ label: 'Sets' }]} onNavigate={onNavigate} active="sets" />
       <div className="page-wrap">
         <div className="page-header">
-          <div><h1>Standard sets</h1><p className="lede">The hardware for each kind of door, built once and put on every job that has that door.</p></div>
+          <div><h1>Standard sets</h1><p className="lede">{sets.length} set{sets.length !== 1 ? 's' : ''}</p></div>
           <div className="spacer" />
           <div className="actions">
             <input ref={intecRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { importIntec(e.target.files); e.target.value = '' }} />
@@ -234,7 +234,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
           <div className="set-title">
             <input className="set-code" value={code} onChange={e => { setCode(e.target.value); setDirty(true) }} placeholder="MF 01" disabled={readOnly} />
             <input className="set-name" value={name} onChange={e => { setName(e.target.value); setDirty(true) }} placeholder="Int Sgl Bathroom Doors FR" disabled={readOnly} />
-            <input className="form-control set-desc" value={desc} onChange={e => { setDesc(e.target.value); setDirty(true) }} placeholder="One line on where this set is used" disabled={readOnly} />
+            <input className="form-control set-desc" value={desc} onChange={e => { setDesc(e.target.value); setDirty(true) }} placeholder="Description (optional)" disabled={readOnly} />
             <label className="check"><input type="checkbox" checked={fire} onChange={e => { setFire(e.target.checked); setDirty(true) }} disabled={readOnly} /> Fire rated</label>
           </div>
           <div className="spacer" />
@@ -274,7 +274,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
                     ))}
                   </React.Fragment>
                 ))}
-                {items.length === 0 && <tr><td colSpan={6} className="muted" style={{ padding: 24 }}>No products yet. Use the box above to add the first one.</td></tr>}
+                {items.length === 0 && <tr><td colSpan={6} className="muted" style={{ padding: 24 }}>No products yet.</td></tr>}
               </tbody>
               {items.length > 0 && (
                 <tfoot><tr><td colSpan={3} /><td className="num" style={{ fontWeight: 600 }}>Set value</td><td className="num" style={{ fontWeight: 600 }}>{priced ? money(value) : <span className="muted" style={{ fontWeight: 400 }}>not all priced</span>}</td><td /></tr></tfoot>

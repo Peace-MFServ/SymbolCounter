@@ -116,7 +116,7 @@ export function ScheduleView({ projectId, onNavigate }) {
             {nothing ? (
               <div className="empty-state">
                 <h2>No sets assigned yet.</h2>
-                <p>Go to Doors and pick a hardware set for each door type. The schedule builds itself from those choices.</p>
+                <p>Add a hardware set to each door type first.</p>
                 <button className="btn btn-primary" onClick={() => onNavigate('doors', { id: projectId })}>Go to doors</button>
               </div>
             ) : data.sets.map(s => <SetCard key={s.id} s={s} priced={priced} onNavigate={onNavigate} onPhoto={load} />)}
@@ -223,7 +223,7 @@ function PackingModal({ projectId, data, stem, onClose }) {
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 720 }}>
         <h2>Packing list</h2>
-        <p className="muted" style={{ marginTop: -6 }}>Tick the doors going out in this delivery. Leave all unticked for every door.</p>
+        <p className="muted" style={{ marginTop: -6 }}>Tick the doors in this delivery. None ticked means every door.</p>
         <div className="form-grid">
           <div className="form-group"><label>Deliver to</label><input className="form-control" value={deliverTo} onChange={e => setDeliverTo(e.target.value)} placeholder="Site office, Pleasants Street" /></div>
           <div className="form-group"><label>Your ref</label><input className="form-control" value={yourRef} onChange={e => setYourRef(e.target.value)} placeholder="Client's order number" /></div>

@@ -61,7 +61,7 @@ export function MatchImagesView({ onNavigate }) {
         <div className="page-header">
           <div>
             <h1>Match images</h1>
-            <p className="lede">{total} picture{total !== 1 ? 's' : ''} waiting. The guess comes from the words in the file name. Accept it, pick another product, or skip the picture.</p>
+            <p className="lede">{total} picture{total !== 1 ? 's' : ''} waiting</p>
           </div>
           <div className="spacer" />
           <div className="actions">
@@ -71,7 +71,7 @@ export function MatchImagesView({ onNavigate }) {
             <button className="btn" onClick={() => onNavigate('products')}>Back to products</button>
           </div>
         </div>
-        {items.length === 0 ? <div className="empty-state"><h2>Nothing waiting.</h2><p>Import a zip of pictures under Products and anything the codes don't match ends up here.</p></div> : (
+        {items.length === 0 ? <div className="empty-state"><h2>Nothing waiting.</h2><p>Pictures with no matching product code land here after an image import.</p></div> : (
           <>
             <div className="match-list">
               {items.map(it => <MatchRow key={it.file} it={it} products={products} onAssign={pid => assign(it, pid)} onSkip={() => skip(it)}
@@ -120,7 +120,7 @@ function MatchRow({ it, products, onAssign, onSkip, onCreated }) {
             <div><strong>{s.sku}</strong> <span className="muted">{s.name}</span></div>
             <div className="match-meta"><span className={`badge ${s.score >= 0.9 ? 'badge-green' : 'badge-grey'}`}>{conf}</span>{s.has_image && <span className="muted"> already has a picture, this would replace it</span>}</div>
           </>
-        ) : <span className="muted">No idea from the name. Search for the product.</span>}
+        ) : <span className="muted">No match from the file name. Search for the product.</span>}
         <div className="typeahead" style={{ marginTop: 8 }}>
           <input className="form-control" placeholder="Or search a product code or name" value={q} onChange={e => setQ(e.target.value)}
                  onKeyDown={e => { if (e.key === 'Enter' && matches[0]) { e.preventDefault(); onAssign(matches[0].id) } if (e.key === 'Escape') setQ('') }} />

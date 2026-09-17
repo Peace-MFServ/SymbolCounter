@@ -67,10 +67,7 @@ function AuthHero() {
       <div className="auth-brand"><img src={logo} alt="MF Services" /></div>
       <h1>Door Schedules</h1>
       <div className="auth-rule" />
-      <p>
-        Ironmongery schedules for every job: standard sets, doors, and the
-        schedule PDF. Device counts from services drawings when a job needs them.
-      </p>
+      <p>Standard sets, doors and schedule documents for every job.</p>
     </section>
   )
 }
