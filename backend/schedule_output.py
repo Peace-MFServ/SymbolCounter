@@ -388,24 +388,42 @@ class SchedulePDF(FPDF):
             self._navy(); self.set_xy(150, y); self.cell(42, 6, _money(self.data["total"]), align="R"); self._ink()
 
     def notes_page(self):
-        """What the estimator typed on the schedule screen, then ruled space for the rest."""
+        """Ruled paper: what the estimator typed is written on the lines, the rest stay blank."""
+        STEP = 8.0                                   # space between rules
+        text = (self.data["project"].get("notes") or "").strip()
         self.add_page()
         self.band("Notes")
-        text = (self.data["project"].get("notes") or "").strip()
-        if text:
-            self.set_y(self.get_y() + 6)
-            self.set_font("Helvetica", "", 9.5); self._ink()
-            for para in text.splitlines():
-                para = para.rstrip()
-                if not para:
-                    self.set_y(self.get_y() + 3); continue
-                self._need(6)
-                self.set_x(18); self.multi_cell(174, 5, _latin(para))
-            self.set_y(self.get_y() + 8)
-        self.set_draw_color(*RULE)
-        y = max(self.get_y(), 60)
-        while y < self.h - 40:
-            self.line(18, y, 192, y); y += 8
+
+        # wrap the note to the page width, one entry per printed line
+        self.set_font("Helvetica", "", 9.5)
+        self.set_x(18)
+        lines: list[str] = []
+        for para in text.splitlines():
+            para = para.strip()
+            if not para:
+                lines.append("")                     # a blank line stays blank
+                continue
+            lines.extend(self.multi_cell(172, 5, _latin(para), dry_run=True, output="LINES"))
+
+        bottom = self.h - 34
+        y = self.get_y() + 9
+        i = 0
+        while True:
+            self.set_draw_color(*RULE)
+            self.line(18, y, 192, y)
+            if i < len(lines):
+                if lines[i].strip():
+                    self.set_font("Helvetica", "", 9.5); self._ink()
+                    self.set_xy(19, y - 5.6)
+                    self.cell(172, 5, _latin(lines[i]))
+                i += 1
+            y += STEP
+            if y > bottom:
+                if i >= len(lines):
+                    break
+                self.add_page()
+                self.band("Notes")
+                y = self.get_y() + 9
 
 
 def schedule_pdf(data: dict, priced: bool = False, summary: bool = True) -> bytes:
