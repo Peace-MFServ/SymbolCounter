@@ -4,6 +4,7 @@ import { showToast } from './toast'
 import { useAuth } from './auth'
 import logo from './assets/mf-logo.jpeg'
 import { IconRight, IconPlus } from './icons'
+import { useLeaveGuard } from './unsaved'
 
 export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false, crumbsRight = null }) {
   const { user, logout } = useAuth()
@@ -188,10 +189,12 @@ function NewProjectModal({ onClose, onCreated }) {
   const [firm,   setFirm]   = useState('')
   const [quote,  setQuote]  = useState('')
   const [busy,   setBusy]   = useState(false)
+  const typed = !!(name || client || site || firm || quote)
 
   const submit = async e => {
-    e.preventDefault()
+    e?.preventDefault?.()
     setBusy(true)
+    let ok = true
     try {
       const p = await apiFetch('/projects', {
         method: 'POST',
@@ -201,13 +204,18 @@ function NewProjectModal({ onClose, onCreated }) {
       onCreated(p)
     } catch (err) {
       showToast(err.message, 'error')
+      ok = false
     } finally {
       setBusy(false)
     }
+    return ok
   }
+  const { guard, modal: leaveModal } = useLeaveGuard({ dirty: typed, onSave: submit, what: 'new job' })
+  const close = guard(onClose)
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && close()}>
+      {leaveModal}
       <div className="modal">
         <h2>New job</h2>
         <form onSubmit={submit}>
@@ -257,7 +265,7 @@ function NewProjectModal({ onClose, onCreated }) {
             </div>
           )}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+            <button type="button" className="btn btn-ghost" onClick={close}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={busy}>
               {busy ? <span className="spinner" /> : 'Create job'}
             </button>

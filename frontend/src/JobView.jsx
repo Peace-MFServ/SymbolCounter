@@ -3,6 +3,7 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { useAuth } from './auth'
+import { useLeaveGuard } from './unsaved'
 import { Menu } from './ProjectView'
 import { IconPlus, IconEdit, IconSave, IconBars, IconDoc, IconCheck, IconWarn, IconFile, IconRight, IconDoor, IconLayers, IconFolder, IconTrash } from './icons'
 
@@ -89,16 +90,18 @@ export function JobView({ projectId, onNavigate }) {
     catch (err) { showToast(err.message, 'error') }
   }
   const removeDoor = async d => {
-    try { await apiFetch(`/doors/${d.id}`, { method: 'DELETE' }); await load() }
+    try { await apiFetch(`/doors/${d.id}`, { method: 'DELETE' }); showToast(`Door ${d.ref} removed`, 'info'); await load() }
     catch (err) { showToast(err.message, 'error') }
   }
   const saveDetails = async () => {
     setBusy('details')
+    let ok = true
     try {
       await apiFetch(`/projects/${projectId}`, { method: 'PUT', body: JSON.stringify({ ...details, description: '', drawing_firm: '', kind: job.kind }) })
       showToast('Job details saved', 'success'); await load()
-    } catch (err) { showToast(err.message, 'error') }
+    } catch (err) { showToast(err.message, 'error'); ok = false }
     setBusy('')
+    return ok
   }
   const copyJob = async () => {
     const name = prompt('Name for the new job', `${job.name} (copy)`)
@@ -107,7 +110,12 @@ export function JobView({ projectId, onNavigate }) {
     catch (err) { showToast(err.message, 'error') }
   }
 
-  const crumbs = [{ label: 'Jobs', onClick: () => onNavigate('dashboard') }, { label: job?.name || '…' }]
+  const detailsDirty = !!job && !!details &&
+    ['name', 'client', 'site', 'quote_no', 'rep'].some(k => (details[k] || '') !== (job[k] || ''))
+  const { guard, modal: leaveModal } = useLeaveGuard({ dirty: detailsDirty, onSave: saveDetails, what: 'job details' })
+  const goNav = guard(onNavigate)
+
+  const crumbs = [{ label: 'Jobs', onClick: () => goNav('dashboard') }, { label: job?.name || '…' }]
   if (!job || !details) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div></>
 
   const warn = job.checks.filter(c => c.level === 'warn').length
@@ -115,23 +123,24 @@ export function JobView({ projectId, onNavigate }) {
 
   return (
     <>
-      <Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={
+      <Topbar crumbs={crumbs} onNavigate={goNav} crumbsRight={
         <>
           <Menu label="Job actions" items={[
-            { label: 'Products by set', onClick: () => onNavigate('grid', { id: projectId }) },
-            { label: 'Copy this job', onClick: copyJob },
-            { label: `Plans and door types${job.plans ? ` (${job.plans})` : ''}`, onClick: () => onNavigate('doors', { id: projectId }) },
-            { label: 'Set library', onClick: () => onNavigate('sets') },
+            { label: 'Products by set', onClick: () => goNav('grid', { id: projectId }) },
+            { label: 'Copy this job', onClick: guard(copyJob) },
+            { label: `Plans and door types${job.plans ? ` (${job.plans})` : ''}`, onClick: () => goNav('doors', { id: projectId }) },
+            { label: 'Set library', onClick: () => goNav('sets') },
           ]} />
-          <button className="btn" onClick={() => onNavigate('cost', { id: projectId })} disabled={!job.sets.length}>Cost summary</button>
-          <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })} disabled={!job.sets.length}><IconFile size={16} /> Produce schedule</button>
+          <button className="btn" onClick={() => goNav('cost', { id: projectId })} disabled={!job.sets.length}>Cost summary</button>
+          <button className="btn btn-primary" onClick={() => goNav('schedule', { id: projectId })} disabled={!job.sets.length}><IconFile size={16} /> Produce schedule</button>
         </>
       } />
+      {leaveModal}
       <div className="page-wrap wide">
         {!mine && (
           <div className="suggest-bar readonly-bar">
             <div><strong>{job.owner_name}'s job.</strong><span className="muted"> You can look and produce the schedule. Only {job.owner_name} can change it.</span></div>
-            <button className="btn" onClick={copyJob}>Copy this job</button>
+            <button className="btn" onClick={guard(copyJob)}>Copy this job</button>
           </div>
         )}
         <div className="job-grid">
@@ -158,14 +167,14 @@ export function JobView({ projectId, onNavigate }) {
             )}
             {mine && (
               <div className="side-block">
-                <button className="link-btn strong" onClick={() => onNavigate('set', { id: 'new', projectId })}>New set for this job</button>
+                <button className="link-btn strong" onClick={() => goNav('set', { id: 'new', projectId })}>New set for this job</button>
                 <p className="muted">Build one from scratch. It stays on this job only.</p>
               </div>
             )}
             {mine && job.types_to_decide > 0 && (
               <div className="rail-note">
                 {job.types_to_decide} door type{job.types_to_decide !== 1 ? 's' : ''} from the plans still to decide.{' '}
-                <button className="link-btn" onClick={() => onNavigate('doors', { id: projectId })}>Decide them</button>
+                <button className="link-btn" onClick={() => goNav('doors', { id: projectId })}>Decide them</button>
               </div>
             )}
           </aside>
@@ -179,7 +188,7 @@ export function JobView({ projectId, onNavigate }) {
                           onCancel={current ? () => setChoosing(false) : null} />
             ) : (
               <SetPanel js={current} doors={doors} projectId={projectId}
-                        onEdit={() => editSet(current)} onCopy={() => copyForJob(current)} onRemove={() => removeSet(current)} onDelete={() => deleteFromLibrary(current.set)}
+                        onEdit={guard(() => editSet(current))} onCopy={() => copyForJob(current)} onRemove={() => removeSet(current)} onDelete={() => deleteFromLibrary(current.set)}
                         onChanged={load} onRemoveDoor={removeDoor} readOnly={!mine} />
             )}
           </main>

@@ -118,6 +118,7 @@ export function DoorsView({ projectId, onNavigate }) {
   const removeDoor = async d => {
     if (!confirm(`Remove door ${d.ref}?${d.source === 'plan' ? ' It will come back if the plans are rescanned.' : ''}`)) return
     await apiFetch(`/doors/${d.id}`, { method: 'DELETE' })
+    showToast(`Door ${d.ref} removed`, 'info')
     await load(); loadDoors(d.door_type_id || 0)
   }
 

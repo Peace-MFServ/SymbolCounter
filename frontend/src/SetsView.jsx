@@ -4,6 +4,7 @@ import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { IconTrash } from './icons'
 import { TYPE_NAMES, TYPE_ORDER, groupItems, money } from './JobView'
+import { useLeaveGuard } from './unsaved'
 
 /* ── The standard set library ─────────────────────────────────────────────── */
 export function SetsView({ onNavigate, autoImport = false }) {
@@ -183,8 +184,9 @@ export function SetEditor({ id, projectId, onNavigate }) {
   }
 
   const save = async () => {
-    if (!name.trim()) { showToast('Give the set a name', 'error'); return }
+    if (!name.trim()) { showToast('Give the set a name', 'error'); return false }
     setBusy(true)
+    let ok = true
     try {
       const body = { code, name, description: desc, fire_rated: fire, notes: '', items: items.map(i => ({ product_id: i.product_id, qty: i.qty })) }
       const s = isNew ? await apiFetch('/sets', { method: 'POST', body: JSON.stringify(body) })
@@ -192,10 +194,15 @@ export function SetEditor({ id, projectId, onNavigate }) {
       if (isNew && projectId) await apiFetch(`/projects/${projectId}/sets/${s.id}/add`, { method: 'POST' })
       showToast('Set saved', 'success'); setDirty(false)
       if (isNew) onNavigate('set', { id: s.id, projectId }); else setSet(s)
-    } catch (err) { showToast(err.message, 'error') }
+    } catch (err) { showToast(err.message, 'error'); ok = false }
     setBusy(false)
+    return ok
   }
   const back = () => (projectId ? onNavigate('job', { id: projectId }) : onNavigate('sets'))
+  // leaving with unsaved changes asks first
+  const { guard, modal: leaveModal } = useLeaveGuard({ dirty: dirty && !readOnly, onSave: save, what: 'set' })
+  const goBack = guard(back)
+  const goNav = guard(onNavigate)
   const archive = async () => {
     if (isNew) return
     const used = set.used_on?.length || 0
@@ -213,13 +220,14 @@ export function SetEditor({ id, projectId, onNavigate }) {
   const value = items.reduce((s, i) => s + (i.price || 0) * i.qty, 0)
 
   const crumbs = projectId
-    ? [{ label: 'Jobs', onClick: () => onNavigate('dashboard') }, { label: job?.name || '…', onClick: back }, { label: isNew ? 'New set' : code }]
-    : [{ label: 'Sets', onClick: back }, { label: isNew ? 'New set' : `${code} ${name}` }]
+    ? [{ label: 'Jobs', onClick: () => goNav('dashboard') }, { label: job?.name || '…', onClick: goBack }, { label: isNew ? 'New set' : code }]
+    : [{ label: 'Sets', onClick: goBack }, { label: isNew ? 'New set' : `${code} ${name}` }]
   if (!set) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} active="sets" /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div></>
 
   return (
     <>
-      <Topbar crumbs={crumbs} onNavigate={onNavigate} active={projectId ? 'projects' : 'sets'} />
+      <Topbar crumbs={crumbs} onNavigate={goNav} active={projectId ? 'projects' : 'sets'} />
+      {leaveModal}
       <div className="page-wrap">
         {readOnly && <div className="suggest-bar"><div><strong>{lockedBy} has this set open.</strong><span className="muted"> You can look but not save. It frees up when they close it.</span></div></div>}
         <div className="page-header set-edit-head">
@@ -231,7 +239,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
           </div>
           <div className="spacer" />
           <div className="actions">
-            <button className="btn btn-ghost" onClick={back}>{projectId ? 'Back to job' : 'Back to sets'}</button>
+            <button className="btn btn-ghost" onClick={goBack}>{projectId ? 'Back to job' : 'Back to sets'}</button>
             <button className="btn btn-primary" onClick={save} disabled={busy || readOnly}>{busy ? <span className="spinner" /> : dirty || isNew ? 'Save set' : 'Saved'}</button>
           </div>
         </div>

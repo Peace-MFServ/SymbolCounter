@@ -4,6 +4,7 @@ import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { useAuthImage } from './TemplatesView'
 import { TYPE_NAMES, TYPE_ORDER } from './JobView'
+import { useLeaveGuard } from './unsaved'
 
 const EMPTY = { sku: '', name: '', category: 'Other', unit: 'EACH', cost: '', sell: '', intec_code: '', product_type: '', brand: '', notes: '', active: true }
 
@@ -174,11 +175,14 @@ function ProductModal({ product, categories, onClose, onSaved }) {
   const [imgUrl, setImgUrl] = useState(product.image_url || '')
   const src = useAuthImage(imgUrl)
   const imgRef = useRef()
+  const [start] = useState(() => ({ ...EMPTY, ...product, cost: product.cost ?? '', sell: product.sell ?? '' }))
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }))
+  const dirty = Object.keys(f).some(k => String(f[k] ?? '') !== String(start[k] ?? ''))
 
   const save = async e => {
-    e.preventDefault()
+    e?.preventDefault?.()
     setBusy(true)
+    let ok = true
     try {
       const body = { ...f, cost: f.cost === '' ? null : Number(f.cost), sell: f.sell === '' ? null : Number(f.sell) }
       const saved = isNew
@@ -186,9 +190,12 @@ function ProductModal({ product, categories, onClose, onSaved }) {
         : await apiFetch(`/products/${product.id}`, { method: 'PUT', body: JSON.stringify(body) })
       showToast(isNew ? 'Product added' : 'Product saved', 'success')
       onSaved(saved)
-    } catch (err) { showToast(err.message, 'error') }
+    } catch (err) { showToast(err.message, 'error'); ok = false }
     setBusy(false)
+    return ok
   }
+  const { guard, modal: leaveModal } = useLeaveGuard({ dirty, onSave: save, what: isNew ? 'new product' : 'product' })
+  const close = guard(onClose)
 
   const uploadPhoto = async file => {
     if (!file || isNew) return
@@ -207,7 +214,8 @@ function ProductModal({ product, categories, onClose, onSaved }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && close()}>
+      {leaveModal}
       <div className="modal" style={{ maxWidth: 640 }}>
         <h2>{isNew ? 'Add product' : product.sku}</h2>
         <form onSubmit={save}>
@@ -250,7 +258,7 @@ function ProductModal({ product, categories, onClose, onSaved }) {
           <div className="modal-actions">
             {!isNew && <button type="button" className="btn btn-ghost danger" onClick={archive}>Remove</button>}
             <div className="spacer" />
-            <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+            <button type="button" className="btn btn-ghost" onClick={close}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? <span className="spinner" /> : 'Save'}</button>
           </div>
         </form>
