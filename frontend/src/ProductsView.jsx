@@ -467,8 +467,8 @@ function ProductModal({ product, categories, onClose, onSaved }) {
           <div className="form-grid">
             <div className="form-group"><label>Code</label><input className="form-control" value={f.sku} onChange={set('sku')} required /></div>
             <div className="form-group"><label>Category</label>
-              <input className="form-control" list="cat-list" value={f.category} onChange={set('category')} />
-              <datalist id="cat-list">{categories.map(c => <option key={c} value={c} />)}</datalist>
+              <CategoryPicker value={f.category} options={categories}
+                              onChange={v => setF(x => ({ ...x, category: v }))} />
             </div>
           </div>
           <div className="form-group"><label>Name</label><input className="form-control" value={f.name} onChange={set('name')} required /></div>
@@ -508,6 +508,48 @@ function ProductModal({ product, categories, onClose, onSaved }) {
           </div>
         </form>
       </div>
+    </div>
+  )
+}
+
+
+/* Every category the office already uses, on one click, and a new one can just
+   be typed. A plain datalist was no use here: the browser sifts its own list by
+   what is already in the box, so a product sitting on Other was only ever
+   offered Other. */
+function CategoryPicker({ value, options, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [sifting, setSifting] = useState(false)   // true once they start typing
+  const ref = useRef()
+  useEffect(() => {
+    if (!open) return
+    const away = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const key = e => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) } }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key) }
+  }, [open])
+  const needle = value.trim().toLowerCase()
+  const list = sifting && needle ? options.filter(c => c.toLowerCase().includes(needle)) : options
+  const isNew = !!value.trim() && !options.some(c => c.toLowerCase() === needle)
+  const pick = c => { onChange(c); setOpen(false); setSifting(false) }
+  return (
+    <div className="combo" ref={ref}>
+      <input className="form-control" value={value} placeholder="e.g. Locks"
+             onFocus={e => { e.target.select(); setOpen(true); setSifting(false) }}
+             onChange={e => { onChange(e.target.value); setSifting(true); setOpen(true) }}
+             onKeyDown={e => { if (e.key === 'Enter' && open) { e.preventDefault(); pick(list[0] || value) } }} />
+      <button type="button" className="combo-open" tabIndex={-1} aria-label="Show categories"
+              onClick={() => { setOpen(o => !o); setSifting(false) }}>
+        <IconChevron size={16} />
+      </button>
+      {open && (list.length > 0 || isNew) && (
+        <div className="combo-list">
+          {list.map(c => (
+            <button type="button" key={c} className={c === value ? 'on' : ''} onClick={() => pick(c)}>{c}</button>
+          ))}
+          {isNew && <div className="combo-new">“{value.trim()}” is a new category. It is kept when you save.</div>}
+        </div>
+      )}
     </div>
   )
 }

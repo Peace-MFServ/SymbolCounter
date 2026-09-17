@@ -1356,3 +1356,22 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .adm-skel-row:last-child { border-bottom: 0; }
 .adm-skel-row span { height: 12px; border-radius: 4px; background: #EDF1F6; animation: skel 1.4s ease-in-out infinite; }
 @keyframes skel { 0%, 100% { opacity: 1 } 50% { opacity: .5 } }
+
+/* ── Category picker ───────────────────────────────────────────────────────
+   A field you can type into, with every category already in use one click away. */
+.combo { position: relative; }
+.combo .form-control { padding-right: 34px; }
+.combo-open { position: absolute; top: 0; right: 0; height: 36px; width: 32px; display: inline-flex;
+  align-items: center; justify-content: center; border: 0; background: transparent; color: #59677A;
+  cursor: pointer; border-radius: 0 var(--radius) var(--radius) 0; }
+.combo-open:hover { color: var(--accent); }
+.combo-list { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 40; max-height: 232px;
+  overflow-y: auto; background: #fff; border: 1px solid #DCE3EA; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .12); }
+.combo-list button { display: block; width: 100%; padding: 9px 13px; text-align: left; border: 0;
+  background: none; font: inherit; font-size: 13.5px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.combo-list button + button { border-top: 1px solid #EEF1F5; }
+.combo-list button:hover { background: #F3F6F9; }
+.combo-list button.on { background: #EAF2FC; color: var(--accent); font-weight: 700; }
+.combo-new { padding: 9px 13px; border-top: 1px solid #EEF1F5; background: #FBFCFE;
+  font-size: 12.5px; font-weight: 500; color: #667085; }
