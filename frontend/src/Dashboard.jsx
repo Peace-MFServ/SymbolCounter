@@ -75,6 +75,15 @@ export function Dashboard({ onNavigate, q = '' }) {
       .catch(() => setLoading(false))
   }, [])
 
+  const duplicateProject = async p => {
+    try {
+      const c = await apiFetch(`/projects/${p.id}/duplicate`, { method: 'POST' })
+      showToast(p.drawing_count ? `Copied as ${c.name}. Drawings are not copied.` : `Copied as ${c.name}`, 'success')
+      setProjects(ps => [c, ...ps])
+      onNavigate(openView(c), { id: c.id })
+    } catch (err) { showToast(err.message, 'error') }
+  }
+
   const deleteProject = async id => {
     if (!confirm('Delete this project and all its drawings?')) return
     await apiFetch(`/projects/${id}`, { method: 'DELETE' })
@@ -142,7 +151,8 @@ export function Dashboard({ onNavigate, q = '' }) {
               <div className="owner-card"><p className="jobs-none">No jobs match “{search}”.</p></div>
             ) : view === 'all' ? (
               <div className="owner-card">
-                <JobTable rows={shown} showOwner onOpen={open} canDelete={canDelete} onDelete={deleteProject} />
+                <JobTable rows={shown} showOwner onOpen={open} canDelete={canDelete}
+                          onDelete={deleteProject} onDuplicate={duplicateProject} />
               </div>
             ) : groups.map(g => (
               <div className="owner-card" key={g.key}>
@@ -157,7 +167,8 @@ export function Dashboard({ onNavigate, q = '' }) {
                   </button>
                 </div>
                 {!collapsed[g.key] && (
-                  <JobTable rows={g.items} onOpen={open} canDelete={canDelete} onDelete={deleteProject} />
+                  <JobTable rows={g.items} onOpen={open} canDelete={canDelete}
+                            onDelete={deleteProject} onDuplicate={duplicateProject} />
                 )}
               </div>
             ))}
@@ -201,7 +212,7 @@ export function Dashboard({ onNavigate, q = '' }) {
 }
 
 /* The project table that sits inside every owner card. */
-function JobTable({ rows, showOwner = false, onOpen, canDelete, onDelete }) {
+function JobTable({ rows, showOwner = false, onOpen, canDelete, onDelete, onDuplicate }) {
   return (
     <div className="job-table-scroll">
       <table className="job-table">
@@ -227,7 +238,9 @@ function JobTable({ rows, showOwner = false, onOpen, canDelete, onDelete }) {
                 {p.door_types_to_decide > 0 && <span className="of" title="Door types still to decide"> {p.door_types_to_decide} to decide</span>}
               </td>
               <td className="num">
-                <RowMenu onOpen={() => onOpen(p)} onDelete={canDelete(p) ? () => onDelete(p.id) : null} />
+                <RowMenu onOpen={() => onOpen(p)}
+                         onDuplicate={canDelete(p) ? () => onDuplicate(p) : null}
+                         onDelete={canDelete(p) ? () => onDelete(p.id) : null} />
               </td>
             </tr>
           ))}
@@ -237,7 +250,7 @@ function JobTable({ rows, showOwner = false, onOpen, canDelete, onDelete }) {
   )
 }
 
-function RowMenu({ onOpen, onDelete }) {
+function RowMenu({ onOpen, onDuplicate, onDelete }) {
   const [at, setAt] = useState(null)          // where to draw it, or null when shut
   const ref = useRef()          // the dots button
   const pop = useRef()          // the menu, drawn on top of the page
@@ -265,6 +278,7 @@ function RowMenu({ onOpen, onDelete }) {
         <div className="menu-list row-menu-pop" role="menu" ref={pop}
              style={{ position: 'fixed', top: at.top, right: at.right }} onClick={e => e.stopPropagation()}>
           <button role="menuitem" onClick={pick(onOpen)}>Open</button>
+          {onDuplicate && <button role="menuitem" onClick={pick(onDuplicate)}>Duplicate</button>}
           {onDelete && <button role="menuitem" className="danger" onClick={pick(onDelete)}>Delete</button>}
         </div>, document.body)}
     </div>

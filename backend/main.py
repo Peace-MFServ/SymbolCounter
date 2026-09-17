@@ -372,6 +372,75 @@ def update_project(pid: int, payload: ProjectCreate, db: Session = Depends(get_d
     db.commit(); db.refresh(p)
     return _project_out(p, db)
 
+@app.post("/api/projects/{pid}/duplicate", response_model=ProjectOut, status_code=201)
+def duplicate_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """The job set up again to work on separately: its details, its sets, door
+    types, doors and prices. Drawings are not copied, and the copy belongs to
+    whoever made it."""
+    src = _proj_edit(pid, cu, db)
+    copy = models.Project(
+        name=_copy_name(src.name, db), client=src.client or "", site=src.site or "",
+        description=src.description or "", drawing_firm=src.drawing_firm or "",
+        quote_no=src.quote_no or "", rep=src.rep or "", kind=src.kind,
+        notes=src.notes or "", owner_id=cu.id)
+    db.add(copy); db.flush()
+
+    for st in src.symbol_types:
+        db.add(models.ProjectSymbolType(name=st.name, code=st.code, color=st.color,
+                                        sort_order=st.sort_order, project_id=copy.id))
+
+    # Sets belonging to this job alone are copied too, and everything that
+    # pointed at one is pointed at its copy. Standard sets are shared, not copied.
+    set_map: dict[int, int] = {}
+    for s in db.query(models.HardwareSet).filter(models.HardwareSet.project_id == pid).all():
+        ns = models.HardwareSet(code=s.code, name=s.name, description=s.description or "",
+                                fire_rated=bool(s.fire_rated), notes=s.notes or "",
+                                archived=bool(s.archived), copied_from_id=s.copied_from_id,
+                                project_id=copy.id, created_by_id=cu.id)
+        db.add(ns); db.flush()
+        for it in s.items:
+            db.add(models.SetItem(set_id=ns.id, product_id=it.product_id,
+                                  qty=it.qty, sort_order=it.sort_order))
+        set_map[s.id] = ns.id
+    same = lambda sid: (set_map.get(sid, sid) if sid else None)
+
+    for ps in db.query(models.ProjectSet).filter(models.ProjectSet.project_id == pid).all():
+        db.add(models.ProjectSet(project_id=copy.id, set_id=same(ps.set_id), sort_order=ps.sort_order))
+
+    type_map: dict[int, int] = {}
+    for dt in db.query(models.DoorType).filter(models.DoorType.project_id == pid).all():
+        nt = models.DoorType(project_id=copy.id, code=dt.code, description=dt.description or "",
+                             fire_rating=dt.fire_rating or "", acoustic=dt.acoustic or "",
+                             width=dt.width, height=dt.height, spec_text=dt.spec_text or "",
+                             status=dt.status, set_id=same(dt.set_id), sort_order=dt.sort_order)
+        db.add(nt); db.flush()
+        type_map[dt.id] = nt.id
+
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        db.add(models.Door(project_id=copy.id, door_type_id=type_map.get(d.door_type_id),
+                           ref=d.ref or "", floor=d.floor or "", handed=bool(d.handed),
+                           drawing_id=None, page_number=d.page_number, x=d.x, y=d.y,
+                           set_id=same(d.set_id), source=d.source, note=d.note or ""))
+
+    for jp in db.query(models.JobPrice).filter(models.JobPrice.project_id == pid).all():
+        db.add(models.JobPrice(project_id=copy.id, product_id=jp.product_id, cost=jp.cost,
+                               sell=jp.sell, disc_a=jp.disc_a, disc_b=jp.disc_b))
+
+    db.commit(); db.refresh(copy)
+    return _project_out(copy, db)
+
+
+def _copy_name(name: str, db: Session) -> str:
+    """"Ford Site" becomes "Ford Site (copy)", then "(copy 2)" and on."""
+    taken = {n for (n,) in db.query(models.Project.name).all()}
+    if f"{name} (copy)" not in taken:
+        return f"{name} (copy)"
+    i = 2
+    while f"{name} (copy {i})" in taken:
+        i += 1
+    return f"{name} (copy {i})"
+
+
 @app.delete("/api/projects/{pid}", status_code=204)
 def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     p = _proj_edit(pid, cu, db)
