@@ -583,15 +583,15 @@ function ImageReportModal({ r, onClose, onMatch }) {
 }
 
 
-/* 72px picture box. Products with no picture offer to take one. */
+/* 72px picture box. A product with no picture shows an upload box instead. */
 function ProdThumb({ url, onUpload }) {
   const src = useAuthImage(url)
   if (url) return <span className="prod-pic">{src ? <img src={src} alt="" /> : null}</span>
   return (
     <button type="button" className="prod-pic empty" title="Add photo"
             onClick={e => { e.stopPropagation(); onUpload() }}>
-      <IconImage size={20} />
-      <span className="prod-pic-up"><IconUpload size={16} />Upload</span>
+      <IconUpload size={21} />
+      <span>Upload</span>
     </button>
   )
 }

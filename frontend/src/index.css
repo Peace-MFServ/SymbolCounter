@@ -1253,16 +1253,14 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .prod-grid th:not(:last-child), .prod-grid td:not(:last-child) { border-right: 1px solid #E6EBF1; }
 .adm-none { color: #667085; font-size: 14px; font-weight: 500; text-align: center; }
 
-.prod-pic { position: relative; display: inline-flex; width: 72px; height: 72px; align-items: center; justify-content: center;
+.prod-pic { display: inline-flex; width: 72px; height: 72px; align-items: center; justify-content: center;
   padding: 5px; background: #fff; border: 1px solid #E2E8F0; border-radius: 8px; overflow: hidden; }
 .prod-pic img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.prod-pic.empty { background: #F3F6F9; color: #B0BDCC; cursor: pointer; }
-.prod-pic.empty:hover { border-color: var(--accent); }
-/* the upload prompt sits over the picture, and shows itself when the box is pointed at */
-.prod-pic-up { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 2px; background: rgba(0, 56, 123, .82); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .02em;
-  opacity: 0; transition: opacity .12s; }
-.prod-pic.empty:hover .prod-pic-up, .prod-pic.empty:focus-visible .prod-pic-up { opacity: 1; }
+/* no picture yet: the box is the upload button, and says so without being pointed at */
+.prod-pic.empty { flex-direction: column; gap: 3px; background: #F4F7FB; border: 1px dashed #B9C8DA;
+  color: var(--accent); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; cursor: pointer; }
+.prod-pic.empty:hover { background: #E7EFFA; border-color: var(--accent); }
+.prod-pic.empty:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .prod-grid .p-code { font-size: 14px; font-weight: 600; color: #344054; word-break: break-word; }
 .prod-grid .p-name { font-size: 15px; font-weight: 600; color: #101828; line-height: 1.35;
