@@ -1086,8 +1086,7 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .typeahead-list .ta-name { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
 .typeahead-list button > .muted { white-space: nowrap; font-size: 12.5px; }
 
-.unsaved-modal { max-width: 540px; }
+.unsaved-modal { max-width: 440px; }
 .unsaved-modal h2 { margin-bottom: 10px; }
 .unsaved-modal p { color: var(--text2); font-size: 14px; line-height: 1.5; margin: 0 0 18px; }
-.unsaved-modal .modal-actions { flex-wrap: wrap; gap: 8px; }
-.unsaved-modal .modal-actions .btn-ghost { margin-left: auto; }
+.unsaved-modal .modal-actions { gap: 10px; }

@@ -50,9 +50,8 @@ function UnsavedModal({ what, busy, onSave, onDiscard, onCancel }) {
         <h2>Save your {what}?</h2>
         <p>Your changes have not been saved. If you leave now they are lost.</p>
         <div className="modal-actions">
-          <button className="btn btn-primary" onClick={onSave} disabled={busy}>{busy ? <span className="spinner" /> : 'Save and leave'}</button>
+          <button className="btn btn-primary" onClick={onSave} disabled={busy}>{busy ? <span className="spinner" /> : 'Save'}</button>
           <button className="btn" onClick={onDiscard} disabled={busy}>Leave without saving</button>
-          <button className="btn btn-ghost" onClick={onCancel} disabled={busy}>Stay here</button>
         </div>
       </div>
     </div>
