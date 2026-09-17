@@ -1125,7 +1125,7 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
   box-shadow: 0 0 0 1.5px #fff; }
 .owner-who { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .owner-who strong { font-size: 15.5px; font-weight: 700; color: #101828; }
-.owner-who span { font-size: 13px; font-weight: 400; color: #8190A5; white-space: nowrap; }
+.owner-who span { font-size: 13px; font-weight: 500; color: #5A6B80; white-space: nowrap; }
 .owner-toggle { margin-left: auto; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
   border: 0; background: transparent; color: var(--accent); cursor: pointer; border-radius: 6px; }
 .owner-toggle:hover { background: #C3D3EA; color: var(--accent-down); }
