@@ -81,8 +81,11 @@ export function Dashboard({ onNavigate, q = '' }) {
     try {
       const c = await apiFetch(`/projects/${p.id}/duplicate`, { method: 'POST' })
       showToast(p.drawing_count ? `Copied as ${c.name}. Drawings are not copied.` : `Copied as ${c.name}`, 'success')
-      setProjects(ps => [c, ...ps])
-      setCollapsed(x => ({ ...x, [ownerKey(c)]: false }))   // so the copy is not hidden away
+      // the copy sits straight under the job it came from, not off at the top
+      setProjects(ps => {
+        const i = ps.findIndex(x => x.id === p.id)
+        return i < 0 ? [c, ...ps] : [...ps.slice(0, i + 1), c, ...ps.slice(i + 1)]
+      })
     } catch (err) { showToast(err.message, 'error') }
   }
 
