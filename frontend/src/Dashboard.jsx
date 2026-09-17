@@ -277,7 +277,7 @@ const place = el => {
   return { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) }
 }
 const initials = name => (name || '?').split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
-const AVATARS = [['#E8EEF9', '#2A4E86'], ['#E7F1EA', '#2C6B47'], ['#F1EAF7', '#5B3B78'], ['#FBEEE6', '#8A4A1C'], ['#E9EFF2', '#3C5866']]
+const AVATARS = [['#DCE6F5', '#12366E'], ['#DCEBE1', '#134A2C'], ['#E8DDF2', '#3B2358'], ['#F6E2D3', '#5E2D0C'], ['#DFE7EC', '#1F3743']]
 const avatarStyle = name => {
   let h = 0
   for (const ch of name || '') h = (h * 31 + ch.charCodeAt(0)) % 997

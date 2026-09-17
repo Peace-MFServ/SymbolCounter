@@ -1120,7 +1120,7 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .owner-head { display: flex; align-items: center; gap: 11px; height: 54px; padding: 0 18px; cursor: pointer; }
 .owner-head:hover { background: #FBFCFE; }
 .owner-avatar { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-  font-size: 12.5px; font-weight: 700; letter-spacing: .02em; flex-shrink: 0; }
+  font-size: 13px; font-weight: 800; letter-spacing: .03em; flex-shrink: 0; }
 .owner-who { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .owner-who strong { font-size: 15.5px; font-weight: 700; color: #101828; }
 .owner-who span { font-size: 13px; font-weight: 400; color: #8190A5; white-space: nowrap; }
