@@ -6,7 +6,7 @@ import { Topbar, place } from './Dashboard'
 import { useAuthImage } from './TemplatesView'
 import { TYPE_NAMES, TYPE_ORDER, money } from './JobView'
 import { useLeaveGuard } from './unsaved'
-import { IconSearch, IconPlus, IconImage, IconChevron, IconFile, IconBox, IconLayers } from './icons'
+import { IconSearch, IconPlus, IconImage, IconChevron, IconFile, IconBox, IconLayers, IconUpload } from './icons'
 
 const EMPTY = { sku: '', name: '', category: 'Other', unit: 'EACH', cost: '', sell: '', intec_code: '', product_type: '', brand: '', notes: '', active: true }
 
@@ -17,7 +17,6 @@ const SORTS = {
   name: p => (p.name || '').toLowerCase(),
   type: p => TYPE_ORDER.indexOf(p.product_type || ''),
   cost: p => (p.cost == null ? -Infinity : p.cost),
-  photo: p => (p.image_url ? 1 : 0),
   used: p => p.used_in.length,
 }
 
@@ -219,9 +218,9 @@ export function ProductsView({ onNavigate }) {
               <div className="adm-scroll">
                 <table className="prod-grid">
                   <colgroup>
-                    <col style={{ width: 104 }} /><col style={{ width: '13%' }} /><col style={{ width: '26%' }} />
-                    <col style={{ width: '14%' }} /><col style={{ width: '9%' }} /><col style={{ width: '10%' }} />
-                    <col style={{ width: '13%' }} /><col style={{ width: 148 }} />
+                    <col style={{ width: 112 }} /><col style={{ width: '14%' }} /><col style={{ width: '32%' }} />
+                    <col style={{ width: '15%' }} /><col style={{ width: '10%' }} /><col style={{ width: '15%' }} />
+                    <col style={{ width: 148 }} />
                   </colgroup>
                   <thead>
                     <tr>
@@ -230,7 +229,6 @@ export function ProductsView({ onNavigate }) {
                       <th><button className="th-sort" onClick={by('name')}>Product{arrow('name')}</button></th>
                       <th><button className="th-sort" onClick={by('type')}>Type{arrow('type')}</button></th>
                       <th className="num"><button className="th-sort" onClick={by('cost')}>Avg cost{arrow('cost')}</button></th>
-                      <th><button className="th-sort" onClick={by('photo')}>Photo{arrow('photo')}</button></th>
                       <th><button className="th-sort" onClick={by('used')}>Used in sets{arrow('used')}</button></th>
                       <th className="num">Actions</th>
                     </tr>
@@ -238,7 +236,7 @@ export function ProductsView({ onNavigate }) {
                   <tbody>
                     {rows.map(p => (
                       <tr key={p.id} onClick={() => setEditing(p)}>
-                        <td><ProdThumb url={p.image_url} /></td>
+                        <td><ProdThumb url={p.image_url} onUpload={() => pickPhoto(p)} /></td>
                         <td className="p-code">{p.sku}</td>
                         <td>
                           <div className="p-name">{p.name}</div>
@@ -251,11 +249,6 @@ export function ProductsView({ onNavigate }) {
                           <div className="p-meta">{p.category || 'Other'}</div>
                         </td>
                         <td className="num p-cost">{p.cost != null ? `€${money(p.cost)}` : <span className="p-dash">—</span>}</td>
-                        <td>
-                          <span className={`photo-pill${p.image_url ? ' has' : ''}`}>
-                            <IconImage size={13} /> {p.image_url ? 'Available' : 'None'}
-                          </span>
-                        </td>
                         <td>
                           {p.used_in.length ? (
                             <>
@@ -274,7 +267,7 @@ export function ProductsView({ onNavigate }) {
                       </tr>
                     ))}
                     {rows.length === 0 && (
-                      <tr className="no-hover"><td colSpan={8} className="adm-none">No products match what you are looking for.</td></tr>
+                      <tr className="no-hover"><td colSpan={7} className="adm-none">No products match what you are looking for.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -590,9 +583,14 @@ function ImageReportModal({ r, onClose, onMatch }) {
 }
 
 
-/* 72px picture box, or a neutral placeholder when the product has no picture yet. */
-function ProdThumb({ url }) {
+/* 72px picture box. Click it to put a picture on the product, or change the one there. */
+function ProdThumb({ url, onUpload }) {
   const src = useAuthImage(url)
-  if (!url) return <span className="prod-pic empty"><IconImage size={20} /></span>
-  return <span className="prod-pic">{src ? <img src={src} alt="" /> : null}</span>
+  return (
+    <button type="button" className={`prod-pic${url ? '' : ' empty'}`} title={url ? 'Replace photo' : 'Add photo'}
+            onClick={e => { e.stopPropagation(); onUpload() }}>
+      {url ? (src ? <img src={src} alt="" /> : null) : <IconImage size={20} />}
+      <span className="prod-pic-up"><IconUpload size={16} />{url ? 'Replace' : 'Upload'}</span>
+    </button>
+  )
 }
