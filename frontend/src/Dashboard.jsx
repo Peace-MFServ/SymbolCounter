@@ -63,7 +63,15 @@ export function Dashboard({ onNavigate, q = '' }) {
 
   useEffect(() => {
     apiFetch('/projects')
-      .then(p => { setProjects(p || []); setLoading(false) })
+      .then(p => {
+        const list = p || []
+        setProjects(list)
+        // a long list starts folded away so no one owner fills the page
+        const n = {}
+        for (const x of list) { const k = ownerKey(x); n[k] = (n[k] || 0) + 1 }
+        setCollapsed(Object.fromEntries(Object.entries(n).filter(([, c]) => c > 10).map(([k]) => [k, true])))
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
   }, [])
 
@@ -85,7 +93,7 @@ export function Dashboard({ onNavigate, q = '' }) {
   const groups = useMemo(() => {
     const by = new Map()
     for (const p of shown) {
-      const key = String(p.owner_id ?? `n:${p.owner_name || ''}`)
+      const key = ownerKey(p)
       if (!by.has(key)) by.set(key, { key, name: p.owner_name || 'No owner', items: [] })
       by.get(key).items.push(p)
     }
@@ -213,7 +221,7 @@ function JobTable({ rows, showOwner = false, onOpen, canDelete, onDelete }) {
                 </div>
               </td>
               <td><span className={`kind-pill ${p.kind === 'doors' ? 'doors' : 'devices'}`}>{p.kind === 'doors' ? 'Door schedule' : 'Device count'}</span></td>
-              <td className="num job-num">{p.drawing_count || <span className="muted">—</span>}</td>
+              <td className="num job-num">{p.drawing_count ?? 0}</td>
               <td className="num job-num">
                 {p.door_count || <span className="muted">—</span>}
                 {p.door_types_to_decide > 0 && <span className="of" title="Door types still to decide"> {p.door_types_to_decide} to decide</span>}
@@ -263,6 +271,7 @@ function RowMenu({ onOpen, onDelete }) {
   )
 }
 
+const ownerKey = p => String(p.owner_id ?? `n:${p.owner_name || ''}`)
 const place = el => {
   const r = el.getBoundingClientRect()
   return { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) }
