@@ -140,13 +140,13 @@ export function ProductsView({ onNavigate }) {
   return (
     <>
       <Topbar onNavigate={onNavigate} active="products" />
-      <div className="page-wrap prods-wrap">
-        <div className="prods-head">
-          <div className="prods-title">
+      <div className="page-wrap adm-wrap">
+        <div className="adm-head">
+          <div className="adm-title">
             <h1>Products</h1>
             <p className="lede">{products.length} products. Prices are the Cin7 average cost in euro.</p>
           </div>
-          <div className="prods-actions">
+          <div className="adm-actions">
             <button className="btn btn-line" onClick={() => fileRef.current.click()} disabled={importing}>
               {importing ? <><span className="spinner" /> Importing…</> : <><IconBox size={17} /> Import from Cin7</>}
             </button>
@@ -180,8 +180,8 @@ export function ProductsView({ onNavigate }) {
           </div>
         ) : (
           <>
-            <div className="prods-filters">
-              <label className="prods-search">
+            <div className="adm-filters">
+              <label className="adm-search">
                 <IconSearch size={17} />
                 <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search code, name or type..." />
               </label>
@@ -197,8 +197,12 @@ export function ProductsView({ onNavigate }) {
                 <Picker value={setName} onChange={setSetName} all="All sets"
                         options={setNames.map(s => ({ value: s, label: s }))} />
               )}
-              <MoreFilters count={extraFilters} costOnly={costOnly} setCostOnly={setCostOnly}
-                           usedOnly={usedOnly} setUsedOnly={setUsedOnly} />
+              <FilterMenu count={extraFilters} onClear={() => { setCostOnly(''); setUsedOnly('') }}>
+                <FilterGroup label="Cost" value={costOnly} onChange={setCostOnly} options={[
+                  { value: '', label: 'Any' }, { value: 'priced', label: 'Has a cost' }, { value: 'none', label: 'No cost yet' }]} />
+                <FilterGroup label="Used in sets" value={usedOnly} onChange={setUsedOnly} options={[
+                  { value: '', label: 'Any' }, { value: 'used', label: 'In a set' }, { value: 'free', label: 'Not used yet' }]} />
+              </FilterMenu>
             </div>
 
             <div className="prods-chips">
@@ -211,8 +215,8 @@ export function ProductsView({ onNavigate }) {
                 : null)}
             </div>
 
-            <div className="prods-card">
-              <div className="prods-scroll">
+            <div className="adm-card">
+              <div className="adm-scroll">
                 <table className="prod-grid">
                   <colgroup>
                     <col style={{ width: 104 }} /><col style={{ width: '13%' }} /><col style={{ width: '26%' }} />
@@ -270,17 +274,17 @@ export function ProductsView({ onNavigate }) {
                       </tr>
                     ))}
                     {rows.length === 0 && (
-                      <tr className="no-hover"><td colSpan={8} className="prods-none">No products match what you are looking for.</td></tr>
+                      <tr className="no-hover"><td colSpan={8} className="adm-none">No products match what you are looking for.</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
               {shown.length > 0 && (
-                <div className="prods-foot">
-                  <span className="prods-count">
+                <div className="adm-foot">
+                  <span className="adm-count">
                     Showing <strong>{(cur - 1) * pageSize + 1}–{Math.min(cur * pageSize, shown.length)}</strong> of {shown.length} product{shown.length !== 1 ? 's' : ''}
                   </span>
-                  <div className="prods-pager">
+                  <div className="adm-pager">
                     <Picker value={String(pageSize)} onChange={v => setPageSize(Number(v))} small
                             options={PAGE_SIZES.map(n => ({ value: String(n), label: `${n} per page` }))} />
                     <Pager page={cur} pages={pages} onGo={setPage} />
@@ -302,7 +306,7 @@ export function ProductsView({ onNavigate }) {
 }
 
 /* A plain select dressed to match the filter row. */
-function Picker({ value, onChange, options, all, small = false }) {
+export function Picker({ value, onChange, options, all, small = false }) {
   return (
     <div className={`picker${small ? ' small' : ''}`}>
       <select value={value} onChange={e => onChange(e.target.value)}>
@@ -314,8 +318,9 @@ function Picker({ value, onChange, options, all, small = false }) {
   )
 }
 
-/* The filters that are used less often, kept out of the way until asked for. */
-function MoreFilters({ count, costOnly, setCostOnly, usedOnly, setUsedOnly }) {
+/* The filters that are used less often, kept out of the way until asked for.
+   Each page fills it with its own groups. */
+export function FilterMenu({ count, onClear, children }) {
   const [open, setOpen] = useState(false)
   const ref = useRef()
   useEffect(() => {
@@ -333,33 +338,30 @@ function MoreFilters({ count, costOnly, setCostOnly, usedOnly, setUsedOnly }) {
       </button>
       {open && (
         <div className="more-pop">
-          <div className="more-group">
-            <label>Cost</label>
-            <div className="more-opts">
-              <button className={costOnly === '' ? 'on' : ''} onClick={() => setCostOnly('')}>Any</button>
-              <button className={costOnly === 'priced' ? 'on' : ''} onClick={() => setCostOnly('priced')}>Has a cost</button>
-              <button className={costOnly === 'none' ? 'on' : ''} onClick={() => setCostOnly('none')}>No cost yet</button>
-            </div>
-          </div>
-          <div className="more-group">
-            <label>Used in sets</label>
-            <div className="more-opts">
-              <button className={usedOnly === '' ? 'on' : ''} onClick={() => setUsedOnly('')}>Any</button>
-              <button className={usedOnly === 'used' ? 'on' : ''} onClick={() => setUsedOnly('used')}>In a set</button>
-              <button className={usedOnly === 'free' ? 'on' : ''} onClick={() => setUsedOnly('free')}>Not used yet</button>
-            </div>
-          </div>
-          <div className="more-foot">
-            <button className="btn btn-ghost btn-sm" onClick={() => { setCostOnly(''); setUsedOnly('') }}>Clear</button>
-          </div>
+          {children}
+          <div className="more-foot"><button className="btn btn-ghost btn-sm" onClick={onClear}>Clear</button></div>
         </div>
       )}
     </div>
   )
 }
 
+/* One labelled row of choices inside the More filters panel. */
+export function FilterGroup({ label, value, onChange, options }) {
+  return (
+    <div className="more-group">
+      <label>{label}</label>
+      <div className="more-opts">
+        {options.map(o => (
+          <button key={o.value} className={value === o.value ? 'on' : ''} onClick={() => onChange(o.value)}>{o.label}</button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /* Previous, a window of page numbers with gaps marked, next. */
-function Pager({ page, pages, onGo }) {
+export function Pager({ page, pages, onGo }) {
   const nums = []
   const push = n => { if (!nums.includes(n)) nums.push(n) }
   push(1)

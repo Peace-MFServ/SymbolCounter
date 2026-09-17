@@ -1,22 +1,47 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { apiFetch } from './api'
 import { showToast } from './toast'
-import { Topbar } from './Dashboard'
-import { IconTrash } from './icons'
-import { TYPE_NAMES, TYPE_ORDER, groupItems, money } from './JobView'
+import { Topbar, place } from './Dashboard'
+import { IconTrash, IconSearch, IconPlus, IconFile, IconDoc } from './icons'
+import { TYPE_NAMES, groupItems, money } from './JobView'
 import { useLeaveGuard } from './unsaved'
+import { Picker, Pager, FilterMenu, FilterGroup } from './ProductsView'
+
+const PAGE_SIZES = [25, 50, 100]
+const PRODUCTS_SHOWN = 84           // characters of the code list a row shows before "+ n more"
+/* The columns the library can be put in order by. */
+const SORTS = {
+  code:  s => (s.code || '').toLowerCase(),
+  count: s => s.items.length,
+  items: s => s.items_per_door,
+  value: s => (s.value_per_door == null ? -Infinity : s.value_per_door),
+  used:  s => s.used_on.reduce((n, u) => n + u.doors, 0),
+}
 
 /* ── The standard set library ─────────────────────────────────────────────── */
 export function SetsView({ onNavigate, autoImport = false }) {
   const [sets, setSets] = useState([])
   const [loading, setLoading] = useState(true)
+  const [typed, setTyped] = useState('')
   const [q, setQ] = useState('')
+  const [rating, setRating] = useState('')        // '' | 'fire' | 'nonfire'
+  const [job, setJob] = useState('')              // a project name off used_on
+  const [usedOnly, setUsedOnly] = useState('')    // '' | 'used' | 'free'
+  const [priced, setPriced] = useState('')        // '' | 'yes' | 'no'
+  const [origin, setOrigin] = useState('')        // '' | 'copy' | 'original'
+  const [sort, setSort] = useState({ key: 'code', dir: 1 })
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [open, setOpen] = useState({})            // set id -> product list unfolded
   const [importing, setImporting] = useState('')
   const intecRef = useRef()
   const jsonRef = useRef()
 
   const load = () => apiFetch('/sets').then(s => { setSets(s || []); setLoading(false) })
   useEffect(() => { load(); if (autoImport) setTimeout(() => intecRef.current?.click(), 300) }, [])
+  // typing settles before the list is filtered
+  useEffect(() => { const t = setTimeout(() => setQ(typed), 260); return () => clearTimeout(t) }, [typed])
 
   const importIntec = async files => {
     const pdfs = Array.from(files || []).filter(f => f.name.toLowerCase().endsWith('.pdf'))
@@ -41,13 +66,11 @@ export function SetsView({ onNavigate, autoImport = false }) {
     } catch (err) { showToast(err.message, 'error') }
     setImporting(''); load()
   }
-  const copy = async (e, s) => {
-    e.stopPropagation()
+  const copy = async s => {
     try { const c = await apiFetch(`/sets/${s.id}/copy`, { method: 'POST' }); showToast(`Copied as ${c.code}`, 'success'); onNavigate('set', { id: c.id }) }
     catch (err) { showToast(err.message, 'error') }
   }
-  const remove = async (e, s) => {
-    e.stopPropagation()
+  const remove = async s => {
     const used = s.used_on.length
     const msg = used
       ? `${s.code} ${s.name} is on ${s.used_on.map(u => `${u.project} (${u.doors} doors)`).join(', ')}.\n\nDelete it anyway? Those doors will be left without a set.`
@@ -57,65 +80,250 @@ export function SetsView({ onNavigate, autoImport = false }) {
     catch (err) { showToast(err.message, 'error') }
   }
 
-  const shown = sets.filter(s => {
+  const shown = useMemo(() => {
     const n = q.trim().toLowerCase()
-    return !n || s.code.toLowerCase().includes(n) || s.name.toLowerCase().includes(n) || s.items.some(i => i.sku.toLowerCase().includes(n))
-  })
+    const rows = sets.filter(s =>
+      (!rating || (rating === 'fire' ? s.fire_rated : !s.fire_rated)) &&
+      (!job || s.used_on.some(u => u.project === job)) &&
+      (usedOnly === '' || (usedOnly === 'used' ? s.used_on.length > 0 : s.used_on.length === 0)) &&
+      (priced === '' || (priced === 'yes' ? s.priced_ok : !s.priced_ok)) &&
+      (origin === '' || (origin === 'copy' ? !!s.copied_from : !s.copied_from)) &&
+      (!n || s.code.toLowerCase().includes(n) || s.name.toLowerCase().includes(n)
+        || s.items.some(i => i.sku.toLowerCase().includes(n) || (i.name || '').toLowerCase().includes(n))))
+    const read = SORTS[sort.key] || SORTS.code
+    return [...rows].sort((a, b) => {
+      const x = read(a), y = read(b)
+      return (x < y ? -1 : x > y ? 1 : 0) * sort.dir
+    })
+  }, [sets, q, rating, job, usedOnly, priced, origin, sort])
+
+  const pages = Math.max(1, Math.ceil(shown.length / pageSize))
+  const cur = Math.min(page, pages)
+  const rows = shown.slice((cur - 1) * pageSize, cur * pageSize)
+  useEffect(() => { setPage(1) }, [q, rating, job, usedOnly, priced, origin, pageSize])
+
+  const jobs = useMemo(
+    () => [...new Set(sets.flatMap(s => s.used_on.map(u => u.project)))].sort(),
+    [sets])
+  const extraFilters = (usedOnly ? 1 : 0) + (priced ? 1 : 0) + (origin ? 1 : 0)
+  const clearExtras = () => { setUsedOnly(''); setPriced(''); setOrigin('') }
+  const by = key => () => setSort(s => ({ key, dir: s.key === key ? -s.dir : 1 }))
+  const arrow = key => (sort.key === key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '')
+  const openJob = u => onNavigate('job', { id: u.project_id })
 
   return (
     <>
-      <Topbar crumbs={[{ label: 'Sets' }]} onNavigate={onNavigate} active="sets" />
-      <div className="page-wrap">
-        <div className="page-header">
-          <div><h1>Standard sets</h1><p className="lede">{sets.length} set{sets.length !== 1 ? 's' : ''}</p></div>
-          <div className="spacer" />
-          <div className="actions">
+      <Topbar onNavigate={onNavigate} active="sets" />
+      <div className="page-wrap adm-wrap">
+        <div className="adm-head">
+          <div className="adm-title">
+            <h1>Standard sets</h1>
+            <p className="lede">{sets.length} set{sets.length !== 1 ? 's' : ''}. Pre-configured products for doors.</p>
+          </div>
+          <div className="adm-actions">
             <input ref={intecRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { importIntec(e.target.files); e.target.value = '' }} />
             <input ref={jsonRef} type="file" accept=".json" style={{ display: 'none' }} onChange={e => { importJson(e.target.files[0]); e.target.value = '' }} />
-            <button className="btn" onClick={() => jsonRef.current.click()} disabled={!!importing}>{importing === 'json' ? <span className="spinner" /> : 'Import set file'}</button>
-            <button className="btn" onClick={() => intecRef.current.click()} disabled={!!importing}>{importing === 'intec' ? <span className="spinner" /> : 'Import Intec schedule'}</button>
-            <button className="btn btn-primary" onClick={() => onNavigate('set', { id: 'new' })}>New set</button>
+            <button className="btn btn-line" onClick={() => jsonRef.current.click()} disabled={!!importing}>
+              {importing === 'json' ? <><span className="spinner" /> Importing…</> : <><IconFile size={17} /> Import set file</>}
+            </button>
+            <button className="btn btn-line" onClick={() => intecRef.current.click()} disabled={!!importing}>
+              {importing === 'intec' ? <><span className="spinner" /> Reading…</> : <><IconDoc size={17} /> Import Intec schedule</>}
+            </button>
+            <button className="btn btn-primary" onClick={() => onNavigate('set', { id: 'new' })}><IconPlus size={17} /> New set</button>
           </div>
         </div>
+
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner spinner-lg" /></div>
+          <div className="adm-card"><SetsSkeleton /></div>
         ) : sets.length === 0 ? (
           <div className="empty-state">
-            <h2>No sets yet.</h2>
-            <p>Load the office's standard sets from the set file, or drop in old Intec schedule PDFs and every set on them is created. You can also build one by hand.</p>
+            <h2>No standard sets yet</h2>
+            <p>Create a set or import a set file to get started. Old Intec schedule PDFs work too: every set on them is created.</p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button className="btn btn-primary" onClick={() => jsonRef.current.click()}>Import set file</button>
-              <button className="btn" onClick={() => intecRef.current.click()}>Import Intec schedule</button>
-              <button className="btn" onClick={() => onNavigate('set', { id: 'new' })}>New set</button>
+              <button className="btn btn-primary" onClick={() => onNavigate('set', { id: 'new' })}><IconPlus size={16} /> New set</button>
+              <button className="btn btn-line" onClick={() => jsonRef.current.click()}>Import set file</button>
+              <button className="btn btn-line" onClick={() => intecRef.current.click()}>Import Intec schedule</button>
             </div>
           </div>
         ) : (
           <>
-            <div className="filter-row"><input className="form-control search" placeholder="Search sets or product codes…" value={q} onChange={e => setQ(e.target.value)} /></div>
-            <table className="ledger">
-              <thead><tr><th>Set</th><th>Products</th><th className="num">Items per door</th><th className="num">Value per door</th><th>Used on</th><th></th></tr></thead>
-              <tbody>
-                {shown.map(s => (
-                  <tr key={s.id} onClick={() => onNavigate('set', { id: s.id })}>
-                    <td><div className="proj-name">{s.code} <span style={{ fontWeight: 400 }}>{s.name}</span></div>
-                        <div className="proj-meta">{s.fire_rated ? 'Fire rated' : 'Not fire rated'}{s.description ? ` · ${s.description}` : ''}{s.locked_by ? ` · ${s.locked_by} is editing` : ''}</div></td>
-                    <td className="muted" style={{ fontSize: 13, maxWidth: 380 }}>{s.items.map(i => i.sku).join(', ') || 'Empty'}</td>
-                    <td className="num count-num">{s.items_per_door}</td>
-                    <td className="num">{s.value_per_door != null ? money(s.value_per_door) : <span className="muted">—</span>}</td>
-                    <td className="muted" style={{ fontSize: 13 }}>{s.used_on.length ? s.used_on.map(u => `${u.project} (${u.doors})`).join(', ') : 'Not used yet'}</td>
-                    <td className="row-actions">
-                      <button className="btn btn-sm" onClick={e => { e.stopPropagation(); onNavigate('set', { id: s.id }) }}>Open</button>
-                      <button className="btn btn-ghost btn-sm" onClick={e => copy(e, s)}>Copy</button>
-                      <button className="btn btn-ghost btn-sm danger" onClick={e => remove(e, s)}>Delete</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="adm-filters">
+              <label className="adm-search">
+                <IconSearch size={17} />
+                <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Search sets or product codes..." />
+              </label>
+              <Picker value={rating} onChange={setRating} all="All ratings"
+                      options={[{ value: 'fire', label: 'Fire rated' }, { value: 'nonfire', label: 'Not fire rated' }]} />
+              {jobs.length > 0 && (
+                <Picker value={job} onChange={setJob} all="All jobs"
+                        options={jobs.map(j => ({ value: j, label: j }))} />
+              )}
+              <FilterMenu count={extraFilters} onClear={clearExtras}>
+                <FilterGroup label="Used on a job" value={usedOnly} onChange={setUsedOnly} options={[
+                  { value: '', label: 'Any' }, { value: 'used', label: 'In use' }, { value: 'free', label: 'Not used yet' }]} />
+                <FilterGroup label="Prices" value={priced} onChange={setPriced} options={[
+                  { value: '', label: 'Any' }, { value: 'yes', label: 'All priced' }, { value: 'no', label: 'Missing prices' }]} />
+                <FilterGroup label="Origin" value={origin} onChange={setOrigin} options={[
+                  { value: '', label: 'Any' }, { value: 'original', label: 'Built here' }, { value: 'copy', label: 'Copies' }]} />
+              </FilterMenu>
+            </div>
+
+            <div className="adm-card">
+              <div className="adm-scroll">
+                <table className="set-grid">
+                  <colgroup>
+                    <col style={{ width: '23%' }} /><col style={{ width: '27%' }} /><col style={{ width: '11%' }} />
+                    <col style={{ width: '12%' }} /><col style={{ width: '14%' }} /><col style={{ width: 210 }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th><button className="th-sort" onClick={by('code')}>Set{arrow('code')}</button></th>
+                      <th><button className="th-sort" onClick={by('count')}>Products{arrow('count')}</button></th>
+                      <th className="num"><button className="th-sort" onClick={by('items')}>Items per door{arrow('items')}</button></th>
+                      <th className="num"><button className="th-sort" onClick={by('value')}>Value per door{arrow('value')}</button></th>
+                      <th><button className="th-sort" onClick={by('used')}>Used on{arrow('used')}</button></th>
+                      <th className="num">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(s => (
+                      <tr key={s.id} onClick={() => onNavigate('set', { id: s.id })}>
+                        <td>
+                          <div className="s-name">{s.code} <span>{s.name}</span></div>
+                          <div className="s-meta">
+                            {[s.fire_rated ? 'Fire rated' : 'Not fire rated', s.description,
+                              s.locked_by && `${s.locked_by} is editing`].filter(Boolean).join(' · ')}
+                          </div>
+                        </td>
+                        <td><SetProducts items={s.items} open={!!open[s.id]}
+                                         onToggle={() => setOpen(o => ({ ...o, [s.id]: !o[s.id] }))} /></td>
+                        <td className="num s-count">{s.items_per_door}</td>
+                        <td className="num s-value">{s.value_per_door != null ? `€${money(s.value_per_door)}` : <span className="s-dash">—</span>}</td>
+                        <td><SetUses uses={s.used_on} onOpen={openJob} /></td>
+                        <td className="num">
+                          <div className="s-actions">
+                            <button className="btn btn-soft btn-row" onClick={e => { e.stopPropagation(); onNavigate('set', { id: s.id }) }}>Open</button>
+                            <button className="btn btn-line btn-row" onClick={e => { e.stopPropagation(); copy(s) }}>Copy</button>
+                            <SetMenu onOpen={() => onNavigate('set', { id: s.id })} onCopy={() => copy(s)} onDelete={() => remove(s)} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {rows.length === 0 && (
+                      <tr className="no-hover"><td colSpan={6}>
+                        <div className="adm-empty">
+                          <strong>No sets found</strong>
+                          <span>Try changing your search or filters.</span>
+                        </div>
+                      </td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {shown.length > 0 && (
+                <div className="adm-foot">
+                  <span className="adm-count">
+                    Showing <strong>{(cur - 1) * pageSize + 1}–{Math.min(cur * pageSize, shown.length)}</strong> of {shown.length} set{shown.length !== 1 ? 's' : ''}
+                  </span>
+                  <div className="adm-pager">
+                    <Picker value={String(pageSize)} onChange={v => setPageSize(Number(v))} small
+                            options={PAGE_SIZES.map(n => ({ value: String(n), label: `${n} per page` }))} />
+                    <Pager page={cur} pages={pages} onGo={setPage} />
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>
     </>
+  )
+}
+
+/* The product codes, cut to about two lines, with the rest behind "+ n more". */
+function SetProducts({ items, open, onToggle }) {
+  if (!items.length) return <span className="s-dash">Empty</span>
+  let fit = 0, len = 0
+  while (fit < items.length && len + items[fit].sku.length + 2 <= PRODUCTS_SHOWN) { len += items[fit].sku.length + 2; fit++ }
+  if (fit === 0) fit = 1
+  const rest = items.length - fit
+  const list = open ? items : items.slice(0, fit)
+  return (
+    <div className="s-products">
+      <span className={`s-codes${open ? ' open' : ''}`}>{list.map(i => i.sku).join(', ')}</span>
+      {rest > 0 && (
+        <button className="s-more" onClick={e => { e.stopPropagation(); onToggle() }}>
+          {open ? 'Show less' : `+ ${rest} more`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* The jobs a set is on, two at a time, each one a way into that job. */
+function SetUses({ uses, onOpen }) {
+  const [all, setAll] = useState(false)
+  if (!uses.length) return <span className="s-dash">Not used yet</span>
+  const list = all ? uses : uses.slice(0, 2)
+  const rest = uses.length - list.length
+  return (
+    <div className="s-uses">
+      {list.map(u => (
+        <button key={u.project_id} className="s-use" onClick={e => { e.stopPropagation(); onOpen(u) }}>
+          {u.project} <span>({u.doors})</span>
+        </button>
+      ))}
+      {rest > 0 && <button className="s-more" onClick={e => { e.stopPropagation(); setAll(true) }}>+ {rest} more</button>}
+    </div>
+  )
+}
+
+/* Copy and Delete out of the way, drawn on top of the page so the card cannot clip them. */
+function SetMenu({ onOpen, onCopy, onDelete }) {
+  const [at, setAt] = useState(null)
+  const ref = useRef()
+  const pop = useRef()
+  useEffect(() => {
+    if (!at) return
+    const away = e => {
+      const inside = (ref.current && ref.current.contains(e.target)) || (pop.current && pop.current.contains(e.target))
+      if (!inside) setAt(null)
+    }
+    const key = e => { if (e.key === 'Escape') setAt(null) }
+    const follow = () => { if (ref.current) setAt(place(ref.current)) }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', key)
+    window.addEventListener('scroll', follow, true); window.addEventListener('resize', follow)
+    return () => {
+      document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key)
+      window.removeEventListener('scroll', follow, true); window.removeEventListener('resize', follow)
+    }
+  }, [!!at])
+  const pick = fn => e => { e.stopPropagation(); setAt(null); fn() }
+  return (
+    <div className="row-menu" ref={ref} onClick={e => e.stopPropagation()}>
+      <button className="row-dots" aria-label="More actions" onClick={e => setAt(at ? null : place(e.currentTarget))}>···</button>
+      {at && createPortal(
+        <div className="menu-list row-menu-pop" role="menu" ref={pop}
+             style={{ position: 'fixed', top: at.top, right: at.right }} onClick={e => e.stopPropagation()}>
+          <button role="menuitem" onClick={pick(onOpen)}>Open set</button>
+          <button role="menuitem" onClick={pick(onCopy)}>Copy set</button>
+          <button role="menuitem" className="danger" onClick={pick(onDelete)}>Delete set</button>
+        </div>, document.body)}
+    </div>
+  )
+}
+
+/* Grey bars while the library loads, so the table does not flash empty. */
+function SetsSkeleton() {
+  return (
+    <div className="adm-skel">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div className="adm-skel-row" key={i}>
+          <span style={{ width: '22%' }} /><span style={{ width: '30%' }} /><span style={{ width: '8%' }} />
+          <span style={{ width: '10%' }} /><span style={{ width: '14%' }} />
+        </div>
+      ))}
+    </div>
   )
 }
 
