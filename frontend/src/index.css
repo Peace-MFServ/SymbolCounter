@@ -1250,18 +1250,19 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .prod-grid tbody tr.no-hover { cursor: default; }
 .prod-grid tbody tr.no-hover:hover td { background: #fff; }
 .prod-grid td { height: 92px; padding: 10px 16px; vertical-align: middle; }
+.prod-grid th:not(:last-child), .prod-grid td:not(:last-child) { border-right: 1px solid #E6EBF1; }
 .adm-none { color: #667085; font-size: 14px; font-weight: 500; text-align: center; }
 
 .prod-pic { position: relative; display: inline-flex; width: 72px; height: 72px; align-items: center; justify-content: center;
-  padding: 5px; background: #fff; border: 1px solid #E2E8F0; border-radius: 8px; overflow: hidden; cursor: pointer; }
+  padding: 5px; background: #fff; border: 1px solid #E2E8F0; border-radius: 8px; overflow: hidden; }
 .prod-pic img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.prod-pic.empty { background: #F3F6F9; color: #B0BDCC; }
-.prod-pic:hover { border-color: var(--accent); }
+.prod-pic.empty { background: #F3F6F9; color: #B0BDCC; cursor: pointer; }
+.prod-pic.empty:hover { border-color: var(--accent); }
 /* the upload prompt sits over the picture, and shows itself when the box is pointed at */
 .prod-pic-up { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 2px; background: rgba(0, 56, 123, .82); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .02em;
   opacity: 0; transition: opacity .12s; }
-.prod-pic:hover .prod-pic-up, .prod-pic:focus-visible .prod-pic-up { opacity: 1; }
+.prod-pic.empty:hover .prod-pic-up, .prod-pic.empty:focus-visible .prod-pic-up { opacity: 1; }
 
 .prod-grid .p-code { font-size: 14px; font-weight: 600; color: #344054; word-break: break-word; }
 .prod-grid .p-name { font-size: 15px; font-weight: 600; color: #101828; line-height: 1.35;
@@ -1317,6 +1318,7 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .set-grid tbody tr.no-hover { cursor: default; }
 .set-grid tbody tr.no-hover:hover td { background: #fff; }
 .set-grid td { height: 80px; padding: 12px 16px; vertical-align: middle; }
+.set-grid th:not(:last-child), .set-grid td:not(:last-child) { border-right: 1px solid #E6EBF1; }
 
 .set-grid .s-name { font-size: 15px; font-weight: 700; color: #101828; line-height: 1.35; }
 .set-grid .s-name span { font-weight: 600; }

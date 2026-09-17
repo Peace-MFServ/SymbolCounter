@@ -409,7 +409,7 @@ function ProdMenu({ onEdit, onPhoto, hasPhoto, onRemove }) {
         <div className="menu-list row-menu-pop" role="menu" ref={pop}
              style={{ position: 'fixed', top: at.top, right: at.right }} onClick={e => e.stopPropagation()}>
           <button role="menuitem" onClick={pick(onEdit)}>Edit details</button>
-          <button role="menuitem" onClick={pick(onPhoto)}>{hasPhoto ? 'Replace photo' : 'Add photo'}</button>
+          {!hasPhoto && <button role="menuitem" onClick={pick(onPhoto)}>Add photo</button>}
           <button role="menuitem" className="danger" onClick={pick(onRemove)}>Remove product</button>
         </div>, document.body)}
     </div>
@@ -583,14 +583,15 @@ function ImageReportModal({ r, onClose, onMatch }) {
 }
 
 
-/* 72px picture box. Click it to put a picture on the product, or change the one there. */
+/* 72px picture box. Products with no picture offer to take one. */
 function ProdThumb({ url, onUpload }) {
   const src = useAuthImage(url)
+  if (url) return <span className="prod-pic">{src ? <img src={src} alt="" /> : null}</span>
   return (
-    <button type="button" className={`prod-pic${url ? '' : ' empty'}`} title={url ? 'Replace photo' : 'Add photo'}
+    <button type="button" className="prod-pic empty" title="Add photo"
             onClick={e => { e.stopPropagation(); onUpload() }}>
-      {url ? (src ? <img src={src} alt="" /> : null) : <IconImage size={20} />}
-      <span className="prod-pic-up"><IconUpload size={16} />{url ? 'Replace' : 'Upload'}</span>
+      <IconImage size={20} />
+      <span className="prod-pic-up"><IconUpload size={16} />Upload</span>
     </button>
   )
 }
