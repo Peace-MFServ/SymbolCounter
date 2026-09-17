@@ -166,7 +166,6 @@ export function ScheduleView({ projectId, onNavigate }) {
 
             <div className="rail-panel" style={{ marginTop: 20 }}>
               <h3>Job details</h3>
-              <p className="muted" style={{ fontSize: 13, marginBottom: 10 }}>These go on the cover page.</p>
               <div className="form-group"><label>Quote no</label><input className="form-control" value={job.quote_no} onChange={e => setJob({ ...job, quote_no: e.target.value })} /></div>
               <div className="form-group"><label>Client</label><input className="form-control" value={job.client} onChange={e => setJob({ ...job, client: e.target.value })} /></div>
               <div className="form-group"><label>Site</label><input className="form-control" value={job.site} onChange={e => setJob({ ...job, site: e.target.value })} /></div>
