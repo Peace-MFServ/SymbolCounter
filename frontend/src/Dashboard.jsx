@@ -272,7 +272,7 @@ function RowMenu({ onOpen, onDelete }) {
 }
 
 const ownerKey = p => String(p.owner_id ?? `n:${p.owner_name || ''}`)
-const place = el => {
+export const place = el => {
   const r = el.getBoundingClientRect()
   return { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) }
 }

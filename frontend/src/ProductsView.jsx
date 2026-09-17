@@ -1,12 +1,25 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { apiFetch } from './api'
 import { showToast } from './toast'
-import { Topbar } from './Dashboard'
+import { Topbar, place } from './Dashboard'
 import { useAuthImage } from './TemplatesView'
-import { TYPE_NAMES, TYPE_ORDER } from './JobView'
+import { TYPE_NAMES, TYPE_ORDER, money } from './JobView'
 import { useLeaveGuard } from './unsaved'
+import { IconSearch, IconPlus, IconImage, IconChevron, IconFile, IconBox, IconLayers } from './icons'
 
 const EMPTY = { sku: '', name: '', category: 'Other', unit: 'EACH', cost: '', sell: '', intec_code: '', product_type: '', brand: '', notes: '', active: true }
+
+const PAGE_SIZES = [25, 50, 100]
+/* The columns the list can be put in order by, and what to read off a product for each. */
+const SORTS = {
+  sku:  p => (p.sku || '').toLowerCase(),
+  name: p => (p.name || '').toLowerCase(),
+  type: p => TYPE_ORDER.indexOf(p.product_type || ''),
+  cost: p => (p.cost == null ? -Infinity : p.cost),
+  photo: p => (p.image_url ? 1 : 0),
+  used: p => p.used_in.length,
+}
 
 export function ProductsView({ onNavigate }) {
   const [products,   setProducts]   = useState([])
@@ -14,8 +27,15 @@ export function ProductsView({ onNavigate }) {
   const [loading,    setLoading]    = useState(true)
   const [q,          setQ]          = useState('')
   const [cat,        setCat]        = useState('')
+  const [brand,      setBrand]      = useState('')
+  const [setName,    setSetName]    = useState('')
   const [ptype,      setPtype]      = useState(null)    // null = all, '' = untyped, '01'…
   const [withPhoto,  setWithPhoto]  = useState(false)
+  const [costOnly,   setCostOnly]   = useState('')      // '' | 'priced' | 'none'
+  const [usedOnly,   setUsedOnly]   = useState('')      // '' | 'used' | 'free'
+  const [sort,       setSort]       = useState({ key: 'sku', dir: 1 })
+  const [page,       setPage]       = useState(1)
+  const [pageSize,   setPageSize]   = useState(50)
   const [editing,    setEditing]    = useState(null)   // product object or EMPTY for new
   const [importing,  setImporting]  = useState(false)
   const [pasting,    setPasting]    = useState(false)
@@ -42,15 +62,47 @@ export function ProductsView({ onNavigate }) {
   }
   useEffect(() => { load() }, [])
 
-  const shown = useMemo(() => {
+  // everything except the chip row, so the chip counts can be read off it
+  const base = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return products.filter(p =>
-      (ptype === null || (p.product_type || '') === ptype) &&
-      (!withPhoto || p.image_url) &&
       (!cat || p.category === cat) &&
+      (!brand || (p.brand || '') === brand) &&
+      (!setName || p.used_in.includes(setName)) &&
+      (costOnly === '' || (costOnly === 'priced' ? p.cost != null : p.cost == null)) &&
+      (usedOnly === '' || (usedOnly === 'used' ? p.used_in.length > 0 : p.used_in.length === 0)) &&
       (!needle || p.sku.toLowerCase().includes(needle) || p.name.toLowerCase().includes(needle)
         || (p.intec_code || '').toLowerCase().includes(needle)))
-  }, [products, q, cat, ptype, withPhoto])
+  }, [products, q, cat, brand, setName, costOnly, usedOnly])
+
+  const shown = useMemo(() => {
+    const rows = base.filter(p =>
+      (ptype === null || (p.product_type || '') === ptype) && (!withPhoto || p.image_url))
+    const read = SORTS[sort.key] || SORTS.sku
+    return [...rows].sort((a, b) => {
+      const x = read(a), y = read(b)
+      return (x < y ? -1 : x > y ? 1 : 0) * sort.dir
+    })
+  }, [base, ptype, withPhoto, sort])
+
+  const pages = Math.max(1, Math.ceil(shown.length / pageSize))
+  const cur = Math.min(page, pages)
+  const rows = shown.slice((cur - 1) * pageSize, cur * pageSize)
+  // any change to what is being looked for starts again at the front
+  useEffect(() => { setPage(1) }, [q, cat, brand, setName, costOnly, usedOnly, ptype, withPhoto, pageSize])
+
+  const brands = useMemo(() => [...new Set(products.map(p => p.brand).filter(Boolean))].sort(), [products])
+  const setNames = useMemo(() => [...new Set(products.flatMap(p => p.used_in))].sort(), [products])
+  const typeCounts = useMemo(() => {
+    const n = {}
+    for (const p of base) { const t = p.product_type || ''; n[t] = (n[t] || 0) + 1 }
+    return n
+  }, [base])
+  const photoCount = base.filter(p => p.image_url).length
+  const extraFilters = (costOnly ? 1 : 0) + (usedOnly ? 1 : 0)
+
+  const by = key => () => setSort(s => ({ key, dir: s.key === key ? -s.dir : 1 }))
+  const arrow = key => (sort.key === key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '')
 
   const importFile = async file => {
     if (!file) return
@@ -64,32 +116,57 @@ export function ProductsView({ onNavigate }) {
     setImporting(false)
   }
 
-  const crumbs = [{ label: 'Products' }]
+  // the three-dot menu hands a product over here to get its picture changed
+  const photoRef = useRef()
+  const [photoFor, setPhotoFor] = useState(null)
+  const uploadPhoto = async file => {
+    if (!file || !photoFor) return
+    try {
+      const form = new FormData(); form.append('file', file)
+      await apiFetch(`/products/${photoFor}/image`, { method: 'POST', body: form })
+      showToast('Photo saved', 'success'); await load()
+    } catch (err) { showToast(err.message, 'error') }
+    setPhotoFor(null)
+  }
+  const pickPhoto = p => { setPhotoFor(p.id); setTimeout(() => photoRef.current?.click(), 0) }
+  const removeProduct = async p => {
+    if (!confirm(`Remove ${p.sku} from the list? Sets that use it keep it.`)) return
+    try {
+      await apiFetch(`/products/${p.id}`, { method: 'DELETE' })
+      showToast('Product removed', 'info'); await load()
+    } catch (err) { showToast(err.message, 'error') }
+  }
+
   return (
     <>
-      <Topbar crumbs={crumbs} onNavigate={onNavigate} active="products" />
-      <div className="page-wrap">
-        <div className="page-header">
-          <div>
+      <Topbar onNavigate={onNavigate} active="products" />
+      <div className="page-wrap prods-wrap">
+        <div className="prods-head">
+          <div className="prods-title">
             <h1>Products</h1>
-            <p className="lede">
-              {products.length} products. Prices are the Cin7 average cost in euro.
-            </p>
+            <p className="lede">{products.length} products. Prices are the Cin7 average cost in euro.</p>
           </div>
-          <div className="spacer" />
-          <div className="actions">
-            <button className="btn" onClick={() => fileRef.current.click()} disabled={importing}>
-              {importing ? <><span className="spinner" /> Importing…</> : 'Import from Cin7'}
+          <div className="prods-actions">
+            <button className="btn btn-line" onClick={() => fileRef.current.click()} disabled={importing}>
+              {importing ? <><span className="spinner" /> Importing…</> : <><IconBox size={17} /> Import from Cin7</>}
             </button>
             <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }}
                    onChange={e => { importFile(e.target.files[0]); e.target.value = '' }} />
-            <button className="btn" onClick={() => zipRef.current.click()} disabled={imgBusy}>{imgBusy ? <><span className="spinner" /> Importing images…</> : 'Import images'}</button>
+            <button className="btn btn-line" onClick={() => zipRef.current.click()} disabled={imgBusy}>
+              {imgBusy ? <><span className="spinner" /> Importing images…</> : <><IconImage size={17} /> Import images</>}
+            </button>
             <input ref={zipRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={e => { importImages(e.target.files[0]); e.target.value = '' }} />
-            {pendingN > 0 && <button className="btn btn-soft" onClick={() => onNavigate('match-images')}>Match images ({pendingN})</button>}
-            <button className="btn" onClick={() => setPasting(true)}>Intec prices</button>
-            <button className="btn btn-primary" onClick={() => setEditing({ ...EMPTY })}>Add product</button>
+            {pendingN > 0 && (
+              <button className="btn btn-soft" onClick={() => onNavigate('match-images')}>
+                <IconLayers size={17} /> Match images ({pendingN})
+              </button>
+            )}
+            <button className="btn btn-line" onClick={() => setPasting(true)}><IconFile size={17} /> Intec prices</button>
+            <button className="btn btn-primary" onClick={() => setEditing({ ...EMPTY })}><IconPlus size={17} /> Add product</button>
           </div>
         </div>
+        <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }}
+               onChange={e => { uploadPhoto(e.target.files[0]); e.target.value = '' }} />
         {imgReport && <ImageReportModal r={imgReport} onClose={() => setImgReport(null)} onMatch={() => { setImgReport(null); onNavigate('match-images') }} />}
         {pasting && <IntecPasteModal onClose={() => setPasting(false)} onDone={async () => { setPasting(false); await load() }} />}
 
@@ -103,58 +180,114 @@ export function ProductsView({ onNavigate }) {
           </div>
         ) : (
           <>
-            <div className="filter-row">
-              <input className="form-control search" placeholder="Search code, name or Intec code…"
-                     value={q} onChange={e => setQ(e.target.value)} />
-              <div className="chips">
-                <button className={`chip-btn${withPhoto ? ' on' : ''}`} onClick={() => setWithPhoto(v => !v)} title="Only products that have a picture">With picture {products.filter(p => p.image_url).length}</button>
-                <button className={`chip-btn${ptype === null ? ' on' : ''}`} onClick={() => setPtype(null)}>All types</button>
-                {TYPE_ORDER.map(t => {
-                  const n = products.filter(p => (p.product_type || '') === t).length
-                  return n ? <button key={t || 'none'} className={`chip-btn${ptype === t ? ' on' : ''}`} onClick={() => setPtype(ptype === t ? null : t)}>{TYPE_NAMES[t]} {n}</button> : null
-                })}
-              </div>
-            </div>
-            <div className="filter-row" style={{ marginTop: -8 }}>
-              <div className="chips">
-                <button className={`chip-btn${cat === '' ? ' on' : ''}`} onClick={() => setCat('')}>All {products.length}</button>
-                {cats.slice(0, 8).map(c => (
-                  <button key={c.name} className={`chip-btn${cat === c.name ? ' on' : ''}`}
-                          onClick={() => setCat(cat === c.name ? '' : c.name)}>{c.name} {c.count}</button>
-                ))}
-                {cats.length > 8 && (
-                  <select className="form-control chip-select" value={cats.slice(0, 8).some(c => c.name === cat) ? '' : cat}
-                          onChange={e => setCat(e.target.value)}>
-                    <option value="">More…</option>
-                    {cats.slice(8).map(c => <option key={c.name} value={c.name}>{c.name} ({c.count})</option>)}
-                  </select>
-                )}
-              </div>
+            <div className="prods-filters">
+              <label className="prods-search">
+                <IconSearch size={17} />
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search code, name or type..." />
+              </label>
+              {cats.length > 1 && (
+                <Picker value={cat} onChange={setCat} all="All categories"
+                        options={cats.map(c => ({ value: c.name, label: `${c.name} (${c.count})` }))} />
+              )}
+              {brands.length > 0 && (
+                <Picker value={brand} onChange={setBrand} all="All brands"
+                        options={brands.map(b => ({ value: b, label: b }))} />
+              )}
+              {setNames.length > 0 && (
+                <Picker value={setName} onChange={setSetName} all="All sets"
+                        options={setNames.map(s => ({ value: s, label: s }))} />
+              )}
+              <MoreFilters count={extraFilters} costOnly={costOnly} setCostOnly={setCostOnly}
+                           usedOnly={usedOnly} setUsedOnly={setUsedOnly} />
             </div>
 
-            <table className="ledger prod-table">
-              <thead><tr><th>Code</th><th>Product</th><th>Type</th><th style={{ textAlign: 'right' }}>Avg cost</th><th>Photo</th><th>Used in sets</th><th></th></tr></thead>
-              <tbody>
-                {shown.slice(0, 300).map(p => (
-                  <tr key={p.id} onClick={() => setEditing(p)}>
-                    <td className="mono">{p.sku}</td>
-                    <td>
-                      <div className="dwg-name" style={{ fontSize: 15 }}>{p.name}</div>
-                      {(p.intec_code || p.notes) && (
-                        <div className="proj-meta">{[p.intec_code && `Intec code ${p.intec_code}`, p.notes].filter(Boolean).join(' · ')}</div>
-                      )}
-                    </td>
-                    <td>{p.product_type ? TYPE_NAMES[p.product_type] : <span className="muted">Not set</span>}<div className="proj-meta">{p.category}</div></td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{p.cost != null ? p.cost.toFixed(2) : <span className="muted">—</span>}</td>
-                    <td>{p.image_url ? <ProdThumb url={p.image_url} /> : <span className="badge badge-grey">None</span>}</td>
-                    <td className="muted" style={{ fontSize: 13 }}>{p.used_in.length ? p.used_in.join(', ') : 'Not used yet'}</td>
-                    <td className="row-actions"><button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setEditing(p) }}>Edit</button></td>
-                  </tr>
-                ))}
-                {shown.length === 0 && <tr><td colSpan={7} className="muted" style={{ padding: 24 }}>Nothing matches.</td></tr>}
-              </tbody>
-            </table>
-            {shown.length > 300 && <p className="hint" style={{ marginTop: 8 }}>Showing the first 300 of {shown.length}. Narrow the search to see the rest.</p>}
+            <div className="prods-chips">
+              <button className={`pchip${ptype === null && !withPhoto ? ' on' : ''}`}
+                      onClick={() => { setPtype(null); setWithPhoto(false) }}>All ({base.length})</button>
+              <button className={`pchip${withPhoto ? ' on' : ''}`} onClick={() => setWithPhoto(v => !v)}>With pictures ({photoCount})</button>
+              {TYPE_ORDER.map(t => typeCounts[t]
+                ? <button key={t || 'none'} className={`pchip${ptype === t ? ' on' : ''}`}
+                          onClick={() => setPtype(ptype === t ? null : t)}>{TYPE_NAMES[t]} ({typeCounts[t]})</button>
+                : null)}
+            </div>
+
+            <div className="prods-card">
+              <div className="prods-scroll">
+                <table className="prod-grid">
+                  <colgroup>
+                    <col style={{ width: 104 }} /><col style={{ width: '13%' }} /><col style={{ width: '26%' }} />
+                    <col style={{ width: '14%' }} /><col style={{ width: '9%' }} /><col style={{ width: '10%' }} />
+                    <col style={{ width: '13%' }} /><col style={{ width: 148 }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Image</th>
+                      <th><button className="th-sort" onClick={by('sku')}>Code{arrow('sku')}</button></th>
+                      <th><button className="th-sort" onClick={by('name')}>Product{arrow('name')}</button></th>
+                      <th><button className="th-sort" onClick={by('type')}>Type{arrow('type')}</button></th>
+                      <th className="num"><button className="th-sort" onClick={by('cost')}>Avg cost{arrow('cost')}</button></th>
+                      <th><button className="th-sort" onClick={by('photo')}>Photo{arrow('photo')}</button></th>
+                      <th><button className="th-sort" onClick={by('used')}>Used in sets{arrow('used')}</button></th>
+                      <th className="num">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(p => (
+                      <tr key={p.id} onClick={() => setEditing(p)}>
+                        <td><ProdThumb url={p.image_url} /></td>
+                        <td className="p-code">{p.sku}</td>
+                        <td>
+                          <div className="p-name">{p.name}</div>
+                          {(p.intec_code || p.notes) && (
+                            <div className="p-meta">{[p.intec_code && `Intec code ${p.intec_code}`, p.notes].filter(Boolean).join(' · ')}</div>
+                          )}
+                        </td>
+                        <td>
+                          <div className={`p-type${p.product_type ? '' : ' unset'}`}>{p.product_type ? TYPE_NAMES[p.product_type] : 'Not set'}</div>
+                          <div className="p-meta">{p.category || 'Other'}</div>
+                        </td>
+                        <td className="num p-cost">{p.cost != null ? `€${money(p.cost)}` : <span className="p-dash">—</span>}</td>
+                        <td>
+                          <span className={`photo-pill${p.image_url ? ' has' : ''}`}>
+                            <IconImage size={13} /> {p.image_url ? 'Available' : 'None'}
+                          </span>
+                        </td>
+                        <td>
+                          {p.used_in.length ? (
+                            <>
+                              <div className="p-used">{p.used_in.length} set{p.used_in.length !== 1 ? 's' : ''}</div>
+                              <div className="p-meta" title={p.used_in.join(', ')}>{p.used_in.join(', ')}</div>
+                            </>
+                          ) : <span className="p-dash">Not used yet</span>}
+                        </td>
+                        <td className="num">
+                          <div className="p-actions">
+                            <button className="btn btn-soft btn-edit" onClick={e => { e.stopPropagation(); setEditing(p) }}>Edit</button>
+                            <ProdMenu onEdit={() => setEditing(p)} onPhoto={() => pickPhoto(p)}
+                                      hasPhoto={!!p.image_url} onRemove={() => removeProduct(p)} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {rows.length === 0 && (
+                      <tr className="no-hover"><td colSpan={8} className="prods-none">No products match what you are looking for.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {shown.length > 0 && (
+                <div className="prods-foot">
+                  <span className="prods-count">
+                    Showing <strong>{(cur - 1) * pageSize + 1}–{Math.min(cur * pageSize, shown.length)}</strong> of {shown.length} product{shown.length !== 1 ? 's' : ''}
+                  </span>
+                  <div className="prods-pager">
+                    <Picker value={String(pageSize)} onChange={v => setPageSize(Number(v))} small
+                            options={PAGE_SIZES.map(n => ({ value: String(n), label: `${n} per page` }))} />
+                    <Pager page={cur} pages={pages} onGo={setPage} />
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -165,6 +298,126 @@ export function ProductsView({ onNavigate }) {
                       onSaved={p => { setEditing(null); load() }} />
       )}
     </>
+  )
+}
+
+/* A plain select dressed to match the filter row. */
+function Picker({ value, onChange, options, all, small = false }) {
+  return (
+    <div className={`picker${small ? ' small' : ''}`}>
+      <select value={value} onChange={e => onChange(e.target.value)}>
+        {all && <option value="">{all}</option>}
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <IconChevron size={16} />
+    </div>
+  )
+}
+
+/* The filters that are used less often, kept out of the way until asked for. */
+function MoreFilters({ count, costOnly, setCostOnly, usedOnly, setUsedOnly }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  useEffect(() => {
+    if (!open) return
+    const away = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const key = e => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key) }
+  }, [open])
+  return (
+    <div className="more-filters" ref={ref}>
+      <button className={`btn btn-line more-btn${count ? ' on' : ''}`} onClick={() => setOpen(v => !v)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 3H2l8 9.5V20l4 2v-9.5Z" /></svg>
+        More filters{count ? ` (${count})` : ''}
+      </button>
+      {open && (
+        <div className="more-pop">
+          <div className="more-group">
+            <label>Cost</label>
+            <div className="more-opts">
+              <button className={costOnly === '' ? 'on' : ''} onClick={() => setCostOnly('')}>Any</button>
+              <button className={costOnly === 'priced' ? 'on' : ''} onClick={() => setCostOnly('priced')}>Has a cost</button>
+              <button className={costOnly === 'none' ? 'on' : ''} onClick={() => setCostOnly('none')}>No cost yet</button>
+            </div>
+          </div>
+          <div className="more-group">
+            <label>Used in sets</label>
+            <div className="more-opts">
+              <button className={usedOnly === '' ? 'on' : ''} onClick={() => setUsedOnly('')}>Any</button>
+              <button className={usedOnly === 'used' ? 'on' : ''} onClick={() => setUsedOnly('used')}>In a set</button>
+              <button className={usedOnly === 'free' ? 'on' : ''} onClick={() => setUsedOnly('free')}>Not used yet</button>
+            </div>
+          </div>
+          <div className="more-foot">
+            <button className="btn btn-ghost btn-sm" onClick={() => { setCostOnly(''); setUsedOnly('') }}>Clear</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* Previous, a window of page numbers with gaps marked, next. */
+function Pager({ page, pages, onGo }) {
+  const nums = []
+  const push = n => { if (!nums.includes(n)) nums.push(n) }
+  push(1)
+  for (let n = page - 1; n <= page + 1; n++) if (n > 1 && n < pages) push(n)
+  if (page <= 3) for (let n = 2; n <= Math.min(5, pages - 1); n++) push(n)
+  if (page >= pages - 2) for (let n = Math.max(2, pages - 4); n < pages; n++) push(n)
+  if (pages > 1) push(pages)
+  nums.sort((a, b) => a - b)
+  const out = []
+  nums.forEach((n, i) => {
+    if (i && n - nums[i - 1] > 1) out.push(<span key={`gap${n}`} className="pg-gap">…</span>)
+    out.push(<button key={n} className={`pg${n === page ? ' on' : ''}`} onClick={() => onGo(n)}>{n}</button>)
+  })
+  return (
+    <div className="pager">
+      <button className="pg arrow" disabled={page <= 1} onClick={() => onGo(page - 1)} aria-label="Previous page">
+        <IconChevron size={16} style={{ transform: 'rotate(90deg)' }} />
+      </button>
+      {out}
+      <button className="pg arrow" disabled={page >= pages} onClick={() => onGo(page + 1)} aria-label="Next page">
+        <IconChevron size={16} style={{ transform: 'rotate(-90deg)' }} />
+      </button>
+    </div>
+  )
+}
+
+/* The row's spare actions, drawn on top of the page so the card cannot clip them. */
+function ProdMenu({ onEdit, onPhoto, hasPhoto, onRemove }) {
+  const [at, setAt] = useState(null)
+  const ref = useRef()
+  const pop = useRef()
+  useEffect(() => {
+    if (!at) return
+    const away = e => {
+      const inside = (ref.current && ref.current.contains(e.target)) || (pop.current && pop.current.contains(e.target))
+      if (!inside) setAt(null)
+    }
+    const key = e => { if (e.key === 'Escape') setAt(null) }
+    const follow = () => { if (ref.current) setAt(place(ref.current)) }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', key)
+    window.addEventListener('scroll', follow, true); window.addEventListener('resize', follow)
+    return () => {
+      document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key)
+      window.removeEventListener('scroll', follow, true); window.removeEventListener('resize', follow)
+    }
+  }, [!!at])
+  const pick = fn => e => { e.stopPropagation(); setAt(null); fn() }
+  return (
+    <div className="row-menu" ref={ref} onClick={e => e.stopPropagation()}>
+      <button className="row-dots" aria-label="More actions" onClick={e => setAt(at ? null : place(e.currentTarget))}>···</button>
+      {at && createPortal(
+        <div className="menu-list row-menu-pop" role="menu" ref={pop}
+             style={{ position: 'fixed', top: at.top, right: at.right }} onClick={e => e.stopPropagation()}>
+          <button role="menuitem" onClick={pick(onEdit)}>Edit details</button>
+          <button role="menuitem" onClick={pick(onPhoto)}>{hasPhoto ? 'Replace photo' : 'Add photo'}</button>
+          <button role="menuitem" className="danger" onClick={pick(onRemove)}>Remove product</button>
+        </div>, document.body)}
+    </div>
   )
 }
 
@@ -334,7 +587,10 @@ function ImageReportModal({ r, onClose, onMatch }) {
   )
 }
 
+
+/* 72px picture box, or a neutral placeholder when the product has no picture yet. */
 function ProdThumb({ url }) {
   const src = useAuthImage(url)
-  return <span className="prod-thumb">{src ? <img src={src} alt="" /> : null}</span>
+  if (!url) return <span className="prod-pic empty"><IconImage size={20} /></span>
+  return <span className="prod-pic">{src ? <img src={src} alt="" /> : null}</span>
 }
