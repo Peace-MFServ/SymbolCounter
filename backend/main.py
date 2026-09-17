@@ -462,8 +462,14 @@ def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_
     db.query(models.Door).filter(models.Door.project_id == pid).delete(synchronize_session=False)
     db.query(models.DoorType).filter(models.DoorType.project_id == pid).delete(synchronize_session=False)
     db.query(models.ProjectSet).filter(models.ProjectSet.project_id == pid).delete(synchronize_session=False)
+    # the estimator's own prices for this quote go with it, or the FK blocks the delete
+    db.query(models.JobPrice).filter(models.JobPrice.project_id == pid).delete(synchronize_session=False)
     for s_ in db.query(models.HardwareSet).filter(models.HardwareSet.project_id == pid).all():
         db.delete(s_)
+    # HardwareSet has no relationship back to Project, so nothing tells SQLAlchemy
+    # these have to go first. Without the flush it can write DELETE FROM projects
+    # while a job-only set still points at it, and the whole delete fails.
+    db.flush()
     db.delete(p)
     db.commit()
 

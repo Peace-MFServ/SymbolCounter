@@ -6,6 +6,7 @@ import { useAuth } from './auth'
 import logo from './assets/mf-logo.jpeg'
 import { IconRight, IconPlus, IconSearch, IconChevron, IconBars } from './icons'
 import { useLeaveGuard } from './unsaved'
+import { useConfirm } from './confirm'
 
 export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false, crumbsRight = null }) {
   const { user, logout } = useAuth()
@@ -60,6 +61,7 @@ export function Dashboard({ onNavigate, q = '' }) {
   const [view,     setView]     = useState('owner')     // 'owner' | 'all'
   const [search,   setSearch]   = useState(q)
   const [collapsed, setCollapsed] = useState({})        // owner key -> hidden
+  const { ask, modal: confirmModal } = useConfirm()
 
   useEffect(() => {
     apiFetch('/projects')
@@ -80,15 +82,24 @@ export function Dashboard({ onNavigate, q = '' }) {
       const c = await apiFetch(`/projects/${p.id}/duplicate`, { method: 'POST' })
       showToast(p.drawing_count ? `Copied as ${c.name}. Drawings are not copied.` : `Copied as ${c.name}`, 'success')
       setProjects(ps => [c, ...ps])
-      onNavigate(openView(c), { id: c.id })
+      setCollapsed(x => ({ ...x, [ownerKey(c)]: false }))   // so the copy is not hidden away
     } catch (err) { showToast(err.message, 'error') }
   }
 
-  const deleteProject = async id => {
-    if (!confirm('Delete this project and all its drawings?')) return
-    await apiFetch(`/projects/${id}`, { method: 'DELETE' })
-    setProjects(ps => ps.filter(p => p.id !== id))
-    showToast('Project deleted', 'info')
+  const deleteProject = async p => {
+    const ok = await ask({
+      title: `Delete ${p.name}?`,
+      body: p.drawing_count
+        ? `Its ${p.drawing_count} drawing${p.drawing_count !== 1 ? 's' : ''} go with it. This cannot be undone.`
+        : 'This cannot be undone.',
+      confirm: 'Delete job', danger: true,
+    })
+    if (!ok) return
+    try {
+      await apiFetch(`/projects/${p.id}`, { method: 'DELETE' })
+      setProjects(ps => ps.filter(x => x.id !== p.id))
+      showToast(`${p.name} deleted`, 'info')
+    } catch (err) { showToast(err.message, 'error') }
   }
 
   const shown = useMemo(() => {
@@ -117,6 +128,7 @@ export function Dashboard({ onNavigate, q = '' }) {
   return (
     <>
       <Topbar onNavigate={onNavigate} />
+      {confirmModal}
       <div className="page-wrap jobs-wrap">
         <div className="jobs-grid">
           <div className="jobs-main">
@@ -240,7 +252,7 @@ function JobTable({ rows, showOwner = false, onOpen, canDelete, onDelete, onDupl
               <td className="num">
                 <RowMenu onOpen={() => onOpen(p)}
                          onDuplicate={canDelete(p) ? () => onDuplicate(p) : null}
-                         onDelete={canDelete(p) ? () => onDelete(p.id) : null} />
+                         onDelete={canDelete(p) ? () => onDelete(p) : null} />
               </td>
             </tr>
           ))}
