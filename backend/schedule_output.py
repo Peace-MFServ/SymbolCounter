@@ -139,7 +139,8 @@ def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
     return {
         "project": {"id": project.id, "name": project.name, "client": project.client or "",
                     "site": project.site or "", "quote_no": project.quote_no or "", "rep": project.rep or "",
-                    "estimator": estimator, "date": date.today().strftime("%d/%m/%Y")},
+                    "estimator": estimator, "date": date.today().strftime("%d/%m/%Y"),
+                    "notes": (project.notes or "").strip()},
         "sets": sets_out, "summary": summary_rows,
         "doors_scheduled": sum(s["doors"] for s in sets_out), "doors_no_set": len(no_set),
         "doors_excluded": excluded, "doors_total": len(doors),
@@ -387,10 +388,22 @@ class SchedulePDF(FPDF):
             self._navy(); self.set_xy(150, y); self.cell(42, 6, _money(self.data["total"]), align="R"); self._ink()
 
     def notes_page(self):
+        """What the estimator typed on the schedule screen, then ruled space for the rest."""
         self.add_page()
         self.band("Notes")
+        text = (self.data["project"].get("notes") or "").strip()
+        if text:
+            self.set_y(self.get_y() + 6)
+            self.set_font("Helvetica", "", 9.5); self._ink()
+            for para in text.splitlines():
+                para = para.rstrip()
+                if not para:
+                    self.set_y(self.get_y() + 3); continue
+                self._need(6)
+                self.set_x(18); self.multi_cell(174, 5, _latin(para))
+            self.set_y(self.get_y() + 8)
         self.set_draw_color(*RULE)
-        y = self.get_y() + 6
+        y = max(self.get_y(), 60)
         while y < self.h - 40:
             self.line(18, y, 192, y); y += 8
 

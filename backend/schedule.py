@@ -1489,7 +1489,21 @@ def get_schedule(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cu
     for r in data["summary"]:
         r["image_url"] = f"/api/files/products/{Path(r['image_path']).name}" if r.get("image_path") else ""
         r.pop("image_path", None)
+    data["can_edit"] = not p.owner_id or p.owner_id == cu.id
     return data
+
+
+class NotesIn(BaseModel):
+    notes: str = ""
+
+
+@router.put("/projects/{pid}/notes")
+def save_job_notes(pid: int, payload: NotesIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """The note the estimator types on the schedule screen; it prints on the Notes page."""
+    p = _edit_project(pid, db, cu)
+    p.notes = (payload.notes or "").strip()[:8000]
+    db.commit()
+    return {"notes": p.notes}
 
 
 @router.get("/projects/{pid}/schedule/pdf")

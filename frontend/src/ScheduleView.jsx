@@ -4,6 +4,7 @@ import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { Menu } from './ProjectView'
 import { IconZoom, IconImage } from './icons'
+import { useLeaveGuard } from './unsaved'
 import { useAuthImage } from './TemplatesView'
 
 const money = v => (v == null ? '' : v.toLocaleString('en-IE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
@@ -15,10 +16,14 @@ export function ScheduleView({ projectId, onNavigate }) {
   const [priced, setPriced] = useState(false)
   const [summary, setSummary] = useState(true)
   const [packing, setPacking] = useState(false)
+  const [notes,  setNotes]  = useState(null)     // what is being typed
+  const [saved,  setSaved]  = useState('')       // what the server has
 
   const load = async () => {
     const [d, p] = await Promise.all([apiFetch(`/projects/${projectId}/schedule`), apiFetch(`/projects/${projectId}`)])
     setData(d)
+    setSaved(d.project.notes || '')
+    setNotes(n => (n === null ? (d.project.notes || '') : n))   // keep what they are typing
     setJob({ name: p.name, client: p.client || '', site: p.site || '', description: p.description || '',
              drawing_firm: p.drawing_firm || '', quote_no: p.quote_no || '', rep: p.rep || '', kind: p.kind || 'symbols' })
   }
@@ -26,9 +31,21 @@ export function ScheduleView({ projectId, onNavigate }) {
 
   const saveJob = async () => {
     setBusy('job')
+    let ok = true
     try { await apiFetch(`/projects/${projectId}`, { method: 'PUT', body: JSON.stringify(job) }); showToast('Job details saved', 'success'); await load() }
-    catch (err) { showToast(err.message, 'error') }
+    catch (err) { showToast(err.message, 'error'); ok = false }
     setBusy('')
+    return ok
+  }
+  const saveNotes = async () => {
+    setBusy('notes')
+    let ok = true
+    try {
+      const r = await apiFetch(`/projects/${projectId}/notes`, { method: 'PUT', body: JSON.stringify({ notes }) })
+      setSaved(r.notes); setNotes(r.notes); showToast('Notes saved', 'success')
+    } catch (err) { showToast(err.message, 'error'); ok = false }
+    setBusy('')
+    return ok
   }
 
   const download = async kind => {
@@ -42,13 +59,17 @@ export function ScheduleView({ projectId, onNavigate }) {
     setBusy('')
   }
 
+  const notesDirty = notes !== null && notes !== saved
+  const { guard, modal: leaveModal } = useLeaveGuard({ dirty: notesDirty, onSave: saveNotes, what: 'notes' })
+  const goNav = guard(onNavigate)
+
   const crumbs = job?.kind === 'doors'
-    ? [{ label: 'Projects', onClick: () => onNavigate('dashboard') },
-       { label: job?.name || '…', onClick: () => onNavigate('job', { id: projectId }) },
+    ? [{ label: 'Projects', onClick: () => goNav('dashboard') },
+       { label: job?.name || '…', onClick: () => goNav('job', { id: projectId }) },
        { label: 'Schedule' }]
-    : [{ label: 'Projects', onClick: () => onNavigate('dashboard') },
-       { label: job?.name || '…', onClick: () => onNavigate('project', { id: projectId }) },
-       { label: 'Doors', onClick: () => onNavigate('doors', { id: projectId }) },
+    : [{ label: 'Projects', onClick: () => goNav('dashboard') },
+       { label: job?.name || '…', onClick: () => goNav('project', { id: projectId }) },
+       { label: 'Doors', onClick: () => goNav('doors', { id: projectId }) },
        { label: 'Schedule' }]
   if (!data || !job) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div></>
 
@@ -57,7 +78,8 @@ export function ScheduleView({ projectId, onNavigate }) {
 
   return (
     <>
-      <Topbar crumbs={crumbs} onNavigate={onNavigate} />
+      <Topbar crumbs={crumbs} onNavigate={goNav} />
+      {leaveModal}
       <div className="page-wrap">
         <div className="page-header">
           <div>
@@ -128,6 +150,19 @@ export function ScheduleView({ projectId, onNavigate }) {
                 </ul>
               )}
               {data.doors_no_set > 0 && <button className="link-btn" onClick={() => onNavigate('doors', { id: projectId })}>Back to doors</button>}
+            </div>
+
+            <div className="rail-panel" style={{ marginTop: 20 }}>
+              <h3>Notes</h3>
+              <p className="muted" style={{ fontSize: 13, marginBottom: 10 }}>Anything typed here prints on the Notes page of the schedule PDF.</p>
+              <textarea className="form-control notes-box" rows={7} value={notes ?? ''} disabled={data.can_edit === false}
+                        placeholder={data.can_edit === false ? 'Only the job owner can change the notes.' : 'e.g. All ironmongery to be SSS unless noted.\nCylinders to be master keyed to site suite.'}
+                        onChange={e => setNotes(e.target.value)} />
+              {data.can_edit !== false && (
+                <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={saveNotes} disabled={busy === 'notes' || !notesDirty}>
+                  {busy === 'notes' ? <span className="spinner" /> : notesDirty ? 'Save notes' : 'Saved'}
+                </button>
+              )}
             </div>
 
             <div className="rail-panel" style={{ marginTop: 20 }}>

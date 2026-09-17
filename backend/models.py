@@ -136,6 +136,7 @@ class Project(Base):
     quote_no      = Column(String, default="")
     rep           = Column(String, default="")
     kind          = Column(String, default="symbols")   # "symbols" (device counting) | "doors" (ironmongery schedule)
+    notes         = Column(Text, default="")           # the estimator's notes, printed on the schedule's Notes page
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
     owner_id      = Column(Integer, ForeignKey("users.id"))

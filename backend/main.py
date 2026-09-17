@@ -119,6 +119,9 @@ def _ensure_columns():
             if "kind" not in pexisting:
                 conn.execute(_sa.text("ALTER TABLE projects ADD COLUMN kind TEXT DEFAULT 'symbols'"))
                 logger.info("Migrated: added projects.kind")
+            if "notes" not in pexisting:
+                conn.execute(_sa.text("ALTER TABLE projects ADD COLUMN notes TEXT DEFAULT ''"))
+                logger.info("Migrated: added projects.notes")
             for table, cols in (("products", {"product_type": "TEXT DEFAULT ''", "brand": "TEXT DEFAULT ''"}),
                                 ("hardware_sets", {"project_id": "INTEGER", "locked_by_id": "INTEGER", "locked_at": "DATETIME"})):
                 have = {row[1] for row in conn.execute(_sa.text(f"PRAGMA table_info({table})")).fetchall()}
