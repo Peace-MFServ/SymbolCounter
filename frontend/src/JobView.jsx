@@ -322,6 +322,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
   const [prefix, setPrefix] = useState('')
   const [sep,    setSep]    = useState('')
   const [refs,   setRefs]   = useState('')
+  const [qty,    setQty]    = useState('')
   const [from,   setFrom]   = useState('')
   const [to,     setTo]     = useState('')
   const [floor,  setFloor]  = useState('')
@@ -344,6 +345,21 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
       const note = r.skipped.length ? `; already on the job: ${r.skipped.join(', ')}` : ''
       showToast(`${r.added} door${r.added !== 1 ? 's' : ''} added${note}`, r.added ? 'success' : 'error')
       setRefs(''); await onChanged()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy('')
+  }
+  // "Give me twenty": placeholder doors numbered from the next free number, to
+  // be corrected in their chips once the real references are known.
+  const addQty = async e => {
+    e.preventDefault()
+    const n = Number(qty)
+    if (!n || n < 1) return
+    setBusy('qty')
+    try {
+      const r = await apiFetch(`/projects/${projectId}/doors/add-quantity`, { method: 'POST',
+        body: JSON.stringify({ set_id: s.id, count: n, prefix: '', separator: '', pad: 2, start: null, floor }) })
+      showToast(`${r.added} door${r.added !== 1 ? 's' : ''} added, ${r.first} to ${r.last}`, 'success')
+      setQty(''); await onChanged()
     } catch (err) { showToast(err.message, 'error') }
     setBusy('')
   }
@@ -405,6 +421,11 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
           <button className="btn btn-primary" type="submit" disabled={busy === 'refs' || !refs.trim()}>{busy === 'refs' ? <span className="spinner" /> : <><IconPlus size={16} /> Add doors</>}</button>
         </form>}
         {!readOnly && <div className="add-range-row">
+          <form onSubmit={addQty} className="add-qty-form">
+            <span className="muted">Or add a quantity</span>
+            <input className="form-control" type="number" min="1" max="2000" value={qty} onChange={e => setQty(e.target.value)} placeholder="e.g. 20" />
+            <button className="btn btn-soft" type="submit" disabled={busy === 'qty' || !(Number(qty) >= 1)}>{busy === 'qty' ? <span className="spinner" /> : 'Add'}</button>
+          </form>
           {showRange ? (
             <form onSubmit={addRange} className="add-range-form">
               <span className="muted">Or add a range</span>

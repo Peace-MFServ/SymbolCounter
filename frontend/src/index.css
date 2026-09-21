@@ -890,9 +890,10 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .door-chip.editing { padding: 0 4px; border-color: var(--accent); }
 .door-chip.editing input { border: 0; outline: 0; padding: 3px 2px; font: inherit; background: transparent; min-width: 3ch; }
 .add-refs-grid .form-control { padding: 9px 12px; font-size: 14px; }
-.add-range-row { margin-top: 12px; }
-.add-range-form { display: flex; align-items: center; gap: 10px; }
-.add-range-form .form-control { width: 110px; padding: 8px 10px; }
+.add-range-row { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 28px; }
+.add-qty-form, .add-range-form { display: flex; align-items: center; gap: 10px; }
+.add-qty-form .form-control, .add-range-form .form-control { width: 110px; padding: 8px 10px; }
+.add-qty-form .form-control { width: 96px; }
 .card-panel .door-ref-list { margin-top: 16px; padding: 0; background: transparent; border: 0; }
 .door-chip { font-size: 12.5px; padding: 4px 6px 4px 9px; background: var(--canvas); border-color: var(--card-border); }
 .add-doors { display: none; }
