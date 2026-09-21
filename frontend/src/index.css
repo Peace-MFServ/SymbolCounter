@@ -881,9 +881,15 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .set-list-meta { font-size: 12.5px; }
 .set-add { gap: 8px; }
 .set-add .btn { width: 100%; }
-.add-doors-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1.3fr auto; gap: 14px; align-items: end; }
-.add-doors-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text2); }
-.add-doors-grid .form-control { padding: 9px 12px; font-size: 14px; }
+.add-refs-grid { display: grid; grid-template-columns: 2fr 1fr auto; gap: 14px; align-items: end; }
+.add-refs-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text2); }
+.add-range-form .range-prefix { width: 88px; }
+/* a door reference is corrected in the chip it sits in */
+.door-chip .door-ref { cursor: text; border-bottom: 1px dashed transparent; }
+.door-chip:hover .door-ref { border-bottom-color: var(--border-strong); }
+.door-chip.editing { padding: 0 4px; border-color: var(--accent); }
+.door-chip.editing input { border: 0; outline: 0; padding: 3px 2px; font: inherit; background: transparent; min-width: 3ch; }
+.add-refs-grid .form-control { padding: 9px 12px; font-size: 14px; }
 .add-range-row { margin-top: 12px; }
 .add-range-form { display: flex; align-items: center; gap: 10px; }
 .add-range-form .form-control { width: 110px; padding: 8px 10px; }

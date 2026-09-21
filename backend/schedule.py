@@ -1453,7 +1453,12 @@ def update_door(did: int, payload: DoorIn, db: Session = Depends(get_db), cu=Dep
         _edit_door_type(payload.door_type_id, db, cu)
     if payload.set_id is not None and not db.query(models.HardwareSet).get(payload.set_id):
         raise HTTPException(404, "Set not found")
-    d.ref = payload.ref.strip() or d.ref; d.floor = payload.floor.strip(); d.handed = payload.handed
+    ref = " ".join(payload.ref.split()) or d.ref
+    if ref.lower() != d.ref.lower() and db.query(models.Door).filter(
+            models.Door.project_id == d.project_id, models.Door.id != d.id,
+            func.lower(models.Door.ref) == ref.lower()).first():
+        raise HTTPException(409, f"Door already exists on this job: {ref}.")
+    d.ref = ref; d.floor = payload.floor.strip(); d.handed = payload.handed
     d.door_type_id = payload.door_type_id; d.set_id = payload.set_id; d.note = payload.note
     db.commit(); db.refresh(d)
     return _door_single_out(db, d)
@@ -1752,6 +1757,36 @@ def add_doors_by_quantity(pid: int, payload: DoorsByQuantityIn, db: Session = De
         db.add(models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), set_id=payload.set_id, source="manual"))
     _link_set(db, pid, payload.set_id); db.commit()
     return {"added": len(refs), "first": refs[0] if refs else "", "last": refs[-1] if refs else ""}
+
+
+class DoorRefsIn(BaseModel):
+    set_id: int; refs: list[str] = []; floor: str = ""
+
+
+@router.post("/projects/{pid}/doors/add-refs")
+def add_doors_by_ref(pid: int, payload: DoorRefsIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Door references typed as they come off the architect's schedule: EXTY4,
+    EDTW2, whatever they are. Ones already on the job are left alone and named."""
+    _edit_project(pid, db, cu); _set_or_404(payload.set_id, db)
+    wanted, seen = [], set()
+    for r in payload.refs:
+        r = " ".join(r.split())
+        if r and r.lower() not in seen:
+            seen.add(r.lower()); wanted.append(r)
+    if not wanted:
+        raise HTTPException(400, "Type a door reference first")
+    if len(wanted) > 2000:
+        raise HTTPException(400, "That is too many doors at once")
+    existing = {d.ref.lower() for d in db.query(models.Door).filter(models.Door.project_id == pid).all()}
+    added, skipped = [], []
+    for ref in wanted:
+        (skipped if ref.lower() in existing else added).append(ref)
+    for ref in added:
+        db.add(models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), set_id=payload.set_id, source="manual"))
+    if added:
+        _link_set(db, pid, payload.set_id)
+    db.commit()
+    return {"added": len(added), "skipped": skipped}
 
 
 @router.post("/projects/{pid}/doors/add-range")

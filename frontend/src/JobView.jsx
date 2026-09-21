@@ -295,13 +295,33 @@ function SetChooser({ library, onJob, onPick, onCancel, onDelete }) {
   )
 }
 
+/* One door on the set. Click the reference to correct it. */
+function DoorChip({ d, readOnly, onRename, onRemove }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(d.ref)
+  const done = keep => { setEditing(false); if (keep) onRename(val); else setVal(d.ref) }
+  const title = [d.floor, d.source === 'plan' ? 'from the plan' : '', readOnly ? '' : 'Click to correct'].filter(Boolean).join(' · ')
+  if (editing) return (
+    <span className="door-chip editing">
+      <input autoFocus value={val} onChange={e => setVal(e.target.value)} size={Math.max(3, val.length)}
+             onBlur={() => done(true)}
+             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); done(true) } if (e.key === 'Escape') done(false) }} />
+    </span>
+  )
+  return (
+    <span className="door-chip" title={title}>
+      <span className={readOnly ? '' : 'door-ref'} onClick={() => { if (!readOnly) { setVal(d.ref); setEditing(true) } }}>{d.ref}{d.handed ? 'h' : ''}</span>
+      {onRemove && <button onClick={onRemove} title="Remove this door">×</button>}
+    </span>
+  )
+}
+
 function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, onChanged, onRemoveDoor, readOnly = false }) {
   const s = js.set
   const groups = groupItems(s.items)
   const [prefix, setPrefix] = useState('D')
   const [sep,    setSep]    = useState('')
-  const [count,  setCount]  = useState(1)
-  const [start,  setStart]  = useState('')
+  const [refs,   setRefs]   = useState('')
   const [from,   setFrom]   = useState('')
   const [to,     setTo]     = useState('')
   const [floor,  setFloor]  = useState('')
@@ -310,24 +330,38 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
   const [showAll, setShowAll] = useState(false)
   const lastRef = doors.length ? doors[doors.length - 1].ref : ''
   const pad = () => { const m = lastRef.match(/(\d+)$/); return m ? Math.max(2, m[1].length) : 2 }
-  const nextNo = () => { const m = lastRef.match(/(\d+)$/); return m ? Number(m[1]) + 1 : 1 }
 
-  // Guess the numbering from the last door on this set, e.g. "DT15.07" -> prefix DT15, sep "."
+  // The range form guesses its prefix from the last door on this set, e.g. "DT15.07" -> DT15 and "."
   useEffect(() => {
     const m = lastRef.match(/^(.*?)([.\-\/ ]?)(\d+)$/)
     if (m) { setPrefix(m[1]); setSep(m[2]) }
-    setStart(String(nextNo()).padStart(pad(), '0'))
   }, [s.id, lastRef])
 
-  const addQty = async e => {
-    e.preventDefault(); setBusy('qty')
+  // Door references come off the architect's schedule as they are: EXTY4, EDTW2,
+  // rarely in any order. Type one, or paste a handful, and Enter puts them on.
+  const addRefs = async e => {
+    e.preventDefault()
+    const list = refs.split(/[\s,;]+/).map(r => r.trim()).filter(Boolean)
+    if (!list.length) return
+    setBusy('refs')
     try {
-      const r = await apiFetch(`/projects/${projectId}/doors/add-quantity`, { method: 'POST',
-        body: JSON.stringify({ set_id: s.id, count: Number(count) || 1, prefix, separator: sep, pad: Math.max(pad(), String(start).length),
-                               start: start === '' ? null : Number(start), floor }) })
-      showToast(`${r.added} door${r.added !== 1 ? 's' : ''} added, ${r.first} to ${r.last}`, 'success'); await onChanged()
+      const r = await apiFetch(`/projects/${projectId}/doors/add-refs`, { method: 'POST',
+        body: JSON.stringify({ set_id: s.id, refs: list, floor }) })
+      const note = r.skipped.length ? `; already on the job: ${r.skipped.join(', ')}` : ''
+      showToast(`${r.added} door${r.added !== 1 ? 's' : ''} added${note}`, r.added ? 'success' : 'error')
+      setRefs(''); await onChanged()
     } catch (err) { showToast(err.message, 'error') }
     setBusy('')
+  }
+  // a chip's reference, corrected in place
+  const renameDoor = async (d, ref) => {
+    ref = ref.trim()
+    if (!ref || ref === d.ref) return
+    try {
+      await apiFetch(`/doors/${d.id}`, { method: 'PUT',
+        body: JSON.stringify({ ref, floor: d.floor || '', handed: !!d.handed, door_type_id: d.door_type_id, set_id: d.set_id, note: d.note || '' }) })
+      await onChanged()
+    } catch (err) { showToast(err.message, 'error') }
   }
   const addRange = async e => {
     e.preventDefault(); if (from === '' || to === '') return
@@ -369,17 +403,17 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
       <div className="card-panel">
         <h2 className="card-title">{readOnly ? 'Doors' : 'Add doors'}</h2>
         {readOnly && doors.length === 0 && <p className="muted" style={{ margin: 0 }}>No doors on this set yet.</p>}
-        {!readOnly && <form onSubmit={addQty} className="add-doors-grid">
-          <label>Quantity<input className="form-control" type="number" min="1" max="2000" value={count} onChange={e => setCount(e.target.value)} /></label>
-          <label>Prefix<input className="form-control" value={prefix + sep} onChange={e => { const m = e.target.value.match(/^(.*?)([.\-\/ ]?)$/); setPrefix(m ? m[1] : e.target.value); setSep(m ? m[2] : '') }} placeholder="D" /></label>
-          <label>Start number<input className="form-control" value={start} onChange={e => setStart(e.target.value.replace(/\D/g, ''))} placeholder="01" /></label>
+        {!readOnly && <form onSubmit={addRefs} className="add-refs-grid">
+          <label>Door ref<input className="form-control" value={refs} onChange={e => setRefs(e.target.value)} autoComplete="off"
+                                placeholder="e.g. EXTY4, or several: D01 D02 ED03" /></label>
           <label>Floor (optional)<input className="form-control" value={floor} onChange={e => setFloor(e.target.value)} placeholder="e.g. Ground" /></label>
-          <button className="btn btn-primary" type="submit" disabled={busy === 'qty'}>{busy === 'qty' ? <span className="spinner" /> : <><IconPlus size={16} /> Add doors</>}</button>
+          <button className="btn btn-primary" type="submit" disabled={busy === 'refs' || !refs.trim()}>{busy === 'refs' ? <span className="spinner" /> : <><IconPlus size={16} /> Add doors</>}</button>
         </form>}
         {!readOnly && <div className="add-range-row">
           {showRange ? (
             <form onSubmit={addRange} className="add-range-form">
               <span className="muted">Or add a range</span>
+              <input className="form-control range-prefix" value={prefix + sep} onChange={e => { const m = e.target.value.match(/^(.*?)([.\-\/ ]?)$/); setPrefix(m ? m[1] : e.target.value); setSep(m ? m[2] : '') }} placeholder="Prefix" title="Prefix, e.g. D or DT15." />
               <input className="form-control" type="number" value={from} onChange={e => setFrom(e.target.value)} placeholder="From" />
               <input className="form-control" type="number" value={to} onChange={e => setTo(e.target.value)} placeholder="To" />
               <button className="btn btn-soft" type="submit" disabled={busy === 'range' || from === '' || to === ''}>{busy === 'range' ? <span className="spinner" /> : 'Add range'}</button>
@@ -391,10 +425,8 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
         {doors.length > 0 && (
           <div className="door-ref-list">
             {shown.map(d => (
-              <span key={d.id} className="door-chip" title={[d.floor, d.source === 'plan' ? 'from the plan' : ''].filter(Boolean).join(' · ')}>
-                {d.ref}{d.handed ? 'h' : ''}
-                {!readOnly && d.source !== 'plan' && <button onClick={() => onRemoveDoor(d)} title="Remove this door">×</button>}
-              </span>
+              <DoorChip key={d.id} d={d} readOnly={readOnly} onRename={ref => renameDoor(d, ref)}
+                        onRemove={!readOnly && d.source !== 'plan' ? () => onRemoveDoor(d) : null} />
             ))}
             {doors.length > 40 && !showAll && <button className="link-btn" onClick={() => setShowAll(true)}>and {doors.length - 40} more</button>}
           </div>
