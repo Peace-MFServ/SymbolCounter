@@ -319,7 +319,7 @@ function DoorChip({ d, readOnly, onRename, onRemove }) {
 function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, onChanged, onRemoveDoor, readOnly = false }) {
   const s = js.set
   const groups = groupItems(s.items)
-  const [prefix, setPrefix] = useState('D')
+  const [prefix, setPrefix] = useState('')
   const [sep,    setSep]    = useState('')
   const [refs,   setRefs]   = useState('')
   const [from,   setFrom]   = useState('')
@@ -328,14 +328,8 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
   const [busy,   setBusy]   = useState('')
   const [showRange, setShowRange] = useState(false)
   const [showAll, setShowAll] = useState(false)
-  const lastRef = doors.length ? doors[doors.length - 1].ref : ''
-  const pad = () => { const m = lastRef.match(/(\d+)$/); return m ? Math.max(2, m[1].length) : 2 }
-
-  // The range form guesses its prefix from the last door on this set, e.g. "DT15.07" -> DT15 and "."
-  useEffect(() => {
-    const m = lastRef.match(/^(.*?)([.\-\/ ]?)(\d+)$/)
-    if (m) { setPrefix(m[1]); setSep(m[2]) }
-  }, [s.id, lastRef])
+  // Nothing about the numbering is guessed from the doors already there: what
+  // the next ten start with says nothing about the next forty.
 
   // Door references come off the architect's schedule as they are: EXTY4, EDTW2,
   // rarely in any order. Type one, or paste a handful, and Enter puts them on.
@@ -368,7 +362,8 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
     setBusy('range')
     try {
       const r = await apiFetch(`/projects/${projectId}/doors/add-range`, { method: 'POST',
-        body: JSON.stringify({ set_id: s.id, prefix, separator: sep, from_no: Number(from), to_no: Number(to), pad: Math.max(pad(), String(to).length), floor }) })
+        body: JSON.stringify({ set_id: s.id, prefix, separator: sep, from_no: Number(from), to_no: Number(to),
+                               pad: Math.max(String(from).length, String(to).length), floor }) })
       showToast(`${r.added} door${r.added !== 1 ? 's' : ''} added`, 'success')
       setFrom(''); setTo(''); await onChanged()
     } catch (err) { showToast(err.message, 'error') }
