@@ -761,9 +761,21 @@ tr.sub-row:hover > td { background: var(--bg2); }
 .ledger tfoot td { border-top: 1px solid var(--border-strong); padding: 8px 12px; }
 .doors-block { margin-top: 22px; }
 .doors-block-head h3 { font-size: 16px; margin: 0 0 8px; }
-.door-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px 3px 8px; border: 1px solid var(--border); border-radius: 4px; background: #fff; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
-.door-chip button { border: 0; background: transparent; color: var(--text3); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
-.door-chip button:hover { color: var(--red); }
+/* A door on a set reads as a small field: click the reference and it is one. */
+.door-chip { display: inline-flex; align-items: stretch; height: 30px; border: 1px solid #D2DCE8; border-radius: 6px;
+  background: #fff; font-size: 13px; font-weight: 600; color: #101828; overflow: hidden; }
+.door-chip .door-ref { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px 0 10px; }
+.door-chip.can-edit .door-ref { cursor: text; }
+.door-chip .door-pen { color: #B0BDCC; flex-shrink: 0; }
+.door-chip.can-edit:hover { border-color: var(--accent); }
+.door-chip.can-edit:hover .door-pen { color: var(--accent); }
+.door-chip button { border: 0; border-left: 1px solid #E6EBF1; background: #F8FAFC; color: #8190A5; cursor: pointer;
+  font-size: 15px; line-height: 1; width: 26px; padding: 0; }
+.door-chip button:hover { background: #FBEDE6; color: var(--red); }
+.door-list-head { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 8px; font-size: 12.5px; }
+.door-list-head .muted { font-weight: 500; }
+.door-list-head .link-btn { font-size: 12.5px; font-weight: 600; color: var(--text3); }
+.door-list-head .link-btn:hover { color: var(--red); }
 .door-chip.pick { cursor: pointer; }
 .door-chip.pick.on { border-color: var(--accent); background: #EEF3FA; }
 .door-chip.pick input { margin: 0 2px 0 0; }
@@ -885,16 +897,15 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .add-refs-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text2); }
 .add-range-form .range-prefix { width: 88px; }
 /* a door reference is corrected in the chip it sits in */
-.door-chip .door-ref { cursor: text; border-bottom: 1px dashed transparent; }
-.door-chip:hover .door-ref { border-bottom-color: var(--border-strong); }
-.door-chip.editing { padding: 0 4px; border-color: var(--accent); }
-.door-chip.editing input { border: 0; outline: 0; padding: 3px 2px; font: inherit; background: transparent; min-width: 3ch; }
+.door-chip.editing { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 56, 123, .12); }
+.door-chip.editing input { border: 0; outline: 0; padding: 0 10px; font: inherit; background: transparent; min-width: 4ch; }
 .add-refs-grid .form-control { padding: 9px 12px; font-size: 14px; }
 .add-range-row { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 28px; }
 .add-qty-form, .add-range-form { display: flex; align-items: center; gap: 10px; }
 .add-qty-form .form-control, .add-range-form .form-control { width: 110px; padding: 8px 10px; }
 .add-qty-form .form-control { width: 96px; }
-.card-panel .door-ref-list { margin-top: 16px; padding: 0; background: transparent; border: 0; }
+.card-panel .door-ref-list { margin-top: 16px; padding: 0; background: transparent; border: 0; gap: 8px; }
+.door-list-head + .door-ref-list { margin-top: 0; }
 .door-chip { font-size: 12.5px; padding: 4px 6px 4px 9px; background: var(--canvas); border-color: var(--card-border); }
 .add-doors { display: none; }
 

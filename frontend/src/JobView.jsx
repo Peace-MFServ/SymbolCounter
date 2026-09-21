@@ -4,6 +4,7 @@ import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { useAuth } from './auth'
 import { useLeaveGuard } from './unsaved'
+import { useConfirm } from './confirm'
 import { Menu } from './ProjectView'
 import { IconPlus, IconEdit, IconSave, IconBars, IconDoc, IconCheck, IconWarn, IconFile, IconRight, IconDoor, IconLayers, IconFolder, IconTrash } from './icons'
 
@@ -309,8 +310,10 @@ function DoorChip({ d, readOnly, onRename, onRemove }) {
     </span>
   )
   return (
-    <span className="door-chip" title={title}>
-      <span className={readOnly ? '' : 'door-ref'} onClick={() => { if (!readOnly) { setVal(d.ref); setEditing(true) } }}>{d.ref}{d.handed ? 'h' : ''}</span>
+    <span className={`door-chip${readOnly ? '' : ' can-edit'}`} title={title}>
+      <span className="door-ref" onClick={() => { if (!readOnly) { setVal(d.ref); setEditing(true) } }}>
+        {d.ref}{d.handed ? 'h' : ''}{!readOnly && <IconEdit size={11} className="door-pen" />}
+      </span>
       {onRemove && <button onClick={onRemove} title="Remove this door">×</button>}
     </span>
   )
@@ -329,6 +332,20 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
   const [busy,   setBusy]   = useState('')
   const [showRange, setShowRange] = useState(false)
   const [showAll, setShowAll] = useState(false)
+  const { ask, modal: confirmModal } = useConfirm()
+  const removeAll = async () => {
+    const fromPlans = doors.filter(d => d.source === 'plan').length
+    const ok = await ask({
+      title: `Remove all ${doors.length} doors from ${s.code}?`,
+      body: fromPlans ? `${fromPlans} of them came off the plans and come back if the plans are rescanned.` : 'This cannot be undone.',
+      confirm: 'Remove all', danger: true,
+    })
+    if (!ok) return
+    try {
+      const r = await apiFetch(`/projects/${projectId}/doors/remove`, { method: 'POST', body: JSON.stringify({ door_ids: doors.map(d => d.id) }) })
+      showToast(`${r.removed} door${r.removed !== 1 ? 's' : ''} removed`, 'info'); await onChanged()
+    } catch (err) { showToast(err.message, 'error') }
+  }
   // Nothing about the numbering is guessed from the doors already there: what
   // the next ten start with says nothing about the next forty.
 
@@ -394,6 +411,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
   ]
   return (
     <div className="set-panel">
+      {confirmModal}
       <div className="set-panel-head">
         <div>
           <h1>{s.code} · {s.name}</h1>
@@ -438,6 +456,12 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
             <button className="link-btn" onClick={() => setShowRange(true)}>Or add a range, e.g. 101 to 125</button>
           )}
         </div>}
+        {doors.length > 0 && !readOnly && (
+          <div className="door-list-head">
+            <span className="muted">Click a reference to correct it</span>
+            <button className="link-btn inline" onClick={removeAll}>Remove all</button>
+          </div>
+        )}
         {doors.length > 0 && (
           <div className="door-ref-list">
             {shown.map(d => (

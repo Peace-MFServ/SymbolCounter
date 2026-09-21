@@ -1763,6 +1763,22 @@ class DoorRefsIn(BaseModel):
     set_id: int; refs: list[str] = []; floor: str = ""
 
 
+class DoorIdsIn(BaseModel):
+    door_ids: list[int] = []
+
+
+@router.post("/projects/{pid}/doors/remove")
+def remove_doors(pid: int, payload: DoorIdsIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Take a list of doors off the job in one go: the set panel's Remove all."""
+    _edit_project(pid, db, cu)
+    if not payload.door_ids:
+        return {"removed": 0}
+    n = db.query(models.Door).filter(models.Door.project_id == pid, models.Door.id.in_(payload.door_ids)) \
+          .delete(synchronize_session=False)
+    db.commit()
+    return {"removed": n}
+
+
 @router.post("/projects/{pid}/doors/add-refs")
 def add_doors_by_ref(pid: int, payload: DoorRefsIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Door references typed as they come off the architect's schedule: EXTY4,
