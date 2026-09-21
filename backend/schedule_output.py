@@ -20,6 +20,7 @@ COMPANY = {
     "phone": "PH 021 4348996",
     "web": "www.mfservices.ie",
 }
+FOOT = 16   # mm kept at the foot of every page after the cover: a rule, one line, and air
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PATH = ASSETS_DIR / "logo.png"          # office copy, if one has been dropped in
 WEB_LOGO = Path(__file__).parent / "branding-mf-logo.jpeg"   # ships with the code, outside the mounted assets folder
@@ -176,7 +177,7 @@ class SchedulePDF(FPDF):
         self.priced = priced
         self.doc_title = title
         self.set_margins(18, 16, 18)
-        self.set_auto_page_break(auto=True, margin=28)
+        self.set_auto_page_break(auto=True, margin=FOOT)
         self.alias_nb_pages()
         self.set_title(f"{data['project']['name']} - {title or 'Ironmongery schedule'}")
 
@@ -205,14 +206,21 @@ class SchedulePDF(FPDF):
         self._ink(); self.set_y(36)
 
     def footer(self):
-        self.set_y(-24)
-        self.set_draw_color(*RULE); self.line(18, self.get_y(), 192, self.get_y())
-        self.set_font("Helvetica", "", 8); self._muted()
-        y = self.get_y() + 1.5
-        for i, line in enumerate([COMPANY["name"], *COMPANY["address"], f"{COMPANY['phone']} {COMPANY['web']}"]):
-            self.set_xy(18, y + i * 3.6); self.cell(120, 3.6, line)
-        self.set_xy(150, y); self.cell(42, 3.6, self.data["project"]["date"], align="R")
-        self.set_xy(150, y + 3.6); self.cell(42, 3.6, f"Page {self.page_no()}/{{nb}}", align="R")
+        """The cover carries the office's address. Every other page keeps its
+        footer to one line so the space goes to product rows instead."""
+        self.set_font("Helvetica", "", 8); self._muted(); self.set_draw_color(*RULE)
+        if self.page_no() == 1:
+            self.set_y(-24); self.line(18, self.get_y(), 192, self.get_y())
+            y = self.get_y() + 1.5
+            for i, line in enumerate([COMPANY["name"], *COMPANY["address"], f"{COMPANY['phone']} {COMPANY['web']}"]):
+                self.set_xy(18, y + i * 3.6); self.cell(120, 3.6, line)
+            self.set_xy(150, y); self.cell(42, 3.6, self.data["project"]["date"], align="R")
+            self.set_xy(150, y + 3.6); self.cell(42, 3.6, f"Page {self.page_no()}/{{nb}}", align="R")
+        else:
+            self.set_y(-(FOOT - 3)); self.line(18, self.get_y(), 192, self.get_y())
+            y = self.get_y() + 1.5
+            self.set_xy(18, y); self.cell(120, 3.6, f"{COMPANY['name']}  |  {self.data['project']['date']}")
+            self.set_xy(150, y); self.cell(42, 3.6, f"Page {self.page_no()}/{{nb}}", align="R")
         self._ink()
 
     def band(self, left: str, mid: str = "", right: str = "", y: float = None):
@@ -228,7 +236,7 @@ class SchedulePDF(FPDF):
         self._ink(); self.set_y(y + 11)
 
     def _need(self, h: float, on_break=None):
-        if self.get_y() + h > self.h - 28:
+        if self.get_y() + h > self.h - FOOT:
             self.add_page()
             if on_break: on_break()
 
@@ -280,11 +288,15 @@ class SchedulePDF(FPDF):
             self.cell(w, 4, name, align=align)
         self._ink(); self.set_y(self.get_y() + 7)
 
-    def _row(self, it: dict):
-        cols = self._cols(); desc_w = cols[2][1]
+    def _row_h(self, it: dict) -> float:
+        desc_w = self._cols()[2][1]
         self.set_font("Helvetica", "", 8.5)
         lines = self.multi_cell(desc_w, 4, _latin(it["name"]), dry_run=True, output="LINES")
-        h = max(18, 4 * len(lines) + 6)
+        return max(18, 4 * len(lines) + 6)
+
+    def _row(self, it: dict):
+        cols = self._cols(); desc_w = cols[2][1]
+        h = self._row_h(it)
         self._need(h, self._table_header)
         y = self.get_y(); x = 20
         # photo box
@@ -341,9 +353,14 @@ class SchedulePDF(FPDF):
         self.band(s["code"], s["name"], f"{n} door{'s' if n != 1 else ''}")
         self._refs_line([r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"]])
         self._table_header()
-        for it in s["items"]:
+        items = s["items"]
+        for i, it in enumerate(items):
+            if i == len(items) - 2:
+                # a set's last row never sits on a page by itself: if the final
+                # two will not both fit here, both go over together
+                self._need(self._row_h(it) + self._row_h(items[-1]) + (8 if self.priced else 0), self._table_header)
             self._row(it)
-        if not s["items"]:
+        if not items:
             self.set_font("Helvetica", "I", 8.5); self._muted(); self.cell(0, 6, "No products in this set yet", new_y=YPos.NEXT); self._ink()
         if self.priced and s["items"]:
             self._need(8)
@@ -405,7 +422,7 @@ class SchedulePDF(FPDF):
                 continue
             lines.extend(self.multi_cell(172, 5, _latin(para), dry_run=True, output="LINES"))
 
-        bottom = self.h - 34
+        bottom = self.h - FOOT - 6
         y = self.get_y() + 9
         i = 0
         while True:
