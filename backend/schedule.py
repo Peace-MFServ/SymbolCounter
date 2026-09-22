@@ -325,6 +325,47 @@ async def import_products(file: UploadFile = File(...), db: Session = Depends(ge
     return {"added": added, "updated": updated, "skipped": skipped}
 
 
+# ── Cin7 straight from the API ────────────────────────────────────────────────
+import cin7  # noqa: E402
+
+
+def _data_dir() -> Path:
+    from database import engine
+    return Path(engine.url.database or ".").resolve().parent
+
+
+@router.get("/cin7/status")
+def cin7_status(cu=Depends(auth.get_current_user)):
+    """Whether the server has a Cin7 key, and what the last sync did."""
+    return {"configured": cin7.configured(), "last": cin7.last_run(_data_dir())}
+
+
+@router.post("/cin7/sync")
+def cin7_sync(apply: bool = False, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Dry run by default: what Cin7 has against what we hold. apply=true writes it."""
+    if not cin7.configured():
+        raise HTTPException(400, "No Cin7 key on this server. Add CIN7_ACCOUNT_ID and CIN7_APP_KEY to .env.")
+    try:
+        report = cin7.sync(db, models, guess_product_type, apply=apply)
+    except cin7.Cin7Error as e:
+        raise HTTPException(502, str(e))
+    if apply:
+        report["by"] = cu.name
+        cin7.remember(_data_dir(), report)
+    return report
+
+
+@router.post("/cin7/pictures")
+def cin7_pictures(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Pictures Cin7 holds for products that have none here, a batch per click."""
+    if not cin7.configured():
+        raise HTTPException(400, "No Cin7 key on this server.")
+    try:
+        return cin7.fetch_pictures(db, models, PRODUCT_IMG_DIR, normalize_image)
+    except cin7.Cin7Error as e:
+        raise HTTPException(502, str(e))
+
+
 @router.post("/products", response_model=ProductOut, status_code=201)
 def create_product(payload: ProductIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     sku = payload.sku.strip()

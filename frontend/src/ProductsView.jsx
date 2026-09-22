@@ -42,6 +42,31 @@ export function ProductsView({ onNavigate }) {
   const [pendingN,   setPendingN]   = useState(0)
   useEffect(() => { apiFetch('/products/pending-images?limit=1').then(r => setPendingN(r?.total || 0)).catch(() => {}) }, [imgReport])
   const [imgBusy,    setImgBusy]    = useState(false)
+  const [cin7,       setCin7]       = useState({ configured: false, last: null })
+  const [syncRep,    setSyncRep]    = useState(null)    // the dry run, waiting for a yes
+  const [syncBusy,   setSyncBusy]   = useState('')
+  useEffect(() => { apiFetch('/cin7/status').then(r => r && setCin7(r)).catch(() => {}) }, [])
+  const cin7Sync = async apply => {
+    setSyncBusy(apply ? 'apply' : 'look')
+    try {
+      const r = await apiFetch(`/cin7/sync?apply=${apply}`, { method: 'POST' })
+      if (apply) {
+        showToast(`Synced from Cin7: ${r.new} new, ${r.changed} updated`, 'success')
+        setSyncRep(r.pictures_we_lack ? r : null); await load()
+        apiFetch('/cin7/status').then(x => x && setCin7(x)).catch(() => {})
+      } else setSyncRep(r)
+    } catch (err) { showToast(err.message, 'error') }
+    setSyncBusy('')
+  }
+  const cin7Pictures = async () => {
+    setSyncBusy('pics')
+    try {
+      const r = await apiFetch('/cin7/pictures', { method: 'POST' })
+      showToast(`${r.fetched} picture${r.fetched !== 1 ? 's' : ''} from Cin7${r.remaining ? `, ${r.remaining} more to fetch` : ''}${r.failed ? `, ${r.failed} could not be read` : ''}`, r.fetched ? 'success' : 'info')
+      setSyncRep(null); await load()
+    } catch (err) { showToast(err.message, 'error') }
+    setSyncBusy('')
+  }
   const zipRef = useRef()
   const importImages = async file => {
     if (!file) return
@@ -146,9 +171,16 @@ export function ProductsView({ onNavigate }) {
             <p className="lede">{products.length} products. Prices are the Cin7 average cost in euro.</p>
           </div>
           <div className="adm-actions">
-            <button className="btn btn-line" onClick={() => fileRef.current.click()} disabled={importing}>
-              {importing ? <><span className="spinner" /> Importing…</> : <><IconBox size={17} /> Import from Cin7</>}
-            </button>
+            {cin7.configured ? (
+              <button className="btn btn-line" onClick={() => cin7Sync(false)} disabled={!!syncBusy}
+                      title={cin7.last ? `Last synced ${new Date(cin7.last.when).toLocaleString('en-IE')} by ${cin7.last.by}` : 'Not synced yet'}>
+                {syncBusy === 'look' ? <><span className="spinner" /> Asking Cin7…</> : <><IconBox size={17} /> Sync from Cin7</>}
+              </button>
+            ) : (
+              <button className="btn btn-line" onClick={() => fileRef.current.click()} disabled={importing}>
+                {importing ? <><span className="spinner" /> Importing…</> : <><IconBox size={17} /> Import from Cin7</>}
+              </button>
+            )}
             <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }}
                    onChange={e => { importFile(e.target.files[0]); e.target.value = '' }} />
             <button className="btn btn-line" onClick={() => zipRef.current.click()} disabled={imgBusy}>
@@ -166,6 +198,7 @@ export function ProductsView({ onNavigate }) {
         </div>
         <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }}
                onChange={e => { uploadPhoto(e.target.files[0]); e.target.value = '' }} />
+        {syncRep && <Cin7Modal r={syncRep} busy={syncBusy} onApply={() => cin7Sync(true)} onPictures={cin7Pictures} onClose={() => setSyncRep(null)} />}
         {imgReport && <ImageReportModal r={imgReport} onClose={() => setImgReport(null)} onMatch={() => { setImgReport(null); onNavigate('match-images') }} />}
         {pasting && <IntecPasteModal onClose={() => setPasting(false)} onDone={async () => { setPasting(false); await load() }} />}
 
@@ -593,6 +626,34 @@ function IntecPasteModal({ onClose, onDone }) {
   )
 }
 
+
+/* What Cin7 holds against what we have. Nothing is written until Apply. */
+function Cin7Modal({ r, busy, onApply, onPictures, onClose }) {
+  const n = (v, one, many) => `${v} ${v === 1 ? one : many}`
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <h2>{r.applied ? 'Synced from Cin7' : 'Sync from Cin7'}</h2>
+        <div className="total-row"><span>Products in Cin7</span><strong>{r.found}</strong></div>
+        <div className="total-row"><span>New here</span><strong>{r.new}</strong></div>
+        <div className="total-row"><span>Name, category or price changed</span><strong>{r.changed}</strong></div>
+        <div className="total-row"><span>Unchanged</span><strong>{r.unchanged}</strong></div>
+        <div className="total-row"><span>Deprecated in Cin7, left alone</span><strong>{r.deprecated}</strong></div>
+        <div className="total-row"><span>Pictures in Cin7 that we lack</span><strong>{r.pictures_we_lack}</strong></div>
+        <div className="total-row last"><span>Descriptions carrying a classification code</span><strong>{r.with_classification}</strong></div>
+        {r.sample_new.length > 0 && !r.applied && (
+          <p className="muted" style={{ margin: '14px 0 0', fontSize: 13 }}>New, for example: {r.sample_new.join(' · ')}</p>
+        )}
+        {!r.applied && <p style={{ margin: '14px 0 0' }}>Photos, Intec codes and notes already here are kept.</p>}
+        <div className="modal-actions">
+          {!r.applied && <button className="btn btn-primary" onClick={onApply} disabled={!!busy}>{busy === 'apply' ? <span className="spinner" /> : `Apply: ${n(r.new, 'new product', 'new products')}, ${n(r.changed, 'update', 'updates')}`}</button>}
+          {r.applied && r.pictures_we_lack > 0 && <button className="btn btn-primary" onClick={onPictures} disabled={!!busy}>{busy === 'pics' ? <span className="spinner" /> : `Fetch ${Math.min(r.pictures_we_lack, 150)} pictures`}</button>}
+          <button className="btn btn-ghost" onClick={onClose} disabled={!!busy}>{r.applied ? 'Done' : 'Cancel'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 /* What the zip did: matched, no product for this file, second picture for the same product. */
 function ImageReportModal({ r, onClose, onMatch }) {

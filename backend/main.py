@@ -182,6 +182,43 @@ def _tidy_product_pictures():
             db.close()
     threading.Thread(target=run, daemon=True).start()
 
+
+@app.on_event("startup")
+def _cin7_nightly():
+    """Once the office has applied a Cin7 sync by hand, keep it fresh every
+    night at three. Nothing runs until that first deliberate sync."""
+    import threading, time
+    from datetime import datetime, timezone
+
+    def run():
+        import cin7
+        from database import SessionLocal
+        from schedule import _data_dir, guess_product_type
+        done_for = ""
+        while True:
+            time.sleep(15 * 60)
+            try:
+                now = datetime.now(timezone.utc)
+                today = now.strftime("%Y-%m-%d")
+                if not cin7.configured() or now.hour != 3 or done_for == today:
+                    continue
+                last = cin7.last_run(_data_dir())
+                if not last or not last.get("applied"):
+                    continue
+                db = SessionLocal()
+                try:
+                    report = cin7.sync(db, models, guess_product_type, apply=True)
+                    report["by"] = "nightly refresh"
+                    cin7.remember(_data_dir(), report)
+                    logger.info("Cin7 nightly: %d new, %d updated", report["new"], report["changed"])
+                finally:
+                    db.close()
+                done_for = today
+            except Exception as e:
+                logger.warning("Cin7 nightly skipped: %s", e)
+                done_for = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    threading.Thread(target=run, daemon=True).start()
+
 # Mount /assets if already built — safe to call at startup even if dist doesn't exist yet
 from fastapi.staticfiles import StaticFiles as _SF
 if (FRONTEND_DIST / "assets").exists():
