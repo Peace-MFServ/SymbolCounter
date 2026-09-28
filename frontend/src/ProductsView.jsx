@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { apiFetch } from './api'
+import { apiFetch, openBlob } from './api'
 import { showToast } from './toast'
 import { Topbar, place } from './Dashboard'
 import { useAuthImage } from './TemplatesView'
@@ -42,6 +42,21 @@ export function ProductsView({ onNavigate }) {
   const [pendingN,   setPendingN]   = useState(0)
   useEffect(() => { apiFetch('/products/pending-images?limit=1').then(r => setPendingN(r?.total || 0)).catch(() => {}) }, [imgReport])
   const [imgBusy,    setImgBusy]    = useState(false)
+  const [docReport,  setDocReport]  = useState(null)
+  const [docsPending, setDocsPending] = useState(0)
+  const [docBusy,    setDocBusy]    = useState(false)
+  const docZipRef = useRef()
+  useEffect(() => { apiFetch('/products/documents/pending?limit=1').then(r => setDocsPending(r?.total || 0)).catch(() => {}) }, [docReport])
+  const importDocs = async file => {
+    if (!file) return
+    setDocBusy(true)
+    try {
+      const form = new FormData(); form.append('file', file)
+      const r = await apiFetch('/products/import-documents', { method: 'POST', body: form })
+      setDocReport(r); await load()
+    } catch (err) { showToast('Datasheet import failed: ' + err.message, 'error') }
+    setDocBusy(false)
+  }
   const [cin7,       setCin7]       = useState({ configured: false, last: null })
   const [syncRep,    setSyncRep]    = useState(null)    // the dry run, waiting for a yes
   const [syncBusy,   setSyncBusy]   = useState('')
@@ -192,6 +207,15 @@ export function ProductsView({ onNavigate }) {
                 <IconLayers size={17} /> Match images ({pendingN})
               </button>
             )}
+            <button className="btn btn-line" onClick={() => docZipRef.current.click()} disabled={docBusy}>
+              {docBusy ? <><span className="spinner" /> Importing datasheets…</> : <><IconFile size={17} /> Import datasheets</>}
+            </button>
+            <input ref={docZipRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={e => { importDocs(e.target.files[0]); e.target.value = '' }} />
+            {docsPending > 0 && (
+              <button className="btn btn-soft" onClick={() => onNavigate('match-documents')}>
+                <IconLayers size={17} /> Match datasheets ({docsPending})
+              </button>
+            )}
             <button className="btn btn-line" onClick={() => setPasting(true)}><IconFile size={17} /> Intec prices</button>
             <button className="btn btn-primary" onClick={() => setEditing({ ...EMPTY })}><IconPlus size={17} /> Add product</button>
           </div>
@@ -199,6 +223,7 @@ export function ProductsView({ onNavigate }) {
         <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }}
                onChange={e => { uploadPhoto(e.target.files[0]); e.target.value = '' }} />
         {syncRep && <Cin7Modal r={syncRep} busy={syncBusy} onApply={() => cin7Sync(true)} onPictures={cin7Pictures} onClose={() => setSyncRep(null)} />}
+        {docReport && <DocReportModal r={docReport} onClose={() => setDocReport(null)} onMatch={() => { setDocReport(null); onNavigate('match-documents') }} />}
         {imgReport && <ImageReportModal r={imgReport} onClose={() => setImgReport(null)} onMatch={() => { setImgReport(null); onNavigate('match-images') }} />}
         {pasting && <IntecPasteModal onClose={() => setPasting(false)} onDone={async () => { setPasting(false); await load() }} />}
 
@@ -273,8 +298,10 @@ export function ProductsView({ onNavigate }) {
                         <td className="p-code">{p.sku}</td>
                         <td>
                           <div className="p-name">{p.name}</div>
-                          {(p.intec_code || p.notes) && (
-                            <div className="p-meta">{[p.intec_code && `Intec code ${p.intec_code}`, p.notes].filter(Boolean).join(' · ')}</div>
+                          {(p.intec_code || p.notes || p.datasheets || p.certificates) && (
+                            <div className="p-meta">{[p.intec_code && `Intec code ${p.intec_code}`, p.notes,
+                              p.datasheets && `${p.datasheets} datasheet${p.datasheets !== 1 ? 's' : ''}`,
+                              p.certificates && `${p.certificates} certificate${p.certificates !== 1 ? 's' : ''}`].filter(Boolean).join(' · ')}</div>
                           )}
                         </td>
                         <td>
@@ -533,6 +560,7 @@ function ProductModal({ product, categories, onClose, onSaved }) {
               </div>
             </div>
           )}
+          {!isNew && <ProductDocs productId={product.id} />}
           <div className="modal-actions">
             {!isNew && <button type="button" className="btn btn-ghost danger" onClick={archive}>Remove</button>}
             <div className="spacer" />
@@ -649,6 +677,73 @@ function Cin7Modal({ r, busy, onApply, onPictures, onClose }) {
           {!r.applied && <button className="btn btn-primary" onClick={onApply} disabled={!!busy}>{busy === 'apply' ? <span className="spinner" /> : `Apply: ${n(r.new, 'new product', 'new products')}, ${n(r.changed, 'update', 'updates')}`}</button>}
           {r.applied && r.pictures_we_lack > 0 && <button className="btn btn-primary" onClick={onPictures} disabled={!!busy}>{busy === 'pics' ? <span className="spinner" /> : `Fetch ${Math.min(r.pictures_we_lack, 150)} pictures`}</button>}
           <button className="btn btn-ghost" onClick={onClose} disabled={!!busy}>{r.applied ? 'Done' : 'Cancel'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* The datasheets and certificates on one product, and a way to add one. */
+function ProductDocs({ productId }) {
+  const [docs, setDocs] = useState(null)
+  const [kind, setKind] = useState('datasheet')
+  const ref = useRef()
+  const load = () => apiFetch(`/products/${productId}/documents`).then(setDocs).catch(() => setDocs([]))
+  useEffect(() => { load() }, [productId])
+  const add = async file => {
+    if (!file) return
+    try {
+      const form = new FormData(); form.append('file', file); form.append('kind', kind)
+      await apiFetch(`/products/${productId}/documents`, { method: 'POST', body: form })
+      showToast(`${kind === 'datasheet' ? 'Datasheet' : 'Certificate'} added`, 'success'); await load()
+    } catch (err) { showToast(err.message, 'error') }
+  }
+  const drop = async d => {
+    try { await apiFetch(`/products/${productId}/documents/${d.id}`, { method: 'DELETE' }); await load() }
+    catch (err) { showToast(err.message, 'error') }
+  }
+  return (
+    <div className="form-group">
+      <label>Datasheets and certificates</label>
+      {docs === null ? <span className="spinner" /> : docs.length === 0 ? <p className="p-dash" style={{ margin: '0 0 8px' }}>None yet.</p> : (
+        <ul className="doc-list">
+          {docs.map(d => (
+            <li key={d.id}>
+              <span className={`kind-pill ${d.kind === 'certificate' ? 'doors' : 'devices'}`}>{d.kind}</span>
+              <button type="button" className="link-btn inline" onClick={() => openBlob(d.url).catch(e => showToast(e.message, 'error'))}>{d.title}</button>
+              <span className="p-meta">{d.pages ? `${d.pages} pp` : ''}{d.products.length > 1 ? ` · also on ${d.products.length - 1} other${d.products.length > 2 ? 's' : ''}` : ''}</span>
+              <button type="button" className="row-dots" title="Take off this product" onClick={() => drop(d)}>×</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="doc-add">
+        <select className="form-control" value={kind} onChange={e => setKind(e.target.value)} style={{ width: 150 }}>
+          <option value="datasheet">Datasheet</option>
+          <option value="certificate">Certificate</option>
+        </select>
+        <button type="button" className="btn btn-sm" onClick={() => ref.current.click()}>Add PDF</button>
+        <input ref={ref} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={e => { add(e.target.files[0]); e.target.value = '' }} />
+      </div>
+    </div>
+  )
+}
+
+/* What the datasheet zip did. */
+function DocReportModal({ r, onClose, onMatch }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <h2>Datasheets imported</h2>
+        <div className="total-row"><span>Documents kept</span><strong>{r.stored}</strong></div>
+        <div className="total-row"><span>Copies of one already kept, skipped</span><strong>{r.duplicates}</strong></div>
+        <div className="total-row"><span>Put on products by their code</span><strong>{r.attached}</strong></div>
+        <div className="total-row"><span>Products covered</span><strong>{r.links}</strong></div>
+        <div className="total-row"><span>Read as certificates</span><strong>{r.certificates}</strong></div>
+        <div className="total-row last"><span>Still to place by hand</span><strong>{r.unmatched}</strong></div>
+        <div className="modal-actions">
+          {r.unmatched > 0 && <button className="btn btn-primary" onClick={onMatch}>Match them now</button>}
+          <button className={r.unmatched > 0 ? 'btn btn-ghost' : 'btn btn-primary'} onClick={onClose}>{r.unmatched > 0 ? 'Later' : 'Done'}</button>
         </div>
       </div>
     </div>

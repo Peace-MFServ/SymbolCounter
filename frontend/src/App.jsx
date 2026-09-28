@@ -12,6 +12,7 @@ import { ScheduleView } from './ScheduleView'
 import { JobView } from './JobView'
 import { CostSummaryView } from './CostSummaryView'
 import { MatchImagesView } from './MatchImagesView'
+import { MatchDocumentsView } from './MatchDocumentsView'
 import { GridView } from './GridView'
 
 export default function App() {
@@ -71,6 +72,8 @@ export default function App() {
       return <GridView projectId={params.id} onNavigate={navigate} />
     case 'match-images':
       return <MatchImagesView onNavigate={navigate} />
+    case 'match-documents':
+      return <MatchDocumentsView onNavigate={navigate} />
     case 'cost':
       return <CostSummaryView projectId={params.id} onNavigate={navigate} />
     case 'doors':

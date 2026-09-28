@@ -214,6 +214,30 @@ class Product(Base):
     set_items   = relationship("SetItem", back_populates="product")
 
 
+class Document(Base):
+    """A datasheet or certificate PDF, stored once and shared by every product it covers."""
+    __tablename__ = "documents"
+    id            = Column(Integer, primary_key=True, index=True)
+    sha1          = Column(String, unique=True, index=True, nullable=False)   # the same file twice is one document
+    filename      = Column(String, nullable=False)          # where it sits under uploads/documents
+    original_name = Column(String, default="")
+    title         = Column(String, default="")
+    kind          = Column(String, default="datasheet")     # datasheet | certificate
+    pages         = Column(Integer, default=0)
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+    products      = relationship("ProductDocument", back_populates="document", cascade="all, delete-orphan")
+
+
+class ProductDocument(Base):
+    __tablename__ = "product_documents"
+    __table_args__ = (UniqueConstraint("product_id", "document_id", name="uq_product_document"),)
+    id          = Column(Integer, primary_key=True)
+    product_id  = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False, index=True)
+    document    = relationship("Document", back_populates="products")
+    product     = relationship("Product")
+
+
 class HardwareSet(Base):
     """A named bundle of products with quantities per door, reused across jobs."""
     __tablename__ = "hardware_sets"

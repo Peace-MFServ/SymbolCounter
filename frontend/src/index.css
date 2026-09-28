@@ -1393,3 +1393,30 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .combo-list button.on { background: #EAF2FC; color: var(--accent); font-weight: 700; }
 .combo-new { padding: 9px 13px; border-top: 1px solid #EEF1F5; background: #FBFCFE;
   font-size: 12.5px; font-weight: 500; color: #667085; }
+
+/* ── Datasheets ────────────────────────────────────────────────────────────
+   Matching documents to the products they cover, and the list on a product. */
+.doc-row { margin-bottom: 12px; padding: 14px 18px 12px; }
+.doc-head { display: flex; align-items: center; gap: 14px; }
+.doc-title { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.doc-title strong { font-size: 15px; font-weight: 700; color: #101828; }
+.doc-kind { height: 34px; }
+.doc-kind button { padding: 0 12px; font-size: 13px; }
+.doc-body { margin-top: 12px; }
+.doc-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.doc-pick { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 10px; border: 1px solid #DCE3EA;
+  border-radius: 7px; background: #fff; font-size: 13px; cursor: pointer; }
+.doc-pick.on { border-color: var(--accent); background: #EAF2FC; }
+.doc-pick input { margin: 0; }
+.doc-sku { font-weight: 700; color: #101828; }
+.doc-name { color: #344054; font-weight: 500; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.doc-score { font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: #59677A; }
+.doc-pick.on .doc-score { color: var(--accent); }
+.doc-search { max-width: 420px; }
+.doc-search .combo-list button .doc-sku { margin-right: 6px; }
+.doc-foot { display: flex; gap: 8px; margin-top: 12px; }
+.doc-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.doc-list li { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.doc-list li .link-btn { font-weight: 600; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+.doc-list li .row-dots { margin-left: auto; }
+.doc-add { display: flex; align-items: center; gap: 8px; }

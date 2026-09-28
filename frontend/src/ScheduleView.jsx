@@ -14,6 +14,9 @@ export function ScheduleView({ projectId, onNavigate }) {
   const [job,    setJob]    = useState(null)      // editable job details
   const [busy,   setBusy]   = useState('')
   const [priced, setPriced] = useState(false)
+  const [pack, setPack] = useState(null)                  // datasheets and certificates on this job
+  const [withCerts, setWithCerts] = useState(false)
+  useEffect(() => { apiFetch(`/projects/${projectId}/schedule/pack-status`).then(setPack).catch(() => {}) }, [projectId])
   const [summary, setSummary] = useState(true)
   const [packing, setPacking] = useState(false)
   const [notes,  setNotes]  = useState(null)     // what is being typed
@@ -55,6 +58,7 @@ export function ScheduleView({ projectId, onNavigate }) {
       if (kind === 'pdf')     await downloadBlob(`/projects/${projectId}/schedule/pdf?priced=${priced}&summary=${summary}`, `${stem}_Schedule${priced ? '_Priced' : ''}.pdf`)
       if (kind === 'excel')   await downloadBlob(`/projects/${projectId}/schedule/excel?priced=${priced}&summary=${summary}`, `${stem}_Schedule.xlsx`)
       if (kind === 'picking') await downloadBlob(`/projects/${projectId}/schedule/picking`, `${stem}_Picking_List.pdf`)
+      if (kind === 'pack')    await downloadBlob(`/projects/${projectId}/schedule/pack?datasheets=true&certificates=${withCerts}`, `${stem}_Submittal_Pack.pdf`)
     } catch (err) { showToast(err.message, 'error') }
     setBusy('')
   }
@@ -103,6 +107,10 @@ export function ScheduleView({ projectId, onNavigate }) {
                 <Menu label="Lists" items={[
                   { label: 'Picking list (whole job)', onClick: () => download('picking') },
                   { label: 'Packing list (chosen doors)', onClick: () => setPacking(true) },
+                ]} />
+                <Menu label={pack && pack.datasheets ? `Datasheets (${pack.datasheets})` : 'Datasheets'} items={[
+                  { label: `Submittal pack: datasheets${withCerts ? ' and certificates' : ''}`, onClick: () => download('pack') },
+                  { label: withCerts ? 'Leave certificates out' : `Add certificates too${pack && pack.certificates ? ` (${pack.certificates})` : ''}`, onClick: () => setWithCerts(v => !v) },
                 ]} />
                 <button className="btn" onClick={() => download('excel')} disabled={!!busy}>{busy === 'excel' ? <span className="spinner" /> : 'Excel'}</button>
                 <button className="btn btn-primary" onClick={() => download('pdf')} disabled={!!busy}>{busy === 'pdf' ? <span className="spinner" /> : 'Download schedule PDF'}</button>

@@ -33,6 +33,7 @@ class ProductOut(BaseModel):
     intec_code: str = ""; product_type: str = ""; brand: str = ""
     image_url: str = ""; notes: str = ""; active: bool = True
     used_in: list[str] = []
+    datasheets: int = 0; certificates: int = 0
 
 class ProductIn(BaseModel):
     sku: str; name: str; category: str = "Other"; unit: str = "EACH"
@@ -219,7 +220,15 @@ def list_products(q: str = "", category: str = "", product_type: str = "", inclu
         qry = qry.filter((models.Product.sku.ilike(like)) | (models.Product.name.ilike(like))
                          | (models.Product.intec_code.ilike(like)))
     used = _used_map(db)
-    return [_product_out(p, used) for p in qry.order_by(models.Product.sku).all()]
+    out = [_product_out(p, used) for p in qry.order_by(models.Product.sku).all()]
+    # how many datasheets and certificates sit on each, in one pass
+    counts: dict[tuple, int] = {}
+    for pid, kind in db.query(models.ProductDocument.product_id, models.Document.kind) \
+                        .join(models.Document, models.Document.id == models.ProductDocument.document_id).all():
+        counts[(pid, kind)] = counts.get((pid, kind), 0) + 1
+    for o in out:
+        o.datasheets = counts.get((o.id, "datasheet"), 0); o.certificates = counts.get((o.id, "certificate"), 0)
+    return out
 
 
 @router.get("/products/categories")

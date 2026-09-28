@@ -60,3 +60,13 @@ export async function downloadBlob(path, filename) {
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+// Open a PDF the server guards behind the login in a new tab
+export async function openBlob(path) {
+  const token = localStorage.getItem('token')
+  const res = await fetch(API + path, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!res.ok) throw new Error('Could not open the file')
+  const url = URL.createObjectURL(await res.blob())
+  window.open(url, '_blank', 'noopener')
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
+}
