@@ -1432,10 +1432,7 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .doc-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 7px; background: #F6F8FB; font-size: 13px; color: #475467; }
 .doc-check strong { white-space: normal; text-align: right; }
 
-/* Job details: the schedule switch, the revision, a sets-only quantity */
-.seg.wide-seg { display: flex; width: 100%; }
-.seg.wide-seg button { flex: 1; padding: 0 8px; }
-.seg button:disabled { cursor: default; opacity: .7; }
+/* Job details: the revision; a sets-only quantity */
 .rev-row { display: grid; grid-template-columns: 76px 1fr; gap: 8px; }
 .rev-row .btn { white-space: nowrap; }
 .qty-set-form { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }

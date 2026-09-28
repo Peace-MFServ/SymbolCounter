@@ -115,13 +115,6 @@ export function JobView({ projectId, onNavigate }) {
     catch (err) { showToast(err.message, 'error') }
     setBusy('')
   }
-  const setSetsOnly = async v => {
-    if (v === job.sets_only) return
-    setBusy('mode')
-    try { await putJob({ sets_only: v }); showToast(v ? 'Sets only: a quantity for each set, no door references' : 'Door schedule: door references on each set', 'success'); await load() }
-    catch (err) { showToast(err.message, 'error') }
-    setBusy('')
-  }
   const copyJob = async () => {
     const name = prompt('Name for the new job', `${job.name} (copy)`)
     if (name === null) return
@@ -229,12 +222,6 @@ export function JobView({ projectId, onNavigate }) {
             </div>
             <div className="card-panel">
               <h2 className="card-title"><IconDoc size={18} /> Job details</h2>
-              <div className="form-group"><label>Schedule</label>
-                <div className="seg wide-seg">
-                  <button className={!job.sets_only ? 'on' : ''} onClick={() => setSetsOnly(false)} disabled={!mine || !!busy}>Door schedule</button>
-                  <button className={job.sets_only ? 'on' : ''} onClick={() => setSetsOnly(true)} disabled={!mine || !!busy}>Sets only</button>
-                </div>
-              </div>
               <div className="form-group"><label>Revision</label>
                 <div className="rev-row">
                   <input className="form-control" type="number" min="1" value={details.revision} onChange={e => setDetails({ ...details, revision: e.target.value })} disabled={!mine} />

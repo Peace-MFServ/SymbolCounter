@@ -415,7 +415,7 @@ def update_project(pid: int, payload: ProjectCreate, db: Session = Depends(get_d
     for k, v in payload.model_dump().items():
         if k == "kind" and v not in ("symbols", "doors"):
             continue
-        if v is None:
+        if v is None or k == "sets_only":      # sets only or a door schedule is fixed when the job is made
             continue
         if k == "revision":
             v = max(1, min(int(v), 999))
