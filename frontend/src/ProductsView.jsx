@@ -207,7 +207,7 @@ export function ProductsView({ onNavigate }) {
             <input ref={zipRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={e => { importImages(e.target.files[0]); e.target.value = '' }} />
             <input ref={docZipRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={e => { importDocs(e.target.files[0]); e.target.value = '' }} />
             <ImportMenu busy={imgBusy ? 'Importing images…' : docBusy ? 'Importing datasheets…' : ''}
-                        waiting={pendingN + docsPending} groups={[
+                        groups={[
               { title: 'Images', items: [
                 { label: 'Import images', note: 'A zip of pictures', onClick: () => zipRef.current.click() },
                 { label: 'Match images', count: pendingN, onClick: () => onNavigate('match-images') },
@@ -820,7 +820,7 @@ function ProdThumb({ url, onUpload }) {
 
 /* Importing pictures, datasheets and prices, and matching what they left
    waiting, all under one button so the page header stays quiet. */
-function ImportMenu({ groups, waiting, busy }) {
+function ImportMenu({ groups, busy }) {
   const [open, setOpen] = useState(false)
   const ref = useRef()
   useEffect(() => {
@@ -834,7 +834,6 @@ function ImportMenu({ groups, waiting, busy }) {
       <button className={`btn btn-line${open ? ' open' : ''}`} onClick={() => setOpen(o => !o)} disabled={!!busy} aria-haspopup="menu" aria-expanded={open}>
         {busy ? <><span className="spinner" /> {busy}</> : <>
           <IconLayers size={17} /> Import and match
-          {waiting > 0 && <span className="im-badge" title="Waiting to be matched">{waiting}</span>}
           <span className="caret" />
         </>}
       </button>

@@ -1485,7 +1485,6 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 
 /* Products: Import and match */
 .import-menu .btn { gap: 8px; }
-.im-badge { min-width: 22px; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--orange, #ED6E02); color: #fff; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 .menu-list.im-list { min-width: 300px; padding: 6px 0; }
 .im-group + .im-group { border-top: 1px solid var(--card-border); margin-top: 6px; padding-top: 6px; }
 .im-title { padding: 6px 16px 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text3); }
