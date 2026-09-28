@@ -204,25 +204,22 @@ export function ProductsView({ onNavigate }) {
             )}
             <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }}
                    onChange={e => { importFile(e.target.files[0]); e.target.value = '' }} />
-            <button className="btn btn-line" onClick={() => zipRef.current.click()} disabled={imgBusy}>
-              {imgBusy ? <><span className="spinner" /> Importing images…</> : <><IconImage size={17} /> Import images</>}
-            </button>
             <input ref={zipRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={e => { importImages(e.target.files[0]); e.target.value = '' }} />
-            {pendingN > 0 && (
-              <button className="btn btn-soft" onClick={() => onNavigate('match-images')}>
-                <IconLayers size={17} /> Match images ({pendingN})
-              </button>
-            )}
-            <button className="btn btn-line" onClick={() => docZipRef.current.click()} disabled={docBusy}>
-              {docBusy ? <><span className="spinner" /> Importing datasheets…</> : <><IconFile size={17} /> Import datasheets</>}
-            </button>
             <input ref={docZipRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={e => { importDocs(e.target.files[0]); e.target.value = '' }} />
-            {docsPending > 0 && (
-              <button className="btn btn-soft" onClick={() => onNavigate('match-documents')}>
-                <IconLayers size={17} /> Match datasheets ({docsPending})
-              </button>
-            )}
-            <button className="btn btn-line" onClick={() => setPasting(true)}><IconFile size={17} /> Intec prices</button>
+            <ImportMenu busy={imgBusy ? 'Importing images…' : docBusy ? 'Importing datasheets…' : ''}
+                        waiting={pendingN + docsPending} groups={[
+              { title: 'Images', items: [
+                { label: 'Import images', note: 'A zip of pictures', onClick: () => zipRef.current.click() },
+                { label: 'Match images', count: pendingN, onClick: () => onNavigate('match-images') },
+              ] },
+              { title: 'Datasheets', items: [
+                { label: 'Import datasheets', note: 'A zip of PDFs', onClick: () => docZipRef.current.click() },
+                { label: 'Match datasheets', count: docsPending, onClick: () => onNavigate('match-documents') },
+              ] },
+              { title: 'Prices', items: [
+                { label: 'Intec prices', note: 'Paste from a Cost Summary', onClick: () => setPasting(true) },
+              ] },
+            ]} />
             <button className="btn btn-primary" onClick={() => setEditing({ ...EMPTY })}><IconPlus size={17} /> Add product</button>
           </div>
         </div>
@@ -818,5 +815,44 @@ function ProdThumb({ url, onUpload }) {
       <IconUpload size={21} />
       <span>Upload</span>
     </button>
+  )
+}
+
+/* Importing pictures, datasheets and prices, and matching what they left
+   waiting, all under one button so the page header stays quiet. */
+function ImportMenu({ groups, waiting, busy }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  useEffect(() => {
+    if (!open) return
+    const close = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+  return (
+    <div className="menu import-menu" ref={ref}>
+      <button className={`btn btn-line${open ? ' open' : ''}`} onClick={() => setOpen(o => !o)} disabled={!!busy} aria-haspopup="menu" aria-expanded={open}>
+        {busy ? <><span className="spinner" /> {busy}</> : <>
+          <IconLayers size={17} /> Import and match
+          {waiting > 0 && <span className="im-badge" title="Waiting to be matched">{waiting}</span>}
+          <span className="caret" />
+        </>}
+      </button>
+      {open && (
+        <div className="menu-list im-list" role="menu">
+          {groups.map(g => (
+            <div key={g.title} className="im-group">
+              <div className="im-title">{g.title}</div>
+              {g.items.filter(it => it.count === undefined || it.count > 0).map(it => (
+                <button key={it.label} role="menuitem" onClick={() => { setOpen(false); it.onClick() }}>
+                  <span>{it.label}{it.note && <small>{it.note}</small>}</span>
+                  {it.count > 0 && <span className="im-count">{it.count} waiting</span>}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
