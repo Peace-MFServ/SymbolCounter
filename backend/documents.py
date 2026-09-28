@@ -106,18 +106,22 @@ def _doc_out(d: models.Document) -> dict:
 
 # ── Import ────────────────────────────────────────────────────────────────────
 @router.post("/products/import-documents")
-async def import_documents(file: UploadFile = File(...), db: Session = Depends(get_db),
-                           cu=Depends(auth.get_current_user)):
+async def import_documents(file: UploadFile = File(...), dry_run: bool = False,
+                           db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """A zip of datasheets and certificates, any folder layout. Each PDF is kept
     once, attached to the products its name is for, and the rest wait on the
-    Match datasheets screen."""
+    Match datasheets screen. With dry_run nothing is kept: the answer says what
+    would land where, and names every file that would not, so it can be looked
+    at before a single sheet is stored."""
     from schedule import _product_index
     if not (file.filename or "").lower().endswith(".zip"):
         raise HTTPException(400, "Upload a .zip of the datasheet folders")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
     stored = duplicates = links = certificates = 0
-    attached_docs: set[int] = set()
-    new_docs: list[models.Document] = []
+    attached_docs: set = set()
+    placed: list[dict] = []          # name -> the products it goes on
+    unplaced: list[dict] = []        # name, kind, best guess if any
+    seen_sha: set[str] = set()
     try:
         shutil.copyfileobj(file.file, tmp); tmp.close()
         try:
@@ -135,24 +139,44 @@ async def import_documents(file: UploadFile = File(...), db: Session = Depends(g
                 data = src.read()
             if not data.startswith(b"%PDF"):
                 continue
-            doc, fresh = _store(data, info.filename, kind_of(info.filename), db)
-            if not fresh:
-                duplicates += 1
-                continue
+            kind = kind_of(info.filename)
+            if dry_run:
+                sha = hashlib.sha1(data).hexdigest()
+                if sha in seen_sha or db.query(models.Document.id).filter(models.Document.sha1 == sha).first():
+                    duplicates += 1
+                    continue
+                seen_sha.add(sha)
+                doc_key = sha
+            else:
+                doc, fresh = _store(data, info.filename, kind, db)
+                if not fresh:
+                    duplicates += 1
+                    continue
+                doc_key = doc.id
             stored += 1
-            if doc.kind == "certificate":
+            if kind == "certificate":
                 certificates += 1
-            new_docs.append(doc)
-            for p, score in matches(Path(name).stem, index):
-                if score >= 0.9:
-                    db.add(models.ProductDocument(product_id=p.id, document_id=doc.id))
-                    links += 1; attached_docs.add(doc.id)
-        db.commit()
+            found = matches(Path(name).stem, index)
+            strong = [(p, sc) for p, sc in found if sc >= 0.9]
+            for p, _sc in strong:
+                if not dry_run:
+                    db.add(models.ProductDocument(product_id=p.id, document_id=doc_key))
+                links += 1; attached_docs.add(doc_key)
+            if strong:
+                placed.append({"name": title_of(name), "kind": kind, "skus": [p.sku for p, _ in strong]})
+            else:
+                unplaced.append({"name": title_of(name), "kind": kind,
+                                 "guess": f"{found[0][0].sku}" if found else ""})
+        if dry_run:
+            db.rollback()
+        else:
+            db.commit()
     finally:
         try: Path(tmp.name).unlink()
         except OSError: pass
-    return {"stored": stored, "duplicates": duplicates, "attached": len(attached_docs), "links": links,
-            "unmatched": stored - len(attached_docs), "certificates": certificates}
+    return {"dry_run": dry_run, "stored": stored, "duplicates": duplicates, "attached": len(attached_docs),
+            "links": links, "unmatched": stored - len(attached_docs), "certificates": certificates,
+            "placed": placed, "unplaced": unplaced}
 
 
 # ── The ones still to place ───────────────────────────────────────────────────

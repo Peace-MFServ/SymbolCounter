@@ -47,13 +47,17 @@ export function ProductsView({ onNavigate }) {
   const [docBusy,    setDocBusy]    = useState(false)
   const docZipRef = useRef()
   useEffect(() => { apiFetch('/products/documents/pending?limit=1').then(r => setDocsPending(r?.total || 0)).catch(() => {}) }, [docReport])
-  const importDocs = async file => {
+  // First a check that stores nothing and says what would land where; only on
+  // a yes does the same zip go in for real.
+  const [docFile, setDocFile] = useState(null)
+  const importDocs = async (file, dryRun = true) => {
     if (!file) return
     setDocBusy(true)
     try {
       const form = new FormData(); form.append('file', file)
-      const r = await apiFetch('/products/import-documents', { method: 'POST', body: form })
-      setDocReport(r); await load()
+      const r = await apiFetch(`/products/import-documents?dry_run=${dryRun}`, { method: 'POST', body: form })
+      setDocFile(dryRun ? file : null); setDocReport(r)
+      if (!dryRun) await load()
     } catch (err) { showToast('Datasheet import failed: ' + err.message, 'error') }
     setDocBusy(false)
   }
@@ -223,7 +227,10 @@ export function ProductsView({ onNavigate }) {
         <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }}
                onChange={e => { uploadPhoto(e.target.files[0]); e.target.value = '' }} />
         {syncRep && <Cin7Modal r={syncRep} busy={syncBusy} onApply={() => cin7Sync(true)} onPictures={cin7Pictures} onClose={() => setSyncRep(null)} />}
-        {docReport && <DocReportModal r={docReport} onClose={() => setDocReport(null)} onMatch={() => { setDocReport(null); onNavigate('match-documents') }} />}
+        {docReport && <DocReportModal r={docReport} busy={docBusy}
+                                      onImport={() => importDocs(docFile, false)}
+                                      onClose={() => { setDocReport(null); setDocFile(null) }}
+                                      onMatch={() => { setDocReport(null); onNavigate('match-documents') }} />}
         {imgReport && <ImageReportModal r={imgReport} onClose={() => setImgReport(null)} onMatch={() => { setImgReport(null); onNavigate('match-images') }} />}
         {pasting && <IntecPasteModal onClose={() => setPasting(false)} onDone={async () => { setPasting(false); await load() }} />}
 
@@ -729,21 +736,41 @@ function ProductDocs({ productId }) {
   )
 }
 
-/* What the datasheet zip did. */
-function DocReportModal({ r, onClose, onMatch }) {
+/* The datasheet zip: first what would happen, then what did. */
+function DocReportModal({ r, busy, onImport, onClose, onMatch }) {
+  const check = r.dry_run
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 560 }}>
-        <h2>Datasheets imported</h2>
-        <div className="total-row"><span>Documents kept</span><strong>{r.stored}</strong></div>
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal" style={{ maxWidth: 720 }}>
+        <h2>{check ? 'Check before importing' : 'Datasheets imported'}</h2>
+        {check && <p className="muted" style={{ margin: '-8px 0 12px' }}>Nothing has been stored yet.</p>}
+        <div className="total-row"><span>{check ? 'Documents in the zip' : 'Documents kept'}</span><strong>{r.stored}</strong></div>
         <div className="total-row"><span>Copies of one already kept, skipped</span><strong>{r.duplicates}</strong></div>
-        <div className="total-row"><span>Put on products by their code</span><strong>{r.attached}</strong></div>
+        <div className="total-row"><span>{check ? 'Would go on products by their code' : 'Put on products by their code'}</span><strong>{r.attached}</strong></div>
         <div className="total-row"><span>Products covered</span><strong>{r.links}</strong></div>
         <div className="total-row"><span>Read as certificates</span><strong>{r.certificates}</strong></div>
-        <div className="total-row last"><span>Still to place by hand</span><strong>{r.unmatched}</strong></div>
+        <div className="total-row last"><span>No product found by code</span><strong>{r.unmatched}</strong></div>
+        {check && r.placed.length > 0 && (
+          <>
+            <h3 className="doc-check-h">Would go on a product</h3>
+            <div className="doc-check">
+              {r.placed.map((x, i) => <div key={i}><span>{x.name}</span><strong>{x.skus.join(', ')}</strong></div>)}
+            </div>
+          </>
+        )}
+        {check && r.unplaced.length > 0 && (
+          <>
+            <h3 className="doc-check-h">No product by code: these go to Match datasheets</h3>
+            <div className="doc-check">
+              {r.unplaced.map((x, i) => <div key={i}><span>{x.name}</span><em>{x.kind}{x.guess ? ` · best guess ${x.guess}` : ' · no guess'}</em></div>)}
+            </div>
+          </>
+        )}
         <div className="modal-actions">
-          {r.unmatched > 0 && <button className="btn btn-primary" onClick={onMatch}>Match them now</button>}
-          <button className={r.unmatched > 0 ? 'btn btn-ghost' : 'btn btn-primary'} onClick={onClose}>{r.unmatched > 0 ? 'Later' : 'Done'}</button>
+          {check
+            ? <button className="btn btn-primary" onClick={onImport} disabled={busy || !r.stored}>{busy ? <span className="spinner" /> : `Import ${r.stored} document${r.stored !== 1 ? 's' : ''}`}</button>
+            : r.unmatched > 0 && <button className="btn btn-primary" onClick={onMatch}>Match them now</button>}
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>{check ? 'Cancel' : r.unmatched > 0 ? 'Later' : 'Done'}</button>
         </div>
       </div>
     </div>
