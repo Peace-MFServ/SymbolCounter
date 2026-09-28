@@ -32,6 +32,7 @@ export function ProductsView({ onNavigate }) {
   const [withPhoto,  setWithPhoto]  = useState(false)
   const [costOnly,   setCostOnly]   = useState('')      // '' | 'priced' | 'none'
   const [usedOnly,   setUsedOnly]   = useState('')      // '' | 'used' | 'free'
+  const [sheetOnly,  setSheetOnly]  = useState('')      // '' | 'has' | 'missing'
   const [sort,       setSort]       = useState({ key: 'sku', dir: 1 })
   const [page,       setPage]       = useState(1)
   const [pageSize,   setPageSize]   = useState(50)
@@ -114,9 +115,10 @@ export function ProductsView({ onNavigate }) {
       (!setName || p.used_in.includes(setName)) &&
       (costOnly === '' || (costOnly === 'priced' ? p.cost != null : p.cost == null)) &&
       (usedOnly === '' || (usedOnly === 'used' ? p.used_in.length > 0 : p.used_in.length === 0)) &&
+      (sheetOnly === '' || (sheetOnly === 'has' ? p.datasheets > 0 : !p.datasheets)) &&
       (!needle || p.sku.toLowerCase().includes(needle) || p.name.toLowerCase().includes(needle)
         || (p.intec_code || '').toLowerCase().includes(needle)))
-  }, [products, q, cat, brand, setName, costOnly, usedOnly])
+  }, [products, q, cat, brand, setName, costOnly, usedOnly, sheetOnly])
 
   const shown = useMemo(() => {
     const rows = base.filter(p =>
@@ -132,7 +134,7 @@ export function ProductsView({ onNavigate }) {
   const cur = Math.min(page, pages)
   const rows = shown.slice((cur - 1) * pageSize, cur * pageSize)
   // any change to what is being looked for starts again at the front
-  useEffect(() => { setPage(1) }, [q, cat, brand, setName, costOnly, usedOnly, ptype, withPhoto, pageSize])
+  useEffect(() => { setPage(1) }, [q, cat, brand, setName, costOnly, usedOnly, sheetOnly, ptype, withPhoto, pageSize])
 
   const brands = useMemo(() => [...new Set(products.map(p => p.brand).filter(Boolean))].sort(), [products])
   const setNames = useMemo(() => [...new Set(products.flatMap(p => p.used_in))].sort(), [products])
@@ -142,7 +144,7 @@ export function ProductsView({ onNavigate }) {
     return n
   }, [base])
   const photoCount = base.filter(p => p.image_url).length
-  const extraFilters = (costOnly ? 1 : 0) + (usedOnly ? 1 : 0)
+  const extraFilters = (costOnly ? 1 : 0) + (usedOnly ? 1 : 0) + (sheetOnly ? 1 : 0)
 
   const by = key => () => setSort(s => ({ key, dir: s.key === key ? -s.dir : 1 }))
   const arrow = key => (sort.key === key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '')
@@ -261,11 +263,13 @@ export function ProductsView({ onNavigate }) {
                 <Picker value={setName} onChange={setSetName} all="All sets"
                         options={setNames.map(s => ({ value: s, label: s }))} />
               )}
-              <FilterMenu count={extraFilters} onClear={() => { setCostOnly(''); setUsedOnly('') }}>
+              <FilterMenu count={extraFilters} onClear={() => { setCostOnly(''); setUsedOnly(''); setSheetOnly('') }}>
                 <FilterGroup label="Cost" value={costOnly} onChange={setCostOnly} options={[
                   { value: '', label: 'Any' }, { value: 'priced', label: 'Has a cost' }, { value: 'none', label: 'No cost yet' }]} />
                 <FilterGroup label="Used in sets" value={usedOnly} onChange={setUsedOnly} options={[
                   { value: '', label: 'Any' }, { value: 'used', label: 'In a set' }, { value: 'free', label: 'Not used yet' }]} />
+                <FilterGroup label="Datasheet" value={sheetOnly} onChange={setSheetOnly} options={[
+                  { value: '', label: 'Any' }, { value: 'has', label: 'Has one' }, { value: 'missing', label: 'Missing' }]} />
               </FilterMenu>
             </div>
 
