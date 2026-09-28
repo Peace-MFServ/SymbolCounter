@@ -61,12 +61,21 @@ export async function downloadBlob(path, filename) {
   URL.revokeObjectURL(url)
 }
 
-// Open a PDF the server guards behind the login in a new tab
+// Open a PDF the server guards behind the login in a new tab. The tab is
+// opened on the click itself, so no popup blocker stops it, then filled in.
 export async function openBlob(path) {
-  const token = localStorage.getItem('token')
-  const res = await fetch(API + path, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-  if (!res.ok) throw new Error('Could not open the file')
-  const url = URL.createObjectURL(await res.blob())
-  window.open(url, '_blank', 'noopener')
-  setTimeout(() => URL.revokeObjectURL(url), 60000)
+  const url = path.startsWith(API + '/') ? path : API + path
+  const win = window.open('', '_blank')
+  try {
+    const token = localStorage.getItem('token')
+    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    if (!res.ok) throw new Error('Could not open the file')
+    const obj = URL.createObjectURL(await res.blob())
+    if (win) win.location.href = obj
+    else window.location.href = obj
+    setTimeout(() => URL.revokeObjectURL(obj), 5 * 60000)
+  } catch (err) {
+    if (win) win.close()
+    throw err
+  }
 }
