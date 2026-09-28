@@ -9,12 +9,40 @@ import { Topbar } from './Dashboard'
 export function MatchDocumentsView({ onNavigate }) {
   const [items, setItems] = useState(null)
   const [total, setTotal] = useState(0)
+  const [unread, setUnread] = useState(0)
   const [products, setProducts] = useState([])
+  const [busy, setBusy] = useState('')
+  const [plan, setPlan] = useState(null)       // what Attach found would do, waiting for a yes
   const PAGE = 40
   const load = async (offset = 0) => {
     const r = await apiFetch(`/products/documents/pending?offset=${offset}&limit=${PAGE}`)
-    setTotal(r.total)
+    setTotal(r.total); setUnread(r.unread)
     setItems(xs => offset && xs ? [...xs, ...r.items] : r.items)
+  }
+  // open every waiting sheet and note the codes printed in it
+  const readAll = async () => {
+    setBusy('read')
+    try {
+      const r = await apiFetch('/products/documents/read', { method: 'POST' })
+      showToast(`${r.read} document${r.read !== 1 ? 's' : ''} read${r.scans ? `, ${r.scans} scanned with no text` : ''}`, 'success')
+      await load()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy('')
+  }
+  const lookFound = async () => {
+    setBusy('look')
+    try { setPlan(await apiFetch('/products/documents/attach-found?apply=false', { method: 'POST' })) }
+    catch (err) { showToast(err.message, 'error') }
+    setBusy('')
+  }
+  const applyFound = async () => {
+    setBusy('apply')
+    try {
+      const r = await apiFetch('/products/documents/attach-found?apply=true', { method: 'POST' })
+      showToast(`${r.documents} datasheet${r.documents !== 1 ? 's' : ''} put on ${r.links} product${r.links !== 1 ? 's' : ''}`, 'success')
+      setPlan(null); await load()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy('')
   }
   useEffect(() => { load(); apiFetch('/products').then(ps => setProducts(ps || [])) }, [])
 
@@ -49,9 +77,20 @@ export function MatchDocumentsView({ onNavigate }) {
             <p className="lede">{total} document{total !== 1 ? 's' : ''} not yet on a product. Tick the products each one covers, or skip it.</p>
           </div>
           <div className="adm-actions">
+            {unread > 0 && (
+              <button className="btn btn-primary" onClick={readAll} disabled={!!busy}>
+                {busy === 'read' ? <><span className="spinner" /> Reading {unread} documents…</> : `Read the waiting datasheets (${unread})`}
+              </button>
+            )}
+            {unread === 0 && total > 0 && (
+              <button className="btn btn-soft" onClick={lookFound} disabled={!!busy}>
+                {busy === 'look' ? <span className="spinner" /> : 'Attach what the sheets name'}
+              </button>
+            )}
             <button className="btn btn-line" onClick={() => onNavigate('products')}>Back to products</button>
           </div>
         </div>
+        {plan && <PlanModal plan={plan} busy={busy} onApply={applyFound} onClose={() => setPlan(null)} />}
         {items.length === 0 ? (
           <div className="adm-card"><div className="adm-empty"><strong>Nothing waiting</strong><span>Every document is on a product.</span></div></div>
         ) : (
@@ -73,7 +112,8 @@ export function MatchDocumentsView({ onNavigate }) {
 }
 
 function DocRow({ it, products, onAttach, onSkip, onKind }) {
-  const [picked, setPicked] = useState(() => new Set(it.suggestions.filter(s => s.score >= 0.6).map(s => s.product_id)))
+  const [picked, setPicked] = useState(() => new Set(it.suggestions
+    .filter(s => s.source === 'sheet' ? !it.catalogue : s.score >= 0.6).map(s => s.product_id)))
   const [q, setQ] = useState('')
   const [extra, setExtra] = useState([])     // products found by the search and ticked
   const toggle = id => setPicked(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -84,7 +124,7 @@ function DocRow({ it, products, onAttach, onSkip, onKind }) {
     return products.filter(p => !shown.has(p.id) && (p.sku.toLowerCase().includes(n) || p.name.toLowerCase().includes(n))).slice(0, 8)
   }, [q, products, it.suggestions, extra])
   const add = p => { setExtra(xs => [...xs, p]); setPicked(s => new Set(s).add(p.id)); setQ('') }
-  const rows = [...it.suggestions.map(s => ({ id: s.product_id, sku: s.sku, name: s.name, score: s.score })),
+  const rows = [...it.suggestions.map(s => ({ id: s.product_id, sku: s.sku, name: s.name, score: s.score, source: s.source, seen: s.seen_as })),
                 ...extra.map(p => ({ id: p.id, sku: p.sku, name: p.name }))]
   return (
     <div className="adm-card doc-row">
@@ -99,6 +139,8 @@ function DocRow({ it, products, onAttach, onSkip, onKind }) {
         </div>
         <button className="btn btn-line btn-row" onClick={() => openBlob(it.url).catch(e => showToast(e.message, 'error'))}>Open</button>
       </div>
+      {it.has_text === false && <p className="doc-note">A scanned sheet: there is no text in it to read, so match it by hand.</p>}
+      {it.catalogue && <p className="doc-note">It names {rows.filter(r => r.source === 'sheet').length} of your products, so it reads like a catalogue. Nothing is ticked; tick the ones it is really for.</p>}
       <div className="doc-body">
         {rows.length > 0 ? (
           <div className="doc-picks">
@@ -107,7 +149,9 @@ function DocRow({ it, products, onAttach, onSkip, onKind }) {
                 <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
                 <span className="doc-sku">{r.sku}</span>
                 <span className="doc-name">{r.name}</span>
-                {r.score != null && <span className="doc-score">{r.score >= 0.9 ? 'code match' : r.score >= 0.6 ? 'likely' : 'guess'}</span>}
+                {r.source === 'sheet'
+                  ? <span className="doc-score on-sheet" title={`Printed in the sheet as ${r.seen}`}>{r.score >= 1 ? 'on the sheet' : 'range on the sheet'}</span>
+                  : r.score != null && <span className="doc-score">{r.score >= 0.9 ? 'code match' : r.score >= 0.6 ? 'likely' : 'guess'}</span>}
               </label>
             ))}
           </div>
@@ -126,6 +170,36 @@ function DocRow({ it, products, onAttach, onSkip, onKind }) {
           Attach to {picked.size} product{picked.size !== 1 ? 's' : ''}
         </button>
         <button className="btn btn-ghost btn-row" onClick={onSkip}>Skip</button>
+      </div>
+    </div>
+  )
+}
+
+/* Everything the sheets name, before any of it is attached. */
+function PlanModal({ plan, busy, onApply, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal" style={{ maxWidth: 720 }}>
+        <h2>Attach what the sheets name</h2>
+        {plan.documents === 0 ? (
+          <p>None of the waiting datasheets print a code from your product file.{plan.catalogues ? ` ${plan.catalogues} read like catalogues and are left for you.` : ''}</p>
+        ) : (
+          <>
+            <p className="muted" style={{ margin: '-8px 0 12px' }}>
+              {plan.documents} datasheet{plan.documents !== 1 ? 's' : ''} onto {plan.links} product{plan.links !== 1 ? 's' : ''}, each by a code printed in the sheet. Nothing is attached yet.
+              {plan.catalogues ? ` ${plan.catalogues} that read like catalogues are left for you.` : ''}
+            </p>
+            <div className="doc-check" style={{ maxHeight: 360 }}>
+              {plan.plan.map(d => (
+                <div key={d.document_id}><span>{d.title}</span><strong title={d.products.map(p => `${p.sku} (printed as ${p.seen_as})`).join('\n')}>{d.products.map(p => p.sku).join(', ')}</strong></div>
+              ))}
+            </div>
+          </>
+        )}
+        <div className="modal-actions">
+          {plan.documents > 0 && <button className="btn btn-primary" onClick={onApply} disabled={!!busy}>{busy === 'apply' ? <span className="spinner" /> : `Attach ${plan.documents} datasheet${plan.documents !== 1 ? 's' : ''}`}</button>}
+          <button className="btn btn-ghost" onClick={onClose} disabled={!!busy}>{plan.documents > 0 ? 'Cancel' : 'Close'}</button>
+        </div>
       </div>
     </div>
   )

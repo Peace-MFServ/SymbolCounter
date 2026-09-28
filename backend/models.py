@@ -224,6 +224,8 @@ class Document(Base):
     title         = Column(String, default="")
     kind          = Column(String, default="datasheet")     # datasheet | certificate
     pages         = Column(Integer, default=0)
+    codes         = Column(Text, default="")            # product codes printed inside it, as read
+    has_text      = Column(Boolean, nullable=True)      # None: not read yet; False: a scan, nothing to read
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     products      = relationship("ProductDocument", back_populates="document", cascade="all, delete-orphan")
 

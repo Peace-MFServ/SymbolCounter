@@ -74,6 +74,86 @@ def matches(stem: str, index: list) -> list[tuple]:
     return sorted(out.values(), key=lambda x: -x[1])[:12]
 
 
+# ── Reading inside the PDF ────────────────────────────────────────────────────
+# A code as a datasheet prints it: one or two groups of capitals, then a digit,
+# then more of the code with its dots and dashes: CBH102R, CBH 102R, ECO TS 14,
+# CPHH15.04.BT.SSS, CH100.W/O.SSS. And long plain numbers such as 28730.
+_IN_TEXT = re.compile(r"(?<![A-Za-z0-9])((?:[A-Z]{1,6}[ \-]?){1,2}\d[A-Z0-9]*(?:[./\-][A-Z0-9]+)*)")
+_NUMBER = re.compile(r"(?<![\w.])(\d{5,}(?:[./\-][A-Z0-9]+)*)(?![\w])")
+READ_PAGES = 20            # a datasheet lists its codes early; a 200-page brochure is not read to the end
+BROCHURE = 25              # a document naming more of our products than this is a catalogue, not a sheet
+
+
+def read_codes(data: bytes) -> tuple:
+    """(has_text, codes): every product-code-shaped string printed in the PDF."""
+    try:
+        import pymupdf
+        with pymupdf.open(stream=data, filetype="pdf") as d:
+            text = "\n".join(d[i].get_text() for i in range(min(len(d), READ_PAGES)))
+    except Exception:
+        return False, []
+    if len("".join(text.split())) < 10:
+        return False, []                     # a scan: pictures of text, nothing to read
+    found = {m.group(1).strip() for m in _IN_TEXT.finditer(text)}
+    found |= {m.group(1) for m in _NUMBER.finditer(text)}
+    return True, sorted(c for c in found if len(_flat(c)) >= 4 and any(ch.isdigit() for ch in c))
+
+
+def _segments(code: str) -> list:
+    """A product code cut back at each separator: CPHH15.04.BT.SSS gives cphh15,
+    cphh1504, cphh1504bt and the whole. CH3112.4 gives ch3112, never ch311."""
+    parts = [p for p in re.split(r"[\s._\-/]+", (code or "").lower()) if p]
+    return ["".join(parts[:i]) for i in range(1, len(parts) + 1)]
+
+
+def content_index(db: Session) -> dict:
+    """Every way a product's code can be printed, to the product and how sure that is."""
+    idx: dict = {}
+    for p in db.query(models.Product).filter(models.Product.active == True).all():   # noqa: E712
+        for code in (p.sku, p.intec_code):
+            segs = _segments(code)
+            if not segs:
+                continue
+            whole = segs[-1]
+            if len(whole) >= 4:
+                idx.setdefault(whole, {})[p.id] = (p, 1.0)          # the full code, printed
+            for part in segs[:-1]:
+                if len(part) >= 4 and any(ch.isdigit() for ch in part) and not part.isdigit():
+                    idx.setdefault(part, {}).setdefault(p.id, (p, 0.8))   # the range the code belongs to
+    return idx
+
+
+def content_matches(codes: list, idx: dict) -> tuple:
+    """(products the printed codes point at, best first, as (product, score, seen as);
+    whether it reads like a catalogue)."""
+    out: dict = {}
+    for c in codes:
+        for p, score in idx.get(_flat(c), {}).values():
+            if p.id not in out or out[p.id][1] < score:
+                out[p.id] = (p, score, c)
+    ranked = sorted(out.values(), key=lambda x: (-x[1], x[0].sku))
+    exact = sum(1 for x in ranked if x[1] >= 1.0)
+    return ranked, exact > BROCHURE
+
+
+def ensure_read(d: models.Document) -> None:
+    """Read a stored document once and remember what it said."""
+    if d.has_text is not None:
+        return
+    try:
+        data = (DOC_DIR / d.filename).read_bytes()
+    except OSError:
+        d.has_text = False; d.codes = ""
+        return
+    d.has_text, codes = read_codes(data)
+    d.codes = "\n".join(codes)
+
+
+def stored_codes(d: models.Document) -> list:
+    # one code a line: a code can have spaces in it (ECO TS 14)
+    return [c for c in (d.codes or "").split("\n") if c.strip()]
+
+
 def _pages(path: Path) -> int:
     try:
         import pymupdf
@@ -129,6 +209,7 @@ async def import_documents(file: UploadFile = File(...), dry_run: bool = False,
         except zipfile.BadZipFile:
             raise HTTPException(400, "That file is not a zip")
         index = _product_index(db)
+        cidx = content_index(db)
         for info in zf.infolist():
             if info.is_dir():
                 continue
@@ -140,6 +221,7 @@ async def import_documents(file: UploadFile = File(...), dry_run: bool = False,
             if not data.startswith(b"%PDF"):
                 continue
             kind = kind_of(info.filename)
+            has_text, printed = read_codes(data)
             if dry_run:
                 sha = hashlib.sha1(data).hexdigest()
                 if sha in seen_sha or db.query(models.Document.id).filter(models.Document.sha1 == sha).first():
@@ -152,12 +234,20 @@ async def import_documents(file: UploadFile = File(...), dry_run: bool = False,
                 if not fresh:
                     duplicates += 1
                     continue
+                doc.has_text = has_text
+                doc.codes = "\n".join(printed)
                 doc_key = doc.id
             stored += 1
             if kind == "certificate":
                 certificates += 1
             found = matches(Path(name).stem, index)
             strong = [(p, sc) for p, sc in found if sc >= 0.9]
+            if kind == "datasheet":
+                # what the sheet itself prints, unless it reads like a catalogue
+                inside, catalogue = content_matches(printed, cidx)
+                if not catalogue:
+                    have = {p.id for p, _ in strong}
+                    strong += [(p, sc) for p, sc, _seen in inside if p.id not in have]
             for p, _sc in strong:
                 if not dry_run:
                     db.add(models.ProductDocument(product_id=p.id, document_id=doc_key))
@@ -180,19 +270,76 @@ async def import_documents(file: UploadFile = File(...), dry_run: bool = False,
 
 
 # ── The ones still to place ───────────────────────────────────────────────────
+def _proposals(d: models.Document, index: list, cidx: dict) -> tuple:
+    """Suggestions for a waiting document: from what it prints, then from its name.
+    Returns (suggestions, catalogue)."""
+    out, catalogue = {}, False
+    if d.kind == "datasheet" and d.has_text:
+        inside, catalogue = content_matches(stored_codes(d), cidx)
+        for p, sc, seen in inside:
+            out[p.id] = {"product_id": p.id, "sku": p.sku, "name": p.name, "score": sc,
+                         "source": "sheet", "seen_as": seen}
+    for p, sc in matches(Path(d.original_name).stem, index):
+        if p.id not in out:
+            out[p.id] = {"product_id": p.id, "sku": p.sku, "name": p.name, "score": round(sc, 2),
+                         "source": "name", "seen_as": ""}
+    ranked = sorted(out.values(), key=lambda x: (x["source"] != "sheet", -x["score"], x["sku"]))
+    return ranked[:40], catalogue
+
+
 @router.get("/products/documents/pending")
 def pending_documents(offset: int = 0, limit: int = 40, db: Session = Depends(get_db),
                       cu=Depends(auth.get_current_user)):
     from schedule import _product_index
     q = db.query(models.Document).filter(~models.Document.products.any()).order_by(models.Document.title)
     total = q.count()
-    index = _product_index(db)
+    unread = q.filter(models.Document.has_text.is_(None)).count()
+    index, cidx = _product_index(db), content_index(db)
     items = []
     for d in q.offset(offset).limit(limit).all():
-        sugg = [{"product_id": p.id, "sku": p.sku, "name": p.name, "score": round(sc, 2)}
-                for p, sc in matches(Path(d.original_name).stem, index)]
-        items.append({**_doc_out(d), "suggestions": sugg})
-    return {"total": total, "items": items}
+        sugg, catalogue = _proposals(d, index, cidx)
+        items.append({**_doc_out(d), "suggestions": sugg, "has_text": d.has_text, "catalogue": catalogue})
+    return {"total": total, "unread": unread, "items": items}
+
+
+@router.post("/products/documents/read")
+def read_waiting(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Open every document not read yet and note the product codes it prints."""
+    docs = db.query(models.Document).filter(models.Document.has_text.is_(None)).all()
+    scans = 0
+    for i, d in enumerate(docs, 1):
+        ensure_read(d)
+        scans += 0 if d.has_text else 1
+        if i % 20 == 0:
+            db.commit()
+    db.commit()
+    return {"read": len(docs), "scans": scans}
+
+
+@router.post("/products/documents/attach-found")
+def attach_found(apply: bool = False, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Every waiting datasheet onto the products it prints the codes of. Without
+    apply, only says what it would do. Catalogues and scans are left for a person."""
+    cidx = content_index(db)
+    plan, catalogues, links = [], 0, 0
+    for d in db.query(models.Document).filter(~models.Document.products.any(),
+                                              models.Document.kind == "datasheet",
+                                              models.Document.has_text == True).order_by(models.Document.title).all():   # noqa: E712
+        inside, catalogue = content_matches(stored_codes(d), cidx)
+        if catalogue:
+            catalogues += 1
+            continue
+        if not inside:
+            continue
+        plan.append({"document_id": d.id, "title": d.title,
+                     "products": [{"product_id": p.id, "sku": p.sku, "seen_as": seen} for p, _sc, seen in inside]})
+        links += len(inside)
+        if apply:
+            for p, _sc, _seen in inside:
+                db.add(models.ProductDocument(product_id=p.id, document_id=d.id))
+    if apply:
+        db.commit()
+    return {"applied": apply, "documents": len(plan), "links": links, "catalogues": catalogues, "plan": plan}
 
 
 class AttachIn(BaseModel):

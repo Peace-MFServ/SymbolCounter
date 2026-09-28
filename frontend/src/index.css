@@ -1427,3 +1427,7 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .doc-check span { color: #344054; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-check strong { color: #101828; white-space: nowrap; }
 .doc-check em { font-style: normal; color: #8190A5; white-space: nowrap; }
+.doc-score.on-sheet { color: #1D6B3F; }
+.doc-pick.on .doc-score.on-sheet { color: #1D6B3F; }
+.doc-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 7px; background: #F6F8FB; font-size: 13px; color: #475467; }
+.doc-check strong { white-space: normal; text-align: right; }
