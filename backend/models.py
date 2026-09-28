@@ -137,6 +137,8 @@ class Project(Base):
     rep           = Column(String, default="")
     kind          = Column(String, default="symbols")   # "symbols" (device counting) | "doors" (ironmongery schedule)
     notes         = Column(Text, default="")           # the estimator's notes, printed on the schedule's Notes page
+    revision      = Column(Integer, default=1)          # goes up each time the architect sends the schedule back
+    sets_only     = Column(Boolean, default=False)      # sets and quantities, no door references
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
     owner_id      = Column(Integer, ForeignKey("users.id"))

@@ -7,6 +7,7 @@ import { IconTrash, IconSearch, IconPlus, IconFile, IconDoc } from './icons'
 import { TYPE_NAMES, groupItems, money } from './JobView'
 import { useLeaveGuard } from './unsaved'
 import { Picker, Pager, FilterMenu, FilterGroup } from './ProductsView'
+import { useAuthImage } from './TemplatesView'
 
 const PAGE_SIZES = [25, 50, 100]
 const PRODUCTS_SHOWN = 84           // characters of the code list a row shows before "+ n more"
@@ -421,6 +422,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
   }
 
   const groups = groupItems(items)
+  const taken = new Set(items.map(i => i.product_id))
   const perDoor = items.reduce((s, i) => s + i.qty, 0)
   const priced = items.length > 0 && items.every(i => i.price != null)
   const value = items.reduce((s, i) => s + (i.price || 0) * i.qty, 0)
@@ -475,7 +477,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
                   <React.Fragment key={g.type}>
                     <tr className="group-row"><td colSpan={6}>{g.name}</td></tr>
                     {g.items.map(i => (
-                      <SetRow key={i.product_id} item={i} products={products} readOnly={readOnly}
+                      <SetRow key={i.product_id} item={i} products={products} taken={taken} readOnly={readOnly}
                               onQty={v => setQty(i.product_id, v)} onRemove={() => remove(i.product_id)} onSwap={p => swap(i, p)} />
                     ))}
                   </React.Fragment>
@@ -522,38 +524,111 @@ export function SetEditor({ id, projectId, onNavigate }) {
 }
 
 /* One product row, with the quantity and a Replace that keeps the quantity. */
-function SetRow({ item, products, readOnly, onQty, onRemove, onSwap }) {
+function SetRow({ item, products, taken, readOnly, onQty, onRemove, onSwap }) {
   const [swapping, setSwapping] = useState(false)
-  const [q, setQ] = useState('')
-  const matches = useMemo(() => {
-    const n = q.trim().toLowerCase()
-    if (!n) return []
-    return products.filter(p => p.id !== item.product_id && (p.sku.toLowerCase().includes(n) || p.name.toLowerCase().includes(n))).slice(0, 6)
-  }, [q, products, item.product_id])
   return (
     <tr>
       <td className="mono">{item.sku}</td>
       <td>
         {item.name}
-        {swapping && (
-          <div className="typeahead" style={{ marginTop: 6 }}>
-            <input className="form-control" autoFocus placeholder="Replace with… type a code or name" value={q} onChange={e => setQ(e.target.value)}
-                   onKeyDown={e => { if (e.key === 'Escape') { setSwapping(false); setQ('') } if (e.key === 'Enter' && matches[0]) { e.preventDefault(); onSwap(matches[0]); setSwapping(false); setQ('') } }} />
-            {matches.length > 0 && (
-              <div className="typeahead-list">
-                {matches.map(p => <button key={p.id} onClick={() => { onSwap(p); setSwapping(false); setQ('') }}><span className="mono">{p.sku}</span><span className="ta-name">{p.name}</span></button>)}
-              </div>
-            )}
-          </div>
-        )}
+        {swapping && <ReplaceModal item={item} products={products} taken={taken}
+                                   onPick={p => { onSwap(p); setSwapping(false); showToast(`${item.sku} replaced with ${p.sku}`, 'success') }}
+                                   onClose={() => setSwapping(false)} />}
       </td>
       <td className="num"><input className="qty" type="number" min="1" value={item.qty} onChange={e => onQty(e.target.value)} disabled={readOnly} /></td>
       <td className="num">{item.price != null ? money(item.price) : <span className="muted">—</span>}</td>
       <td className="num">{item.price != null ? money(item.price * item.qty) : <span className="muted">—</span>}</td>
       <td className="row-actions">
-        {!readOnly && <button className="btn btn-ghost btn-sm" onClick={() => setSwapping(v => !v)}>{swapping ? 'Keep' : 'Replace'}</button>}
+        {!readOnly && <button className="btn btn-ghost btn-sm" onClick={() => setSwapping(true)}>Replace</button>}
         {!readOnly && <button className="btn btn-ghost btn-sm danger" onClick={onRemove}>Remove</button>}
       </td>
     </tr>
   )
+}
+
+const REPLACE_SHOWN = 60
+
+/* Replace a product: a proper window, with the full name of every product,
+   its picture and price, the same kind of product first. */
+function ReplaceModal({ item, products, taken, onPick, onClose }) {
+  const [q, setQ] = useState('')
+  const type = item.product_type || ''
+  const sameType = products.filter(p => (p.product_type || '') === type && p.id !== item.product_id && !taken.has(p.id))
+  const [scope, setScope] = useState(sameType.length ? 'type' : 'all')
+  const [at, setAt] = useState(0)
+  const listRef = useRef()
+  const found = useMemo(() => {
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    const pool = products.filter(p => p.id !== item.product_id && !taken.has(p.id) && (scope === 'all' || (p.product_type || '') === type))
+    const hit = pool.filter(p => { const t = `${p.sku} ${p.name}`.toLowerCase(); return words.every(w => t.includes(w)) })
+    const lead = words[0] || ''
+    return hit.sort((a, b) => (b.sku.toLowerCase().startsWith(lead) - a.sku.toLowerCase().startsWith(lead)) || a.sku.localeCompare(b.sku))
+  }, [q, scope, products, item.product_id, taken, type])
+  const shown = found.slice(0, REPLACE_SHOWN)
+  useEffect(() => { setAt(0) }, [q, scope])
+  useEffect(() => { listRef.current?.children[at]?.scrollIntoView({ block: 'nearest' }) }, [at])
+  const keys = e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setAt(i => Math.min(i + 1, shown.length - 1)) }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); setAt(i => Math.max(i - 1, 0)) }
+    if (e.key === 'Enter' && shown[at]) { e.preventDefault(); onPick(shown[at]) }
+    if (e.key === 'Escape') onClose()
+  }
+  return createPortal(
+    <div className="modal-overlay" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal replace-modal" role="dialog" aria-label={`Replace ${item.sku}`}>
+        <div className="rp-head">
+          <h2>Replace a product</h2>
+          <button className="rp-x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="rp-current">
+          <RpThumb url={products.find(p => p.id === item.product_id)?.image_url} />
+          <div className="rp-text">
+            <span className="rp-label">In the set now</span>
+            <span className="rp-sku">{item.sku}</span>
+            <span className="rp-name">{item.name}</span>
+          </div>
+          <div className="rp-keep">Keeps the quantity<strong>{item.qty}</strong></div>
+        </div>
+        <div className="rp-tools">
+          <div className="rp-search">
+            <IconSearch size={17} />
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} onKeyDown={keys} placeholder="Search by code or any words in the name" />
+          </div>
+          <div className="seg">
+            {sameType.length > 0 && <button className={scope === 'type' ? 'on' : ''} onClick={() => setScope('type')}>{TYPE_NAMES[type]}</button>}
+            <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>All products</button>
+          </div>
+        </div>
+        <div className="rp-list" ref={listRef}>
+          {shown.map((p, i) => (
+            <button key={p.id} className={`rp-row${i === at ? ' at' : ''}`} onMouseEnter={() => setAt(i)} onClick={() => onPick(p)}>
+              <RpThumb url={p.image_url} />
+              <span className="rp-text">
+                <span className="rp-sku">{p.sku}</span>
+                <span className="rp-name">{p.name}</span>
+                <span className="rp-meta">{[p.category, scope === 'all' ? TYPE_NAMES[p.product_type || ''] : ''].filter(Boolean).join(' · ')}</span>
+              </span>
+              <span className="rp-price">{p.price != null ? money(p.price) : <span className="muted">No price</span>}</span>
+              <span className="rp-use">Use this</span>
+            </button>
+          ))}
+          {found.length === 0 && (
+            <div className="rp-empty">
+              No product matches{q ? ` "${q}"` : ''}{scope === 'type' ? ` in ${TYPE_NAMES[type]}` : ''}.
+              {scope === 'type' && <> <button className="link-btn" onClick={() => setScope('all')}>Search all products</button></>}
+            </div>
+          )}
+        </div>
+        <div className="rp-foot">
+          <span className="muted">{found.length > REPLACE_SHOWN ? `Showing ${REPLACE_SHOWN} of ${found.length}. Type more to narrow it down.` : `${found.length} product${found.length !== 1 ? 's' : ''}`}</span>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>,
+    document.body)
+}
+
+function RpThumb({ url }) {
+  const src = useAuthImage(url)
+  return <span className="rp-pic">{src ? <img src={src} alt="" /> : null}</span>
 }

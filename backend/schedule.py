@@ -1635,6 +1635,7 @@ class JobOut(BaseModel):
     items: int = 0; value: Optional[float] = None; priced_ok: bool = False
     checks: list[dict] = []
     owner_id: Optional[int] = None; owner_name: str = ""
+    revision: int = 1; sets_only: bool = False
 
 class PackingIn(BaseModel):
     door_ids: list[int] = []; deliver_to: str = ""; your_ref: str = ""
@@ -1745,20 +1746,22 @@ def get_job(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current
         checks.append({"level": "warn", "text": f"{no_set} door{'s' if no_set != 1 else ''} without a set"})
     empty = [js.set.code for js in sets_out if js.doors == 0]
     if empty:
-        checks.append({"level": "info", "text": "Sets with no doors yet: " + ", ".join(empty) + ". They are left off the schedule."})
+        checks.append({"level": "info", "text": ("Sets with no quantity yet: " if p.sets_only else "Sets with no doors yet: ")
+                       + ", ".join(empty) + ". They are left off the schedule."})
     unpriced = [js.set.code for js in sets_out if js.doors and not js.set.priced_ok]
     if unpriced:
         checks.append({"level": "info", "text": "No price yet on every product in: " + ", ".join(unpriced)})
     if not p.quote_no:
         checks.append({"level": "info", "text": "No quote number on the job"})
     if sets_out and not checks:
-        checks.append({"level": "ok", "text": "Every door has a set and every set is priced"})
+        checks.append({"level": "ok", "text": "Every set has a quantity and a price" if p.sets_only else "Every door has a set and every set is priced"})
     return JobOut(project_id=pid, name=p.name, quote_no=p.quote_no or "", client=p.client or "", site=p.site or "",
                   rep=p.rep or "", kind=p.kind or "symbols", sets=sets_out, library=library,
                   doors_total=len(doors), doors_no_set=no_set, types_to_decide=decide,
                   plans=len(p.drawings), items=items_total,
                   value=round(value_total, 2) if (sets_out and priced) else None, priced_ok=bool(sets_out) and priced,
-                  checks=checks, owner_id=p.owner_id, owner_name=p.owner.name if p.owner else "")
+                  checks=checks, owner_id=p.owner_id, owner_name=p.owner.name if p.owner else "",
+                  revision=p.revision or 1, sets_only=bool(p.sets_only))
 
 
 @router.post("/projects/{pid}/sets/{sid}/add")
@@ -1807,6 +1810,40 @@ def add_doors_by_quantity(pid: int, payload: DoorsByQuantityIn, db: Session = De
         db.add(models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), set_id=payload.set_id, source="manual"))
     _link_set(db, pid, payload.set_id); db.commit()
     return {"added": len(refs), "first": refs[0] if refs else "", "last": refs[-1] if refs else ""}
+
+
+class SetQuantityIn(BaseModel):
+    count: int
+
+
+@router.put("/projects/{pid}/sets/{sid}/quantity")
+def set_quantity(pid: int, sid: int, payload: SetQuantityIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """A sets-only job: how many of this set. Underneath it is still that many
+    doors, numbered 01, 02 and so on, so totals, the cost summary and the
+    schedule all count it the same way, and the job can become a door schedule
+    later with the numbers there to correct."""
+    _edit_project(pid, db, cu); _set_or_404(sid, db)
+    want = payload.count
+    if want < 0 or want > 2000:
+        raise HTTPException(400, "Quantity must be between 0 and 2000")
+    ds = [d for d in db.query(models.Door).filter(models.Door.project_id == pid).all() if _effective_set_id(d) == sid]
+    have = len(ds)
+    if want > have:
+        refs = _make_refs(db, pid, "", "", 2, _next_number(db, pid, "", ""), want - have)
+        for ref in refs:
+            db.add(models.Door(project_id=pid, ref=ref, set_id=sid, source="manual"))
+    elif want < have:
+        # typed and numbered doors go first, highest number first; plan doors stay
+        typed = [d for d in ds if d.source != "plan"]
+        spare = sorted((d for d in typed if (d.ref or "").isdigit()), key=lambda d: int(d.ref), reverse=True) \
+              + sorted((d for d in typed if not (d.ref or "").isdigit()), key=lambda d: _ref_key(d.ref), reverse=True)
+        drop = have - want
+        if drop > len(spare):
+            raise HTTPException(400, f"{have - len(spare)} of these came off the plans, so the quantity cannot go below that")
+        for d in spare[:drop]:
+            db.delete(d)
+    _link_set(db, pid, sid); db.commit()
+    return {"count": want}
 
 
 class DoorRefsIn(BaseModel):
@@ -2119,7 +2156,7 @@ def copy_project(pid: int, name: str = "", db: Session = Depends(get_db), cu=Dep
     src = _own_project(pid, db, cu)
     p = models.Project(name=(name.strip() or f"{src.name} (copy)"), client=src.client, site=src.site,
                        description=src.description, drawing_firm=src.drawing_firm, quote_no="", rep=src.rep,
-                       kind=src.kind or "symbols", owner_id=cu.id)
+                       kind=src.kind or "symbols", sets_only=bool(src.sets_only), owner_id=cu.id)
     db.add(p); db.flush()
     set_map: dict[int, int] = {}
     for s in db.query(models.HardwareSet).filter(models.HardwareSet.project_id == pid).all():
@@ -2245,4 +2282,4 @@ def products_by_set(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get
                      "value_per_door": js.set.value_per_door, "value": js.value, "cells": cells})
     cols = sorted(products.values(), key=lambda p: (_type_rank(p["type"]), p["sku"].upper()))
     return {"project_id": pid, "name": job.name, "sets": rows, "products": cols,
-            "doors_total": job.doors_total, "value": job.value}
+            "doors_total": job.doors_total, "value": job.value, "sets_only": job.sets_only}

@@ -141,7 +141,8 @@ def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
         "project": {"id": project.id, "name": project.name, "client": project.client or "",
                     "site": project.site or "", "quote_no": project.quote_no or "", "rep": project.rep or "",
                     "estimator": estimator, "date": date.today().strftime("%d/%m/%Y"),
-                    "notes": (project.notes or "").strip()},
+                    "notes": (project.notes or "").strip(),
+                    "revision": project.revision or 1, "sets_only": bool(project.sets_only)},
         "sets": sets_out, "summary": summary_rows,
         "doors_scheduled": sum(s["doors"] for s in sets_out), "doors_no_set": len(no_set),
         "doors_excluded": excluded, "doors_total": len(doors),
@@ -162,6 +163,11 @@ def _latin(s) -> str:
     s = (s.replace("–", "-").replace("—", "-").replace("‘", "'").replace("’", "'")
           .replace("“", '"').replace("”", '"').replace("…", "...").replace(" ", " "))
     return s.encode("latin-1", "replace").decode("latin-1")
+
+
+def how_many(p: dict, n: int) -> str:
+    """How many of a set: doors on a door schedule, a plain quantity on a sets-only job."""
+    return f"Qty {n}" if p.get("sets_only") else f"{n} door{'s' if n != 1 else ''}"
 
 
 def _money(v) -> str:
@@ -201,7 +207,8 @@ class SchedulePDF(FPDF):
         self.set_xy(18, 15); self.cell(120, 6, _latin(p["name"]))
         self.set_font("Helvetica", "", 8.5); self._muted()
         self.set_xy(18, 20.5); self.cell(120, 5, _latin(" | ".join(x for x in [self.doc_title or "Ironmongery schedule",
-                                                                   f"Quote {p['quote_no']}" if p.get("quote_no") else ""] if x)))
+                                                                   f"Quote {p['quote_no']}" if p.get("quote_no") else "",
+                                                                   f"Rev {p.get('revision') or 1}"] if x)))
         self.set_draw_color(*NAVY); self.set_line_width(0.6); self.line(18, 28, 192, 28); self.set_line_width(0.2)
         self._ink(); self.set_y(36)
 
@@ -246,7 +253,7 @@ class SchedulePDF(FPDF):
         p, d = self.data["project"], self.data
         self.band(self.doc_title or "Ironmongery Schedule", "", p["date"], y=40)
         self.set_y(58)
-        left = [("Client", p["client"]), ("Project", p["name"]), ("Site", p["site"])]
+        left = [("Client", p["client"]), ("Project", p["name"]), ("Site", p["site"]), ("Revision", str(p.get("revision") or 1))]
         right = [("Quote no", p["quote_no"]), ("Your ref", d.get("your_ref", "")), ("Estimator", p["estimator"]), ("Rep", p["rep"])]
         for col, rows in ((18, left), (110, right)):
             y = 58
@@ -257,7 +264,10 @@ class SchedulePDF(FPDF):
         self.set_draw_color(*RULE); self.line(18, 92, 192, 92)
         self.set_font("Helvetica", "", 9.5); self._ink(); self.set_xy(18, 98)
         n_sets = len(d["sets"])
-        self.cell(174, 6, f"{d['doors_scheduled']} doors across {n_sets} hardware set{'s' if n_sets != 1 else ''}, {d['item_count']} items.")
+        if p.get("sets_only"):
+            self.cell(174, 6, f"{n_sets} hardware set{'s' if n_sets != 1 else ''}, {d['doors_scheduled']} in all, {d['item_count']} items.")
+        else:
+            self.cell(174, 6, f"{d['doors_scheduled']} doors across {n_sets} hardware set{'s' if n_sets != 1 else ''}, {d['item_count']} items.")
         y = 108
         if d.get("deliver_to"):
             self.set_font("Helvetica", "", 8.5); self._muted(); self.set_xy(18, y); self.cell(24, 5, "Deliver to")
@@ -269,7 +279,7 @@ class SchedulePDF(FPDF):
         for s in d["sets"]:
             self.set_font("Helvetica", "B", 9); self._navy(); self.set_xy(18, y); self.cell(22, 5, _latin(s["code"]))
             self.set_font("Helvetica", "", 9); self._ink(); self.set_xy(40, y); self.cell(110, 5, _latin(s["name"]))
-            self._muted(); self.set_xy(150, y); self.cell(42, 5, f"{s['doors']} door{'s' if s['doors'] != 1 else ''}", align="R")
+            self._muted(); self.set_xy(150, y); self.cell(42, 5, how_many(p, s["doors"]), align="R")
             y += 5.5
             if y > self.h - 34: break
         self._ink()
@@ -349,9 +359,12 @@ class SchedulePDF(FPDF):
 
     def set_page(self, s: dict):
         self.add_page()
-        n = s["doors"]
-        self.band(s["code"], s["name"], f"{n} door{'s' if n != 1 else ''}")
-        self._refs_line([r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"]])
+        n, p = s["doors"], self.data["project"]
+        self.band(s["code"], s["name"], how_many(p, n))
+        if p.get("sets_only"):
+            self.set_y(self.get_y() + 3)
+        else:
+            self._refs_line([r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"]])
         self._table_header()
         items = s["items"]
         for i, it in enumerate(items):
@@ -365,7 +378,7 @@ class SchedulePDF(FPDF):
         if self.priced and s["items"]:
             self._need(8)
             self.set_font("Helvetica", "B", 8.5); y = self.get_y() + 1
-            self.set_xy(110, y); self.cell(40, 5, f"{n} door{'s' if n != 1 else ''} @ {_money(s['per_door'])}", align="R")
+            self.set_xy(110, y); self.cell(40, 5, f"{how_many(p, n)} @ {_money(s['per_door'])}", align="R")
             self.set_xy(150, y); self.cell(42, 5, _money(s["value"]), align="R")
             self.set_y(y + 7)
 
@@ -455,7 +468,7 @@ def schedule_pdf(data: dict, priced: bool = False, summary: bool = True) -> byte
 
 
 def picking_list_pdf(data: dict) -> bytes:
-    packing = bool(data.get("deliver_to") or data.get("your_ref"))
+    packing = bool(data.get("deliver_to") or data.get("your_ref")) and not data["project"].get("sets_only")
     pdf = SchedulePDF(data, priced=False, title="Packing List" if packing else "Picking List")
     pdf.cover()
     if packing:
@@ -494,29 +507,33 @@ def schedule_excel(data: dict, priced: bool = False, summary: bool = True) -> by
     # Sets
     ws = wb.active; ws.title = "Schedule"
     ws.append([f"{p['name']}"]); ws["A1"].font = Font(bold=True, size=14)
-    ws.append([f"Quote {p['quote_no']}" if p["quote_no"] else "", p["client"], p["date"]])
+    sets_only = p.get("sets_only")
+    each = "set" if sets_only else "door"
+    ws.append([f"Quote {p['quote_no']}" if p["quote_no"] else "", p["client"], p["date"], f"Rev {p.get('revision') or 1}"])
     ws.append([])
     for s in data["sets"]:
-        ws.append([f"Hardware Set Ref: {s['code']}", s["name"], f"{s['doors']} doors"])
+        ws.append([f"Hardware Set Ref: {s['code']}", s["name"], how_many(p, s["doors"])])
         ws[ws.max_row][0].font = bold; ws[ws.max_row][1].font = bold
-        header(ws, ["Product Code", "Description", "Qty per door", "Unit"] + (["Price", "Value per door"] if priced else []) + ["Total qty"])
+        header(ws, ["Product Code", "Description", f"Qty per {each}", "Unit"] + (["Price", f"Value per {each}"] if priced else []) + ["Total qty"])
         for it in s["items"]:
             ws.append([it["sku"], it["name"], it["qty"], it["unit"]] + ([it["price"], it["value"]] if priced else []) + [it["qty"] * s["doors"]])
-        ws.append(["Door Reference", ", ".join(r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"])])
-        ws[ws.max_row][0].font = bold
-        ws[ws.max_row][1].alignment = Alignment(wrap_text=True, vertical="top")
+        if not sets_only:
+            ws.append(["Door Reference", ", ".join(r["ref"] + ("h" if r["handed"] else "") for r in s["door_refs"])])
+            ws[ws.max_row][0].font = bold
+            ws[ws.max_row][1].alignment = Alignment(wrap_text=True, vertical="top")
         if priced:
-            ws.append(["", "", "", "", f"{s['doors']} doors @", s["per_door"], s["value"]])
+            ws.append(["", "", "", "", f"{how_many(p, s['doors'])} @", s["per_door"], s["value"]])
         ws.append([])
     widths(ws, [24, 70, 12, 8, 10, 14, 12])
 
     # Doors
-    ws2 = wb.create_sheet("Doors")
-    header(ws2, ["Door", "Floor", "Door type", "Handed", "Set", "Set name"])
-    for s in data["sets"]:
-        for r in s["door_refs"]:
-            ws2.append([r["ref"], r["floor"], r["type_code"], "Yes" if r["handed"] else "", s["code"], s["name"]])
-    widths(ws2, [14, 14, 12, 8, 10, 40])
+    if not sets_only:
+        ws2 = wb.create_sheet("Doors")
+        header(ws2, ["Door", "Floor", "Door type", "Handed", "Set", "Set name"])
+        for s in data["sets"]:
+            for r in s["door_refs"]:
+                ws2.append([r["ref"], r["floor"], r["type_code"], "Yes" if r["handed"] else "", s["code"], s["name"]])
+        widths(ws2, [14, 14, 12, 8, 10, 40])
 
     # Product summary (optional, like prices)
     if summary:

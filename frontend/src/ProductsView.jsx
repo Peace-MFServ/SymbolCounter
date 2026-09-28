@@ -16,7 +16,7 @@ const SORTS = {
   sku:  p => (p.sku || '').toLowerCase(),
   name: p => (p.name || '').toLowerCase(),
   type: p => TYPE_ORDER.indexOf(p.product_type || ''),
-  cost: p => (p.cost == null ? -Infinity : p.cost),
+  sell: p => (p.sell == null ? -Infinity : p.sell),
   used: p => p.used_in.length,
 }
 
@@ -113,7 +113,7 @@ export function ProductsView({ onNavigate }) {
       (!cat || p.category === cat) &&
       (!brand || (p.brand || '') === brand) &&
       (!setName || p.used_in.includes(setName)) &&
-      (costOnly === '' || (costOnly === 'priced' ? p.cost != null : p.cost == null)) &&
+      (costOnly === '' || (costOnly === 'priced' ? p.sell != null : p.sell == null)) &&
       (usedOnly === '' || (usedOnly === 'used' ? p.used_in.length > 0 : p.used_in.length === 0)) &&
       (sheetOnly === '' || (sheetOnly === 'has' ? p.datasheets > 0 : !p.datasheets)) &&
       (!needle || p.sku.toLowerCase().includes(needle) || p.name.toLowerCase().includes(needle)
@@ -189,7 +189,7 @@ export function ProductsView({ onNavigate }) {
         <div className="adm-head">
           <div className="adm-title">
             <h1>Products</h1>
-            <p className="lede">{products.length} products. Prices are the Cin7 average cost in euro.</p>
+            <p className="lede">{products.length} products. Prices are the Cin7 selling price in euro.</p>
           </div>
           <div className="adm-actions">
             {cin7.configured ? (
@@ -264,8 +264,8 @@ export function ProductsView({ onNavigate }) {
                         options={setNames.map(s => ({ value: s, label: s }))} />
               )}
               <FilterMenu count={extraFilters} onClear={() => { setCostOnly(''); setUsedOnly(''); setSheetOnly('') }}>
-                <FilterGroup label="Cost" value={costOnly} onChange={setCostOnly} options={[
-                  { value: '', label: 'Any' }, { value: 'priced', label: 'Has a cost' }, { value: 'none', label: 'No cost yet' }]} />
+                <FilterGroup label="Selling price" value={costOnly} onChange={setCostOnly} options={[
+                  { value: '', label: 'Any' }, { value: 'priced', label: 'Has a price' }, { value: 'none', label: 'No price yet' }]} />
                 <FilterGroup label="Used in sets" value={usedOnly} onChange={setUsedOnly} options={[
                   { value: '', label: 'Any' }, { value: 'used', label: 'In a set' }, { value: 'free', label: 'Not used yet' }]} />
                 <FilterGroup label="Datasheet" value={sheetOnly} onChange={setSheetOnly} options={[
@@ -297,7 +297,7 @@ export function ProductsView({ onNavigate }) {
                       <th><button className="th-sort" onClick={by('sku')}>Code{arrow('sku')}</button></th>
                       <th><button className="th-sort" onClick={by('name')}>Product{arrow('name')}</button></th>
                       <th><button className="th-sort" onClick={by('type')}>Type{arrow('type')}</button></th>
-                      <th className="num"><button className="th-sort" onClick={by('cost')}>Avg cost{arrow('cost')}</button></th>
+                      <th className="num"><button className="th-sort" onClick={by('sell')}>Selling price{arrow('sell')}</button></th>
                       <th><button className="th-sort" onClick={by('used')}>Used in sets{arrow('used')}</button></th>
                       <th className="num">Actions</th>
                     </tr>
@@ -319,7 +319,7 @@ export function ProductsView({ onNavigate }) {
                           <div className={`p-type${p.product_type ? '' : ' unset'}`}>{p.product_type ? TYPE_NAMES[p.product_type] : 'Not set'}</div>
                           <div className="p-meta">{p.category || 'Other'}</div>
                         </td>
-                        <td className="num p-cost">{p.cost != null ? `€${money(p.cost)}` : <span className="p-dash">—</span>}</td>
+                        <td className="num p-cost">{p.sell != null ? `€${money(p.sell)}` : <span className="p-dash">—</span>}</td>
                         <td>
                           {p.used_in.length ? (
                             <>
@@ -543,9 +543,8 @@ function ProductModal({ product, categories, onClose, onSaved }) {
             </div>
           </div>
           <div className="form-group"><label>Name</label><input className="form-control" value={f.name} onChange={set('name')} required /></div>
-          <div className="form-grid three">
-            <div className="form-group"><label>Average cost <span className="muted">(from Cin7)</span></label><input className="form-control" type="number" step="0.01" value={f.cost} onChange={set('cost')} placeholder="not in yet" /></div>
-            <div className="form-group"><label>Last Intec price <span className="muted">(fallback)</span></label><input className="form-control" type="number" step="0.01" value={f.sell} onChange={set('sell')} placeholder="—" /></div>
+          <div className="form-grid">
+            <div className="form-group"><label>Selling price <span className="muted">(from Cin7)</span></label><input className="form-control" type="number" step="0.01" value={f.sell} onChange={set('sell')} placeholder="not in yet" /></div>
             <div className="form-group"><label>Unit</label><input className="form-control" value={f.unit} onChange={set('unit')} /></div>
           </div>
           <div className="form-grid">

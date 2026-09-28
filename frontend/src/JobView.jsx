@@ -6,7 +6,7 @@ import { useAuth } from './auth'
 import { useLeaveGuard } from './unsaved'
 import { useConfirm } from './confirm'
 import { Menu } from './ProjectView'
-import { IconPlus, IconEdit, IconSave, IconBars, IconDoc, IconCheck, IconWarn, IconFile, IconRight, IconDoor, IconLayers, IconFolder, IconTrash } from './icons'
+import { IconPlus, IconEdit, IconSave, IconBars, IconDoc, IconCheck, IconWarn, IconFile, IconRight, IconDoor, IconLayers, IconFolder, IconTrash, IconLeft } from './icons'
 
 export const TYPE_NAMES = {
   '01': 'Hinges and pivots', '02': 'Door closers', '03': 'Locks and cylinders', '04': 'Door handles',
@@ -34,7 +34,7 @@ export function JobView({ projectId, onNavigate }) {
   const load = async () => {
     const j = await apiFetch(`/projects/${projectId}/job`)
     setJob(j)
-    if (!details) setDetails({ name: j.name, client: j.client, site: j.site, quote_no: j.quote_no, rep: j.rep })
+    if (!details) setDetails({ name: j.name, client: j.client, site: j.site, quote_no: j.quote_no, rep: j.rep, revision: j.revision })
     const stillThere = j.sets.some(s => s.set.id === selected)
     if (!stillThere) setSelected(j.sets[0]?.set.id ?? null)
   }
@@ -94,15 +94,33 @@ export function JobView({ projectId, onNavigate }) {
     try { await apiFetch(`/doors/${d.id}`, { method: 'DELETE' }); showToast(`Door ${d.ref} removed`, 'info'); await load() }
     catch (err) { showToast(err.message, 'error') }
   }
+  const putJob = fields => apiFetch(`/projects/${projectId}`, { method: 'PUT', body: JSON.stringify({
+    name: job.name, client: job.client, site: job.site, quote_no: job.quote_no, rep: job.rep,
+    description: '', drawing_firm: '', kind: job.kind, ...fields }) })
   const saveDetails = async () => {
     setBusy('details')
     let ok = true
     try {
-      await apiFetch(`/projects/${projectId}`, { method: 'PUT', body: JSON.stringify({ ...details, description: '', drawing_firm: '', kind: job.kind }) })
+      await putJob({ ...details, revision: Math.max(1, Number(details.revision) || 1) })
       showToast('Job details saved', 'success'); await load()
     } catch (err) { showToast(err.message, 'error'); ok = false }
     setBusy('')
     return ok
+  }
+  // the architect sent it back: the next revision, saved straight away
+  const nextRevision = async () => {
+    const r = (job.revision || 1) + 1
+    setBusy('rev')
+    try { await putJob({ revision: r }); setDetails(d => ({ ...d, revision: r })); showToast(`Now revision ${r}`, 'success'); await load() }
+    catch (err) { showToast(err.message, 'error') }
+    setBusy('')
+  }
+  const setSetsOnly = async v => {
+    if (v === job.sets_only) return
+    setBusy('mode')
+    try { await putJob({ sets_only: v }); showToast(v ? 'Sets only: a quantity for each set, no door references' : 'Door schedule: door references on each set', 'success'); await load() }
+    catch (err) { showToast(err.message, 'error') }
+    setBusy('')
   }
   const copyJob = async () => {
     const name = prompt('Name for the new job', `${job.name} (copy)`)
@@ -112,7 +130,8 @@ export function JobView({ projectId, onNavigate }) {
   }
 
   const detailsDirty = !!job && !!details &&
-    ['name', 'client', 'site', 'quote_no', 'rep'].some(k => (details[k] || '') !== (job[k] || ''))
+    (['name', 'client', 'site', 'quote_no', 'rep'].some(k => (details[k] || '') !== (job[k] || '')) ||
+     Number(details.revision) !== job.revision)
   const { guard, modal: leaveModal } = useLeaveGuard({ dirty: detailsDirty, onSave: saveDetails, what: 'job details' })
   const goNav = guard(onNavigate)
 
@@ -126,6 +145,7 @@ export function JobView({ projectId, onNavigate }) {
     <>
       <Topbar crumbs={crumbs} onNavigate={goNav} crumbsRight={
         <>
+          <button className="btn btn-ghost back-jobs" onClick={() => goNav('dashboard')}><IconLeft size={16} /> Back to jobs</button>
           <Menu label="Job actions" items={[
             { label: 'Products by set', onClick: () => goNav('grid', { id: projectId }) },
             { label: 'Copy this job', onClick: guard(copyJob) },
@@ -155,7 +175,7 @@ export function JobView({ projectId, onNavigate }) {
                   <div className="set-list-code">{js.set.code}{!js.set.is_standard && <span className="tag">this job</span>}</div>
                   <div className="set-list-name">{js.set.name}</div>
                   <div className="set-list-meta">
-                    <span>{js.doors} door{js.doors !== 1 ? 's' : ''}</span>
+                    <span>{job.sets_only ? `Qty ${js.doors}` : `${js.doors} door${js.doors !== 1 ? 's' : ''}`}</span>
                     <span>{js.value != null ? money(js.value) : <span className="muted">no price</span>}</span>
                   </div>
                 </li>
@@ -190,7 +210,7 @@ export function JobView({ projectId, onNavigate }) {
             ) : (
               <SetPanel js={current} doors={doors} projectId={projectId}
                         onEdit={guard(() => editSet(current))} onCopy={() => copyForJob(current)} onRemove={() => removeSet(current)} onDelete={() => deleteFromLibrary(current.set)}
-                        onChanged={load} onRemoveDoor={removeDoor} readOnly={!mine} />
+                        onChanged={load} onRemoveDoor={removeDoor} readOnly={!mine} setsOnly={job.sets_only} />
             )}
           </main>
 
@@ -198,7 +218,7 @@ export function JobView({ projectId, onNavigate }) {
           <aside className="job-rail">
             <div className="card-panel">
               <h2 className="card-title"><IconBars size={18} /> Job summary</h2>
-              <div className="total-row"><span>Doors</span><strong>{job.doors_total}</strong></div>
+              <div className="total-row"><span>{job.sets_only ? 'Quantity' : 'Doors'}</span><strong>{job.doors_total}</strong></div>
               <div className="total-row"><span>Sets</span><strong>{job.sets.length}</strong></div>
               <div className="total-row"><span>Items</span><strong>{job.items}</strong></div>
               <div className="total-row last"><span>Value</span><strong>{job.value != null ? money(job.value) : <span className="muted" style={{ fontWeight: 400 }}>not all priced</span>}</strong></div>
@@ -209,6 +229,20 @@ export function JobView({ projectId, onNavigate }) {
             </div>
             <div className="card-panel">
               <h2 className="card-title"><IconDoc size={18} /> Job details</h2>
+              <div className="form-group"><label>Schedule</label>
+                <div className="seg wide-seg">
+                  <button className={!job.sets_only ? 'on' : ''} onClick={() => setSetsOnly(false)} disabled={!mine || !!busy}>Door schedule</button>
+                  <button className={job.sets_only ? 'on' : ''} onClick={() => setSetsOnly(true)} disabled={!mine || !!busy}>Sets only</button>
+                </div>
+              </div>
+              <div className="form-group"><label>Revision</label>
+                <div className="rev-row">
+                  <input className="form-control" type="number" min="1" value={details.revision} onChange={e => setDetails({ ...details, revision: e.target.value })} disabled={!mine} />
+                  {mine && <button className="btn btn-soft" onClick={nextRevision} disabled={!!busy || detailsDirty} title={detailsDirty ? 'Save the details first' : 'The architect sent it back: start the next revision'}>
+                    {busy === 'rev' ? <span className="spinner" /> : `New revision (${(job.revision || 1) + 1})`}
+                  </button>}
+                </div>
+              </div>
               <div className="form-group"><label>Job name</label><input className="form-control" value={details.name} onChange={e => setDetails({ ...details, name: e.target.value })} disabled={!mine} /></div>
               <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
                 <div className="form-group"><label>Quote no</label><input className="form-control" value={details.quote_no} onChange={e => setDetails({ ...details, quote_no: e.target.value })} disabled={!mine} /></div>
@@ -319,7 +353,7 @@ function DoorChip({ d, readOnly, onRename, onRemove }) {
   )
 }
 
-function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, onChanged, onRemoveDoor, readOnly = false }) {
+function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, onChanged, onRemoveDoor, readOnly = false, setsOnly = false }) {
   const s = js.set
   const groups = groupItems(s.items)
   const [prefix, setPrefix] = useState('')
@@ -418,7 +452,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
           <div className="subline">
             {s.is_standard ? 'Standard set shared by every job' : 'This job’s own copy'}
             {s.fire_rated ? ' · fire rated' : ''}
-            <span className="pill">{js.doors} door{js.doors !== 1 ? 's' : ''}</span>
+            <span className="pill">{setsOnly ? `Qty ${js.doors}` : `${js.doors} door${js.doors !== 1 ? 's' : ''}`}</span>
             {js.from_types > 0 && <span className="pill">{js.from_types} type{js.from_types !== 1 ? 's' : ''} from plans</span>}
           </div>
         </div>
@@ -429,7 +463,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
         </div>
       </div>
 
-      <div className="card-panel">
+      {setsOnly ? <QuantityCard js={js} projectId={projectId} readOnly={readOnly} onChanged={onChanged} /> : <div className="card-panel">
         <h2 className="card-title">{readOnly ? 'Doors' : 'Add doors'}</h2>
         {readOnly && doors.length === 0 && <p className="muted" style={{ margin: 0 }}>No doors on this set yet.</p>}
         {!readOnly && <form onSubmit={addRefs} className="add-refs-grid">
@@ -471,12 +505,12 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
             {doors.length > 40 && !showAll && <button className="link-btn" onClick={() => setShowAll(true)}>and {doors.length - 40} more</button>}
           </div>
         )}
-      </div>
+      </div>}
 
       <div className="card-panel">
         <h2 className="card-title">Products in this set</h2>
         <table className="ledger set-products soft">
-          <thead><tr><th>Code</th><th>Product</th><th className="num">Per door</th><th className="num">Price</th><th className="num">Value</th></tr></thead>
+          <thead><tr><th>Code</th><th>Product</th><th className="num">{setsOnly ? 'Per set' : 'Per door'}</th><th className="num">Price</th><th className="num">Value</th></tr></thead>
           <tbody>
             {groups.map(g => (
               <React.Fragment key={g.type}>
@@ -496,10 +530,41 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
           </tbody>
           <tfoot>
             <tr><td colSpan={3} /><td className="num">Set value</td><td className="num strong">{s.value_per_door != null ? money(s.value_per_door) : <span className="muted">not all priced</span>}</td></tr>
-            <tr><td colSpan={3} /><td className="num">{js.doors} door{js.doors !== 1 ? 's' : ''} @ {s.value_per_door != null ? money(s.value_per_door) : '—'}</td><td className="num strong">{js.value != null ? money(js.value) : '—'}</td></tr>
+            <tr><td colSpan={3} /><td className="num">{setsOnly ? `Qty ${js.doors}` : `${js.doors} door${js.doors !== 1 ? 's' : ''}`} @ {s.value_per_door != null ? money(s.value_per_door) : '—'}</td><td className="num strong">{js.value != null ? money(js.value) : '—'}</td></tr>
           </tfoot>
         </table>
       </div>
+    </div>
+  )
+}
+
+/* Sets only: how many of this set, and nothing about doors. */
+function QuantityCard({ js, projectId, readOnly, onChanged }) {
+  const [n, setN] = useState(String(js.doors))
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setN(String(js.doors)) }, [js.set.id, js.doors])
+  const want = Number(n)
+  const ok = n !== '' && Number.isInteger(want) && want >= 0 && want <= 2000
+  const save = async e => {
+    e.preventDefault()
+    if (!ok || want === js.doors) return
+    setBusy(true)
+    try {
+      await apiFetch(`/projects/${projectId}/sets/${js.set.id}/quantity`, { method: 'PUT', body: JSON.stringify({ count: want }) })
+      showToast(`${js.set.code}: quantity ${want}`, 'success'); await onChanged()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy(false)
+  }
+  return (
+    <div className="card-panel">
+      <h2 className="card-title">Quantity</h2>
+      {readOnly ? <p style={{ margin: 0 }}><strong>{js.doors}</strong> <span className="muted">of this set</span></p> : (
+        <form onSubmit={save} className="qty-set-form">
+          <label>How many of this set<input className="form-control" type="number" min="0" max="2000" value={n} onChange={e => setN(e.target.value)} /></label>
+          <button className="btn btn-primary" type="submit" disabled={busy || !ok || want === js.doors}>{busy ? <span className="spinner" /> : 'Save quantity'}</button>
+          <span className="muted">Each one is the full list of products below.</span>
+        </form>
+      )}
     </div>
   )
 }

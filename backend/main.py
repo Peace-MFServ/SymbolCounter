@@ -122,6 +122,10 @@ def _ensure_columns():
             if "notes" not in pexisting:
                 conn.execute(_sa.text("ALTER TABLE projects ADD COLUMN notes TEXT DEFAULT ''"))
                 logger.info("Migrated: added projects.notes")
+            for colname, decl in (("revision", "INTEGER DEFAULT 1"), ("sets_only", "BOOLEAN DEFAULT 0")):
+                if pexisting and colname not in pexisting:
+                    conn.execute(_sa.text(f"ALTER TABLE projects ADD COLUMN {colname} {decl}"))
+                    logger.info("Migrated: added projects.%s", colname)
             for table, cols in (("products", {"product_type": "TEXT DEFAULT ''", "brand": "TEXT DEFAULT ''"}),
                                 ("documents", {"codes": "TEXT DEFAULT ''", "has_text": "BOOLEAN"}),
                                 ("hardware_sets", {"project_id": "INTEGER", "locked_by_id": "INTEGER", "locked_at": "DATETIME"})):
@@ -244,12 +248,14 @@ class ProjectCreate(BaseModel):
     name: str; client: str = ""; site: str = ""
     description: str = ""; drawing_firm: str = ""
     quote_no: str = ""; rep: str = ""; kind: str = "symbols"
+    revision: Optional[int] = None; sets_only: Optional[bool] = None   # left out: unchanged
 
 class ProjectOut(BaseModel):
     id: int; name: str; client: str; site: str
     description: str; drawing_firm: str; drawing_count: int = 0
     verified_count: int = 0; approved_count: int = 0
     quote_no: str = ""; rep: str = ""; kind: str = "symbols"
+    revision: int = 1; sets_only: bool = False
     door_count: int = 0; door_types_to_decide: int = 0
     owner_id: Optional[int] = None; owner_name: str = ""; created_at: Optional[str] = None; updated_at: Optional[str] = None
     class Config: from_attributes = True
@@ -265,6 +271,7 @@ def _project_out(p: models.Project, db: Session) -> ProjectOut:
                       description=p.description or "", drawing_firm=p.drawing_firm or "",
                       drawing_count=len(p.drawings), verified_count=vc, approved_count=ac,
                       quote_no=p.quote_no or "", rep=p.rep or "", kind=p.kind or "symbols",
+                      revision=p.revision or 1, sets_only=bool(p.sets_only),
                       door_count=doors, door_types_to_decide=decide,
                       owner_id=p.owner_id, owner_name=p.owner.name if p.owner else "",
                       created_at=p.created_at.isoformat() if p.created_at else None,
@@ -392,7 +399,7 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db),
                    cu=Depends(auth.get_current_user)):
     if payload.kind not in ("symbols", "doors"):
         raise HTTPException(400, "Project kind must be 'symbols' or 'doors'")
-    p = models.Project(**payload.model_dump(), owner_id=cu.id)
+    p = models.Project(**payload.model_dump(exclude_none=True), owner_id=cu.id)
     db.add(p); db.commit(); db.refresh(p)
     return _project_out(p, db)
 
@@ -408,6 +415,10 @@ def update_project(pid: int, payload: ProjectCreate, db: Session = Depends(get_d
     for k, v in payload.model_dump().items():
         if k == "kind" and v not in ("symbols", "doors"):
             continue
+        if v is None:
+            continue
+        if k == "revision":
+            v = max(1, min(int(v), 999))
         setattr(p, k, v)
     db.commit(); db.refresh(p)
     return _project_out(p, db)
@@ -422,7 +433,7 @@ def duplicate_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.g
         name=_copy_name(src.name, db), client=src.client or "", site=src.site or "",
         description=src.description or "", drawing_firm=src.drawing_firm or "",
         quote_no=src.quote_no or "", rep=src.rep or "", kind=src.kind,
-        notes=src.notes or "", owner_id=cu.id)
+        sets_only=bool(src.sets_only), notes=src.notes or "", owner_id=cu.id)
     db.add(copy); db.flush()
 
     for st in src.symbol_types:

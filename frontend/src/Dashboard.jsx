@@ -246,7 +246,7 @@ function JobTable({ rows, showOwner = false, onOpen, canDelete, onDelete, onDupl
                     .filter(Boolean).join(' · ') || 'No client or site set'}
                 </div>
               </td>
-              <td><span className={`kind-pill ${p.kind === 'doors' ? 'doors' : 'devices'}`}>{p.kind === 'doors' ? 'Door schedule' : 'Device count'}</span></td>
+              <td><span className={`kind-pill ${p.kind === 'doors' ? 'doors' : 'devices'}`}>{p.kind !== 'doors' ? 'Device count' : p.sets_only ? 'Sets only' : 'Door schedule'}</span></td>
               <td className="num job-num">{p.drawing_count ?? 0}</td>
               <td className="num job-num">
                 {p.door_count || <span className="muted">—</span>}
@@ -330,6 +330,7 @@ const openView = p => (p.kind === 'doors' ? 'job' : 'project')
 
 function NewProjectModal({ onClose, onCreated }) {
   const [kind,   setKind]   = useState('doors')
+  const [setsOnly, setSetsOnly] = useState(false)
   const [name,   setName]   = useState('')
   const [client, setClient] = useState('')
   const [site,   setSite]   = useState('')
@@ -345,7 +346,7 @@ function NewProjectModal({ onClose, onCreated }) {
     try {
       const p = await apiFetch('/projects', {
         method: 'POST',
-        body: JSON.stringify({ name, client, site, drawing_firm: firm, quote_no: quote, kind }),
+        body: JSON.stringify({ name, client, site, drawing_firm: firm, quote_no: quote, kind, sets_only: kind === 'doors' && setsOnly }),
       })
       showToast('Project created', 'success')
       onCreated(p)
@@ -363,13 +364,17 @@ function NewProjectModal({ onClose, onCreated }) {
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && close()}>
       {leaveModal}
-      <div className="modal">
+      <div className="modal new-job-modal">
         <h2>New job</h2>
         <form onSubmit={submit}>
           <div className="kind-pick">
-            <button type="button" className={kind === 'doors' ? 'on' : ''} onClick={() => setKind('doors')}>
+            <button type="button" className={kind === 'doors' && !setsOnly ? 'on' : ''} onClick={() => { setKind('doors'); setSetsOnly(false) }}>
               <strong>Door schedule</strong>
-              <span>Sets, doors and quantities, with the schedule PDF at the end. Plans can be read in if you have them.</span>
+              <span>Sets on doors, with the door references. Plans can be read in if you have them.</span>
+            </button>
+            <button type="button" className={kind === 'doors' && setsOnly ? 'on' : ''} onClick={() => { setKind('doors'); setSetsOnly(true) }}>
+              <strong>Ironmongery sets</strong>
+              <span>Sets and how many of each. No door references.</span>
             </button>
             <button type="button" className={kind === 'symbols' ? 'on' : ''} onClick={() => setKind('symbols')}>
               <strong>Device count</strong>

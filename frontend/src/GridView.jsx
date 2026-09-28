@@ -25,7 +25,7 @@ export function GridView({ projectId, onNavigate }) {
       <Topbar crumbs={crumbs} onNavigate={onNavigate} />
       <div className="page-wrap wide">
         <div className="page-header">
-          <div><h1>Products by set</h1><p className="lede">{g.sets.length} set{g.sets.length !== 1 ? 's' : ''}, {g.products.length} products, {g.doors_total} doors</p></div>
+          <div><h1>Products by set</h1><p className="lede">{g.sets.length} set{g.sets.length !== 1 ? 's' : ''}, {g.products.length} products, {g.sets_only ? `quantity ${g.doors_total}` : `${g.doors_total} doors`}</p></div>
           <div className="spacer" />
           <div className="actions"><button className="btn" onClick={() => onNavigate('job', { id: projectId })}>Back to job</button></div>
         </div>
@@ -39,7 +39,7 @@ export function GridView({ projectId, onNavigate }) {
                   <th />
                 </tr>
                 <tr>
-                  <th className="sticky">Set</th><th className="num">Doors</th><th className="num">Per door</th>
+                  <th className="sticky">Set</th><th className="num">{g.sets_only ? 'Qty' : 'Doors'}</th><th className="num">{g.sets_only ? 'Per set' : 'Per door'}</th>
                   {g.products.map(p => <th key={p.sku} className="grid-prod" title={p.name}><span>{p.sku}</span></th>)}
                   <th className="num">Value</th>
                 </tr>

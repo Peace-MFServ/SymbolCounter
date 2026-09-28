@@ -14,6 +14,7 @@ export const IconWarn    = p => <I {...p}><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.
 export const IconSearch  = p => <I {...p}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></I>
 export const IconChevron = p => <I {...p}><path d="m6 9 6 6 6-6" /></I>
 export const IconRight   = p => <I {...p}><path d="m9 18 6-6-6-6" /></I>
+export const IconLeft    = p => <I {...p}><path d="m15 18-6-6 6-6" /></I>
 export const IconBox     = p => <I {...p}><path d="M21 8 12 3 3 8v8l9 5 9-5Z" /><path d="M3 8l9 5 9-5M12 13v8" /></I>
 export const IconDoor    = p => <I {...p}><path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" /><path d="M2 21h20M13 12h.01" /></I>
 export const IconGrid    = p => <I {...p}><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></I>

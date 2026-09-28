@@ -90,7 +90,9 @@ export function ScheduleView({ projectId, onNavigate }) {
             <h1>Schedule</h1>
             <p className="lede">
               {nothing ? 'Nothing to schedule until door types have sets.'
-                : `${data.doors_scheduled} doors across ${data.sets.length} set${data.sets.length !== 1 ? 's' : ''}, ${data.item_count} items.`}
+                : data.project.sets_only
+                  ? `${data.sets.length} set${data.sets.length !== 1 ? 's' : ''}, ${data.doors_scheduled} in all, ${data.item_count} items.`
+                  : `${data.doors_scheduled} doors across ${data.sets.length} set${data.sets.length !== 1 ? 's' : ''}, ${data.item_count} items.`}
               {data.doors_excluded > 0 && ` ${data.doors_excluded} doors by others left off.`}
             </p>
           </div>
@@ -106,7 +108,7 @@ export function ScheduleView({ projectId, onNavigate }) {
                 </label>
                 <Menu label="Lists" items={[
                   { label: 'Picking list (whole job)', onClick: () => download('picking') },
-                  { label: 'Packing list (chosen doors)', onClick: () => setPacking(true) },
+                  ...(data.project.sets_only ? [] : [{ label: 'Packing list (chosen doors)', onClick: () => setPacking(true) }]),
                 ]} />
                 <Menu label={pack && pack.datasheets ? `Datasheets (${pack.datasheets})` : 'Datasheets'} items={[
                   { label: `Submittal pack: datasheets${withCerts ? ' and certificates' : ''}`, onClick: () => download('pack') },
@@ -127,7 +129,7 @@ export function ScheduleView({ projectId, onNavigate }) {
                 <p>Add a hardware set to each door type first.</p>
                 <button className="btn btn-primary" onClick={() => onNavigate('doors', { id: projectId })}>Go to doors</button>
               </div>
-            ) : data.sets.map(s => <SetCard key={s.id} s={s} priced={priced} onNavigate={onNavigate} onPhoto={load} />)}
+            ) : data.sets.map(s => <SetCard key={s.id} s={s} priced={priced} setsOnly={data.project.sets_only} onNavigate={onNavigate} onPhoto={load} />)}
 
             {!nothing && summary && (
               <div className="sched-set">
@@ -180,13 +182,16 @@ export function ScheduleView({ projectId, onNavigate }) {
               <div className="form-group"><label>Rep</label><input className="form-control" value={job.rep} onChange={e => setJob({ ...job, rep: e.target.value })} /></div>
               <div className="total-row" style={{ borderBottom: 0 }}><span>Estimator</span><strong>{data.project.estimator}</strong></div>
               <div className="total-row" style={{ borderBottom: 0 }}><span>Date</span><strong>{data.project.date}</strong></div>
+              <div className="total-row" style={{ borderBottom: 0 }}><span>Revision</span><strong>{data.project.revision}</strong></div>
               <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={saveJob} disabled={busy === 'job'}>{busy === 'job' ? <span className="spinner" /> : 'Save details'}</button>
             </div>
 
             {!nothing && (
               <div className="rail-panel" style={{ marginTop: 20 }}>
                 <h3>Totals</h3>
-                <div className="total-row"><span>Doors scheduled</span><strong>{data.doors_scheduled}<span className="muted" style={{ fontWeight: 400 }}> / {data.doors_total}</span></strong></div>
+                {data.project.sets_only
+                  ? <div className="total-row"><span>Quantity</span><strong>{data.doors_scheduled}</strong></div>
+                  : <div className="total-row"><span>Doors scheduled</span><strong>{data.doors_scheduled}<span className="muted" style={{ fontWeight: 400 }}> / {data.doors_total}</span></strong></div>}
                 <div className="total-row"><span>Sets</span><strong>{data.sets.length}</strong></div>
                 <div className="total-row"><span>Product lines</span><strong>{data.summary.length}</strong></div>
                 <div className="total-row" style={{ borderBottom: 0 }}><span>Items</span><strong>{data.item_count}</strong></div>
@@ -257,13 +262,13 @@ function PackingModal({ projectId, data, stem, onClose }) {
   )
 }
 
-function SetCard({ s, priced, onNavigate, onPhoto }) {
+function SetCard({ s, priced, setsOnly, onNavigate, onPhoto }) {
   const [showDoors, setShowDoors] = useState(false)
   return (
     <div className="sched-set">
       <div className="sched-set-head">
         <h2><span className="set-ref">{s.code}</span> {s.name}</h2>
-        <span className="muted">{s.doors} door{s.doors !== 1 ? 's' : ''}{priced ? ` @ ${money(s.per_door)} = ${money(s.value)}` : ''}</span>
+        <span className="muted">{setsOnly ? `Qty ${s.doors}` : `${s.doors} door${s.doors !== 1 ? 's' : ''}`}{priced ? ` @ ${money(s.per_door)} = ${money(s.value)}` : ''}</span>
         <button className="btn btn-ghost btn-sm" onClick={() => onNavigate('set', { id: s.id })}>Edit set</button>
       </div>
       <table className="ledger sched-items">
@@ -280,10 +285,10 @@ function SetCard({ s, priced, onNavigate, onPhoto }) {
           {s.items.length === 0 && <tr><td colSpan={priced ? 7 : 5} className="muted" style={{ padding: 16 }}>This set has no products yet.</td></tr>}
         </tbody>
       </table>
-      <div className="door-refs">
+      {!setsOnly && <div className="door-refs">
         <button className="link-btn" onClick={() => setShowDoors(v => !v)}>{showDoors ? 'Hide door references' : 'Door references'}</button>
         {showDoors && <div className="door-ref-list">{s.door_refs.map(r => <span key={r.ref} className="mono">{r.ref}{r.handed ? 'h' : ''}</span>)}</div>}
-      </div>
+      </div>}
     </div>
   )
 }
