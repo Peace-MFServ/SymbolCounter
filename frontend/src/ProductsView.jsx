@@ -309,7 +309,7 @@ export function ProductsView({ onNavigate }) {
                         <td className="p-code">{p.sku}</td>
                         <td>
                           <div className="p-name">{p.name}</div>
-                          {(p.intec_code || p.notes || p.datasheets || p.certificates) && (
+                          {(p.intec_code || p.notes || p.datasheets > 0 || p.certificates > 0) && (
                             <div className="p-meta">{[p.intec_code && `Intec code ${p.intec_code}`, p.notes,
                               p.datasheets && `${p.datasheets} datasheet${p.datasheets !== 1 ? 's' : ''}`,
                               p.certificates && `${p.certificates} certificate${p.certificates !== 1 ? 's' : ''}`].filter(Boolean).join(' · ')}</div>
