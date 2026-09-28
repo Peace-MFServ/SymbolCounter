@@ -96,7 +96,8 @@ export function MatchDocumentsView({ onNavigate }) {
         ) : (
           <>
             {items.map(it => (
-              <DocRow key={it.id} it={it} products={products}
+              // keyed on has_text too: once a sheet has been read its row starts again with the new ticks
+              <DocRow key={`${it.id}-${it.has_text}`} it={it} products={products}
                       onAttach={ids => attach(it, ids)} onSkip={() => skip(it)} onKind={k => setKind(it, k)} />
             ))}
             {items.length < total && (
