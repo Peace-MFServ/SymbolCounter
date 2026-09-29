@@ -7,6 +7,7 @@ datasheet usually serves a whole range, not a single code. On Produce schedule
 the pack is a cover page listing every document with the products it is for,
 then the documents themselves, in set order, each once.
 """
+import difflib
 import hashlib
 import io
 import re
@@ -53,7 +54,10 @@ def _flat(s: str) -> str:
 def matches(stem: str, index: list) -> list[tuple]:
     """Products a sheet is for, best first. A code at the front of the name is
     trusted: the exact code, and every code that carries on from it (CDC624 also
-    covers CDC624 SSS). Failing that, the words in the name give one guess."""
+    covers CDC624 SSS). The supplier's own habit of a finish digit on the end
+    (DS753 is the DS75 sheet, CDS753 the CDS75 one) is a strong suggestion, not
+    a certainty. Failing that, the words in the name give one guess, which is
+    never enough to attach a sheet on its own."""
     from schedule import _suggest_product
     out: dict[int, tuple] = {}
     m = _CODE.match(stem.strip())
@@ -67,10 +71,21 @@ def matches(stem: str, index: list) -> list[tuple]:
                     out[p.id] = (p, 1.0)
                 elif k.startswith(code) and out.get(p.id, (None, 0))[1] < 0.9:
                     out[p.id] = (p, 0.9)
+            base = (_segments(p.sku) or [""])[0]
+            if (p.id not in out and len(base) >= 4 and not base.isdigit()
+                    and code[:-1] == base and code[-1].isdigit()):
+                out[p.id] = (p, 0.85)
     if not out:
         s = _suggest_product(stem, index)
         if s:
-            out[s[0].id] = s
+            p, score = s
+            # a code only counts where a word starts it: DS75 inside CDS753 is not DS75
+            words = [w for w in re.split(r"[^a-z0-9]+", stem.lower()) if w]
+            starts = ["".join(words[i:]) for i in range(len(words))]
+            keys = next((ks for q, ks, _t in index if q.id == p.id), [])
+            if score >= 0.9 and not any(st.startswith(k) for st in starts for k in keys if len(k) >= 4):
+                score = 0.5
+            out[p.id] = (p, min(score, 0.8))
     return sorted(out.values(), key=lambda x: -x[1])[:12]
 
 
@@ -336,7 +351,7 @@ def attach_found(apply: bool = False, db: Session = Depends(get_db), cu=Depends(
         links += len(inside)
         if apply:
             for p, _sc, _seen in inside:
-                db.add(models.ProductDocument(product_id=p.id, document_id=d.id))
+                db.add(models.ProductDocument(product_id=p.id, document_id=d.id, confirmed=True))
     if apply:
         db.commit()
     return {"applied": apply, "documents": len(plan), "links": links, "catalogues": catalogues, "plan": plan}
@@ -356,7 +371,7 @@ def attach_document(did: int, payload: AttachIn, db: Session = Depends(get_db), 
     for pid in payload.product_ids:
         if pid in have or not db.query(models.Product).get(pid):
             continue
-        db.add(models.ProductDocument(product_id=pid, document_id=d.id)); have.add(pid); n += 1
+        db.add(models.ProductDocument(product_id=pid, document_id=d.id, confirmed=True)); have.add(pid); n += 1
     db.commit(); db.refresh(d)
     return {"attached": n, "document": _doc_out(d)}
 
@@ -414,7 +429,7 @@ async def add_product_document(pid: int, file: UploadFile = File(...), kind: str
         raise HTTPException(400, "That file is not a PDF")
     doc, _fresh = _store(data, file.filename or "document.pdf", kind, db)
     if not any(l.product_id == pid for l in doc.products):
-        db.add(models.ProductDocument(product_id=pid, document_id=doc.id))
+        db.add(models.ProductDocument(product_id=pid, document_id=doc.id, confirmed=True))
     db.commit(); db.refresh(doc)
     return _doc_out(doc)
 
@@ -461,12 +476,56 @@ def _pack_plan(db: Session, data: dict, kinds: set) -> tuple[list, list]:
     for it in order:
         mine = [d for d in by_product.get(it["product_id"], []) if d.kind in kinds]
         if "datasheet" in kinds and not any(d.kind == "datasheet" for d in by_product.get(it["product_id"], [])):
-            missing.append(it["sku"])
+            missing.append({"product_id": it["product_id"], "sku": it["sku"], "name": it["name"]})
         for d in sorted(mine, key=lambda d: (d.kind != "datasheet", d.title)):
             if d.id not in have:
                 have.add(d.id)
                 docs.append((d, [l.product.sku for l in d.products if l.product_id in seen]))
-    return docs, missing
+    # The same sheet filed twice under two names (an older and a newer layout)
+    # goes in once: the fuller copy, for every product either was on.
+    cache: dict = {}
+    kept: list = []
+    for d, skus in docs:
+        twin = next((k for k in kept if d.kind == "datasheet" and k[0].kind == "datasheet"
+                     and set(k[1]) & set(skus) and same_sheet(k[0], d, cache)), None)
+        if twin is None:
+            kept.append([d, skus])
+            continue
+        if _fuller(d, cache) > _fuller(twin[0], cache):
+            twin[0] = d
+        twin[1] = twin[1] + [s for s in skus if s not in twin[1]]
+    return [(d, skus) for d, skus in kept], missing
+
+
+# ── The same sheet twice ──────────────────────────────────────────────────────
+SAME_SHEET = 0.9          # this much of the text alike, letters and numbers only, is one sheet
+
+
+def _sheet_text(d: models.Document, cache: dict) -> str:
+    if d.id not in cache:
+        try:
+            import pymupdf
+            with pymupdf.open(DOC_DIR / d.filename) as f:
+                t = " ".join(f[i].get_text() for i in range(min(len(f), 3)))
+        except Exception:
+            t = ""
+        cache[d.id] = re.sub(r"[^a-z0-9]+", "", t.lower())
+    return cache[d.id]
+
+
+def same_sheet(a: models.Document, b: models.Document, cache: dict) -> bool:
+    """Two documents that say the same thing: a sheet saved twice, or reissued
+    in a new layout. A drawing with no words in it is never called a copy."""
+    ta, tb = _sheet_text(a, cache), _sheet_text(b, cache)
+    if len(ta) < 80 or len(tb) < 80:
+        return False
+    sm = difflib.SequenceMatcher(None, ta, tb, autojunk=False)
+    return sm.real_quick_ratio() >= SAME_SHEET and sm.quick_ratio() >= SAME_SHEET and sm.ratio() >= SAME_SHEET
+
+
+def _fuller(d: models.Document, cache: dict) -> tuple:
+    """Which of two copies to keep: the one that says more, then the newer."""
+    return (len(_sheet_text(d, cache)), d.id)
 
 
 @router.get("/projects/{pid}/schedule/pack-status")
@@ -530,7 +589,7 @@ def schedule_pack(pid: int, datasheets: bool = True, certificates: bool = False,
         pdf.set_y(pdf.get_y() + 4)
         y = pdf.get_y()
         pdf.set_font("Helvetica", "B", 8.5); pdf._navy(); pdf.set_xy(18, y); pdf.cell(172, 5, "No datasheet on file yet")
-        pdf.set_font("Helvetica", "", 8.5); pdf._muted(); pdf.set_xy(18, y + 6); pdf.multi_cell(172, 4, _latin(", ".join(missing)))
+        pdf.set_font("Helvetica", "", 8.5); pdf._muted(); pdf.set_xy(18, y + 6); pdf.multi_cell(172, 4, _latin(", ".join(m["sku"] for m in missing)))
         pdf._ink()
     cover = pdf.output()
 
@@ -546,3 +605,103 @@ def schedule_pack(pid: int, datasheets: bool = True, certificates: bool = False,
     out.close()
     return Response(body, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Submittal_Pack")}.pdf"'})
+
+
+# ── Checking what is on the products ─────────────────────────────────────────
+@router.get("/products/documents/check")
+def check_documents(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Two things worth a look across the whole product file: the same sheet on
+    a product twice, and a sheet on a product that nothing backs up, neither
+    its name nor a code printed in it, and that no person put there."""
+    from schedule import _product_index
+    index, cidx, cache = _product_index(db), content_index(db), {}
+    links = db.query(models.ProductDocument).all()
+    by_product: dict = {}
+    for l in links:
+        by_product.setdefault(l.product_id, []).append(l)
+
+    doubles = []
+    for pid, ls in by_product.items():
+        sheets = sorted((l.document for l in ls if l.document.kind == "datasheet"), key=lambda d: _fuller(d, cache), reverse=True)
+        if len(sheets) < 2:
+            continue
+        kept, drop = [], []
+        for d in sheets:
+            twin = next((k for k in kept if same_sheet(k, d, cache)), None)
+            if twin:
+                drop.append({"document_id": d.id, "title": d.title, "url": f"/api/files/documents/{d.id}", "same_as": twin.title})
+            else:
+                kept.append(d)
+        if drop:
+            p = ls[0].product
+            doubles.append({"product_id": pid, "sku": p.sku, "name": p.name,
+                            "keep": {"document_id": kept[0].id, "title": kept[0].title, "url": f"/api/files/documents/{kept[0].id}"},
+                            "drop": drop})
+
+    dropping = {(x["product_id"], y["document_id"]) for x in doubles for y in x["drop"]}
+    doubtful = []
+    for l in links:
+        d = l.document
+        if l.confirmed or d.kind != "datasheet" or (l.product_id, d.id) in dropping:
+            continue
+        ensure_read(d)
+        if d.has_text:
+            inside, _cat = content_matches(stored_codes(d), cidx)
+            if any(p.id == l.product_id for p, _sc, _seen in inside):
+                continue
+        named = matches(Path(d.original_name or d.title).stem, index)
+        if any(p.id == l.product_id and sc >= 0.85 for p, sc in named):
+            continue
+        better = next((p for p, sc in named if sc >= 0.85 and p.id != l.product_id), None)
+        doubtful.append({"product_id": l.product_id, "sku": l.product.sku, "name": l.product.name,
+                         "document_id": d.id, "title": d.title, "url": f"/api/files/documents/{d.id}",
+                         "move_to": {"product_id": better.id, "sku": better.sku, "name": better.name} if better else None})
+    db.commit()                     # anything read along the way is remembered
+    doubles.sort(key=lambda x: x["sku"]); doubtful.sort(key=lambda x: (x["sku"], x["title"]))
+    return {"doubles": doubles, "doubtful": doubtful}
+
+
+class LinkFix(BaseModel):
+    product_id: int; document_id: int; to_product_id: Optional[int] = None
+
+
+class CheckApplyIn(BaseModel):
+    drop: list[LinkFix] = []        # a second copy of a sheet: off the product, and gone if on nothing else
+    remove: list[LinkFix] = []      # off the product, back to Match datasheets if on nothing else
+    move: list[LinkFix] = []        # off this product, onto to_product_id
+    keep: list[LinkFix] = []        # right where it is: stop asking
+
+
+@router.post("/products/documents/check")
+def apply_document_check(payload: CheckApplyIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    def link(f):
+        return db.query(models.ProductDocument).filter_by(product_id=f.product_id, document_id=f.document_id).first()
+    gone = moved = kept = 0
+    emptied = set()
+    for f in payload.drop + payload.remove + payload.move:
+        l = link(f)
+        if not l:
+            continue
+        if f in payload.move and f.to_product_id and db.query(models.Product).get(f.to_product_id):
+            if not db.query(models.ProductDocument).filter_by(product_id=f.to_product_id, document_id=f.document_id).first():
+                db.add(models.ProductDocument(product_id=f.to_product_id, document_id=f.document_id, confirmed=True))
+            moved += 1
+        else:
+            gone += 1
+        if f in payload.drop:
+            emptied.add(f.document_id)
+        db.delete(l)
+    for f in payload.keep:
+        l = link(f)
+        if l:
+            l.confirmed = True; kept += 1
+    db.flush()
+    deleted = 0
+    for did in emptied:
+        d = db.query(models.Document).get(did)
+        if d and not d.products:
+            try: (DOC_DIR / d.filename).unlink()
+            except OSError: pass
+            db.delete(d); deleted += 1
+    db.commit()
+    return {"removed": gone, "moved": moved, "kept": kept, "deleted": deleted}

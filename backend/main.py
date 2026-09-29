@@ -128,6 +128,7 @@ def _ensure_columns():
                     logger.info("Migrated: added projects.%s", colname)
             for table, cols in (("products", {"product_type": "TEXT DEFAULT ''", "brand": "TEXT DEFAULT ''"}),
                                 ("documents", {"codes": "TEXT DEFAULT ''", "has_text": "BOOLEAN"}),
+                                ("product_documents", {"confirmed": "BOOLEAN DEFAULT 0"}),
                                 ("hardware_sets", {"project_id": "INTEGER", "locked_by_id": "INTEGER", "locked_at": "DATETIME"})):
                 have = {row[1] for row in conn.execute(_sa.text(f"PRAGMA table_info({table})")).fetchall()}
                 if not have:

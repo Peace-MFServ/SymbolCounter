@@ -19,6 +19,7 @@ export function ScheduleView({ projectId, onNavigate }) {
   useEffect(() => { apiFetch(`/projects/${projectId}/schedule/pack-status`).then(setPack).catch(() => {}) }, [projectId])
   const [summary, setSummary] = useState(true)
   const [packing, setPacking] = useState(false)
+  const [missing, setMissing] = useState(false)          // the products on the job with no datasheet
   const [notes,  setNotes]  = useState(null)     // what is being typed
   const [saved,  setSaved]  = useState('')       // what the server has
 
@@ -112,6 +113,7 @@ export function ScheduleView({ projectId, onNavigate }) {
                 ]} />
                 <Menu label={pack && pack.datasheets ? `Datasheets (${pack.datasheets})` : 'Datasheets'} items={[
                   { label: `Submittal pack: datasheets${withCerts ? ' and certificates' : ''}`, onClick: () => download('pack') },
+                  ...(pack && pack.missing.length ? [{ label: `Missing datasheets (${pack.missing.length})`, onClick: () => setMissing(true) }] : []),
                   { label: withCerts ? 'Leave certificates out' : `Add certificates too${pack && pack.certificates ? ` (${pack.certificates})` : ''}`, onClick: () => setWithCerts(v => !v) },
                 ]} />
                 <button className="btn" onClick={() => download('excel')} disabled={!!busy}>{busy === 'excel' ? <span className="spinner" /> : 'Excel'}</button>
@@ -201,6 +203,7 @@ export function ScheduleView({ projectId, onNavigate }) {
           </aside>
         </div>
       </div>
+      {missing && pack && <MissingDocsModal items={pack.missing} onClose={() => { setMissing(false); apiFetch(`/projects/${projectId}/schedule/pack-status`).then(setPack).catch(() => {}) }} />}
       {packing && <PackingModal projectId={projectId} data={data} onClose={() => setPacking(false)}
                                 stem={`${job.quote_no ? job.quote_no + '_' : ''}${job.name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_')}`} />}
     </>
@@ -341,6 +344,48 @@ function Lightbox({ src, sku, name, onClose }) {
         <div className="lightbox-img">{src && <img src={src} alt={name} />}</div>
         <div className="lightbox-cap"><span className="mono">{sku}</span><span>{name}</span></div>
         <button className="btn btn-ghost btn-sm lightbox-close" onClick={onClose}>Close</button>
+      </div>
+    </div>
+  )
+}
+
+/* The products on this job with no datasheet, each with its own Add PDF. */
+function MissingDocsModal({ items, onClose }) {
+  const [done, setDone] = useState({})       // product id -> the file name added
+  const [busy, setBusy] = useState(null)
+  const input = useRef()
+  const target = useRef(null)
+  const pick = it => { target.current = it; input.current.click() }
+  const upload = async file => {
+    const it = target.current
+    if (!file || !it) return
+    setBusy(it.product_id)
+    try {
+      const form = new FormData(); form.append('file', file); form.append('kind', 'datasheet')
+      await apiFetch(`/products/${it.product_id}/documents`, { method: 'POST', body: form })
+      setDone(d => ({ ...d, [it.product_id]: file.name })); showToast(`Datasheet added to ${it.sku}`, 'success')
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy(null)
+  }
+  const left = items.filter(it => !done[it.product_id]).length
+  return (
+    <div className="modal-overlay" onMouseDown={e => e.target === e.currentTarget && busy === null && onClose()}>
+      <div className="modal" style={{ maxWidth: 680 }}>
+        <h2>Missing datasheets</h2>
+        <p className="muted" style={{ margin: '-8px 0 14px' }}>{left ? `${left} product${left !== 1 ? 's' : ''} on this job with no datasheet yet. Add the PDF and it goes on the product for every job.` : 'Every product on this job has a datasheet now.'}</p>
+        <input ref={input} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }} onChange={e => { upload(e.target.files[0]); e.target.value = '' }} />
+        <div className="md-list">
+          {items.map(it => (
+            <div key={it.product_id} className={`md-row${done[it.product_id] ? ' done' : ''}`}>
+              <span className="doc-sku">{it.sku}</span>
+              <span className="md-name">{it.name}</span>
+              {done[it.product_id]
+                ? <span className="md-done" title={done[it.product_id]}>Added</span>
+                : <button className="btn btn-soft btn-sm" onClick={() => pick(it)} disabled={busy !== null}>{busy === it.product_id ? <span className="spinner" /> : 'Add PDF'}</button>}
+            </div>
+          ))}
+        </div>
+        <div className="modal-actions"><button className="btn btn-primary" onClick={onClose} disabled={busy !== null}>Done</button></div>
       </div>
     </div>
   )

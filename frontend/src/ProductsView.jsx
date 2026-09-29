@@ -45,6 +45,7 @@ export function ProductsView({ onNavigate }) {
   const [imgBusy,    setImgBusy]    = useState(false)
   const [docReport,  setDocReport]  = useState(null)
   const [docsPending, setDocsPending] = useState(0)
+  const [checking,   setChecking]   = useState(false)   // Check for doubles open
   const [docBusy,    setDocBusy]    = useState(false)
   const docZipRef = useRef()
   useEffect(() => { apiFetch('/products/documents/pending?limit=1').then(r => setDocsPending(r?.total || 0)).catch(() => {}) }, [docReport])
@@ -215,6 +216,7 @@ export function ProductsView({ onNavigate }) {
               { title: 'Datasheets', items: [
                 { label: 'Import datasheets', note: 'A zip of PDFs', onClick: () => docZipRef.current.click() },
                 { label: 'Match datasheets', count: docsPending, onClick: () => onNavigate('match-documents') },
+                { label: 'Check for doubles', note: 'The same sheet twice, or on the wrong product', onClick: () => setChecking(true) },
               ] },
               { title: 'Prices', items: [
                 { label: 'Intec prices', note: 'Paste from a Cost Summary', onClick: () => setPasting(true) },
@@ -225,6 +227,7 @@ export function ProductsView({ onNavigate }) {
         </div>
         <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }}
                onChange={e => { uploadPhoto(e.target.files[0]); e.target.value = '' }} />
+        {checking && <DocCheckModal onClose={() => { setChecking(false); load() }} />}
         {syncRep && <Cin7Modal r={syncRep} busy={syncBusy} onApply={() => cin7Sync(true)} onPictures={cin7Pictures} onClose={() => setSyncRep(null)} />}
         {docReport && <DocReportModal r={docReport} busy={docBusy}
                                       onImport={() => importDocs(docFile, false)}
@@ -852,6 +855,81 @@ function ImportMenu({ groups, busy }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/* Across every product: the same sheet filed twice, and sheets nothing backs
+   up (not their name, not a code printed in them, not a person). */
+function DocCheckModal({ onClose }) {
+  const [r, setR] = useState(null)
+  const [busy, setBusy] = useState('')
+  const load = () => apiFetch('/products/documents/check').then(setR).catch(err => { showToast(err.message, 'error'); onClose() })
+  useEffect(() => { load() }, [])
+  const send = async (body, key) => {
+    setBusy(key)
+    try { const x = await apiFetch('/products/documents/check', { method: 'POST', body: JSON.stringify(body) }); await load(); return x }
+    catch (err) { showToast(err.message, 'error') }
+    finally { setBusy('') }
+  }
+  const dropAll = async () => {
+    const drop = r.doubles.flatMap(x => x.drop.map(d => ({ product_id: x.product_id, document_id: d.document_id })))
+    const x = await send({ drop }, 'all')
+    if (x) showToast(`${x.removed} second cop${x.removed !== 1 ? 'ies' : 'y'} taken off`, 'success')
+  }
+  const one = (it, what) => {
+    const f = { product_id: it.product_id, document_id: it.document_id, to_product_id: it.move_to?.product_id ?? null }
+    return send({ [what]: [f] }, `${what}-${it.product_id}-${it.document_id}`)
+  }
+  const open = url => openBlob(url).catch(e => showToast(e.message, 'error'))
+  const copies = r ? r.doubles.reduce((n, x) => n + x.drop.length, 0) : 0
+  return (
+    <div className="modal-overlay" onMouseDown={e => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal doc-check-modal">
+        <h2>Check datasheets</h2>
+        {!r ? <p className="muted"><span className="spinner" /> Reading the sheets on every product…</p> : (<>
+          {r.doubles.length === 0 && r.doubtful.length === 0 && <p>Nothing to tidy. No product has the same sheet twice, and every sheet is backed by its name or a code printed in it.</p>}
+          {r.doubles.length > 0 && (
+            <section className="dc-sec">
+              <div className="dc-head">
+                <div><h3>The same sheet twice</h3><p className="muted">{r.doubles.length} product{r.doubles.length !== 1 ? 's have' : ' has'} a sheet filed twice. The fuller copy stays.</p></div>
+                <button className="btn btn-primary" onClick={dropAll} disabled={!!busy}>{busy === 'all' ? <span className="spinner" /> : `Take off ${copies} cop${copies !== 1 ? 'ies' : 'y'}`}</button>
+              </div>
+              {r.doubles.map(x => (
+                <div key={x.product_id} className="dc-row">
+                  <div className="dc-prod"><span className="doc-sku">{x.sku}</span><span className="dc-name">{x.name}</span></div>
+                  <div className="dc-docs">
+                    <div><span className="dc-tag keep">Stays</span><button className="link-btn inline dc-open" onClick={() => open(x.keep.url)}>{x.keep.title}</button></div>
+                    {x.drop.map(d => <div key={d.document_id}><span className="dc-tag drop">Goes</span><button className="link-btn inline dc-open" onClick={() => open(d.url)}>{d.title}</button></div>)}
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
+          {r.doubtful.length > 0 && (
+            <section className="dc-sec">
+              <div className="dc-head"><div><h3>Worth a look</h3><p className="muted">{r.doubtful.length} sheet{r.doubtful.length !== 1 ? 's' : ''} on a product that neither the file name nor anything printed in it points to. Open it and decide.</p></div></div>
+              {r.doubtful.map(it => {
+                const k = `${it.product_id}-${it.document_id}`
+                return (
+                  <div key={k} className="dc-row">
+                    <div className="dc-prod"><span className="doc-sku">{it.sku}</span><span className="dc-name">{it.name}</span></div>
+                    <div className="dc-docs">
+                      <div><button className="link-btn inline dc-open" onClick={() => open(it.url)}>{it.title}</button></div>
+                      <div className="dc-acts">
+                        {it.move_to && <button className="btn btn-soft btn-sm" disabled={!!busy} onClick={() => one(it, 'move').then(x => x && showToast(`Moved to ${it.move_to.sku}`, 'success'))} title={it.move_to.name}>Move to {it.move_to.sku}</button>}
+                        <button className="btn btn-line btn-sm" disabled={!!busy} onClick={() => one(it, 'remove').then(x => x && showToast(`Taken off ${it.sku}`, 'info'))}>Take off</button>
+                        <button className="btn btn-line btn-sm" disabled={!!busy} onClick={() => one(it, 'keep')}>It is right</button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </section>
+          )}
+        </>)}
+        <div className="modal-actions"><button className="btn btn-ghost" onClick={onClose} disabled={!!busy}>Close</button></div>
+      </div>
     </div>
   )
 }

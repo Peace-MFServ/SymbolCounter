@@ -238,6 +238,7 @@ class ProductDocument(Base):
     id          = Column(Integer, primary_key=True)
     product_id  = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False, index=True)
+    confirmed   = Column(Boolean, default=False)     # a person put it here or said it belongs
     document    = relationship("Document", back_populates="products")
     product     = relationship("Product")
 

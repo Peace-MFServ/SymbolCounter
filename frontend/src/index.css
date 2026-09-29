@@ -1490,3 +1490,26 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .im-list button:hover small { color: rgba(255,255,255,.8); }
 .im-count { font-size: 12px; font-weight: 700; color: var(--orange, #ED6E02); white-space: nowrap; }
 .im-list button:hover .im-count { color: #fff; }
+
+/* Check datasheets */
+.modal.doc-check-modal { max-width: 860px; width: calc(100vw - 32px); }
+.dc-sec + .dc-sec { margin-top: 22px; }
+.dc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--card-border); }
+.dc-head h3 { margin: 0 0 2px; font-size: 15px; }
+.dc-head p { margin: 0; font-size: 13px; }
+.dc-row { display: grid; grid-template-columns: 240px 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid #EEF1F5; align-items: start; }
+.dc-prod { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dc-name { font-size: 13px; color: var(--text2); line-height: 1.35; }
+.dc-docs { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; min-width: 0; }
+.dc-docs .link-btn.dc-open { text-align: left; white-space: normal; font-size: 13.5px; font-weight: 600; color: var(--accent); }
+.dc-docs .link-btn.dc-open:hover { text-decoration: underline; }
+.dc-tag { display: inline-block; min-width: 46px; margin-right: 8px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.dc-tag.keep { color: #1D6B3F; }
+.dc-tag.drop { color: var(--red); }
+.dc-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.md-list { max-height: 420px; overflow-y: auto; border-top: 1px solid var(--card-border); }
+.md-row { display: grid; grid-template-columns: 150px 1fr auto; gap: 14px; align-items: center; padding: 10px 2px; border-bottom: 1px solid #EEF1F5; }
+.md-name { font-size: 13.5px; color: #101828; line-height: 1.35; }
+.md-row.done .md-name { color: var(--text3); }
+.md-done { font-size: 13px; font-weight: 600; color: #1D6B3F; padding: 0 10px; }
+@media (max-width: 640px) { .dc-row { grid-template-columns: 1fr; } .md-row { grid-template-columns: 1fr auto; } .md-row .doc-sku { grid-column: 1 / -1; } }
