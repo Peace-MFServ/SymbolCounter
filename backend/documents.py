@@ -536,7 +536,8 @@ def pack_status(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cur
     data = build_schedule(db, p, estimator=cu.name)
     ds, missing = _pack_plan(db, data, {"datasheet"})
     certs, _ = _pack_plan(db, data, {"certificate"})
-    return {"datasheets": len(ds), "certificates": len(certs), "missing": missing}
+    import submittal_cover
+    return {"datasheets": len(ds), "certificates": len(certs), "missing": missing, "cover": submittal_cover.saved()}
 
 
 @router.get("/projects/{pid}/schedule/pack")
@@ -555,6 +556,25 @@ def schedule_pack(pid: int, datasheets: bool = True, certificates: bool = False,
     docs, missing = _pack_plan(db, data, kinds)
     if not docs:
         raise HTTPException(409, "No documents are attached to the products on this schedule yet")
+
+    import submittal_cover
+    if submittal_cover.saved()["cover"]:
+        # the office's own cover with this job on it, the sheets, and the back page
+        front = submittal_cover.fill(p.name, p.site or "", p.client or "")
+        out = pymupdf.open()
+        out.insert_pdf(front, from_page=0, to_page=0)
+        for d, _skus in docs:
+            try:
+                with pymupdf.open(DOC_DIR / d.filename) as src:
+                    out.insert_pdf(src)
+            except Exception:
+                continue
+        if len(front) > 1:
+            out.insert_pdf(front, from_page=len(front) - 1, to_page=len(front) - 1)
+        body = out.tobytes(garbage=3, deflate=True)
+        out.close(); front.close()
+        return Response(body, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Submittal_Pack")}.pdf"'})
 
     label = " and ".join(k + "s" for k in ("datasheet", "certificate") if k in kinds)
     total_pages = 1 + sum(d.pages for d, _ in docs)
@@ -705,3 +725,43 @@ def apply_document_check(payload: CheckApplyIn, db: Session = Depends(get_db), c
             db.delete(d); deleted += 1
     db.commit()
     return {"removed": gone, "moved": moved, "kept": kept, "deleted": deleted}
+
+
+# ── The office's cover and back page ─────────────────────────────────────────
+@router.get("/submittal/cover")
+def cover_status(cu=Depends(auth.get_current_user)):
+    import submittal_cover
+    return submittal_cover.saved()
+
+
+@router.post("/submittal/cover")
+async def cover_upload(file: UploadFile = File(...), cu=Depends(auth.get_current_user)):
+    """A PDF whose first page is the cover and last page the back: a pack sent before will do."""
+    import submittal_cover
+    data = await file.read()
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(400, "That file is not a PDF")
+    try:
+        return submittal_cover.save(data)
+    except Exception as e:
+        raise HTTPException(400, f"Could not use that PDF: {e}")
+
+
+@router.delete("/submittal/cover", status_code=204)
+def cover_remove(cu=Depends(auth.get_current_user)):
+    import submittal_cover
+    try: submittal_cover.COVER_FILE.unlink()
+    except OSError: pass
+
+
+@router.get("/projects/{pid}/schedule/pack-cover")
+def cover_for_job(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """The cover and back page as they will be on this job's pack."""
+    import submittal_cover
+    from schedule import _own_project
+    p = _own_project(pid, db, cu)
+    if not submittal_cover.saved()["cover"]:
+        raise HTTPException(404, "No cover page uploaded yet")
+    d = submittal_cover.fill(p.name, p.site or "", p.client or "")
+    body = d.tobytes(garbage=3, deflate=True); d.close()
+    return Response(body, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="Submittal_cover.pdf"'})

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { apiFetch, downloadBlob } from './api'
+import { apiFetch, downloadBlob, openBlob } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { Menu } from './ProjectView'
@@ -20,6 +20,7 @@ export function ScheduleView({ projectId, onNavigate }) {
   const [summary, setSummary] = useState(true)
   const [packing, setPacking] = useState(false)
   const [missing, setMissing] = useState(false)          // the products on the job with no datasheet
+  const [covering, setCovering] = useState(false)        // the office's cover and back page
   const [notes,  setNotes]  = useState(null)     // what is being typed
   const [saved,  setSaved]  = useState('')       // what the server has
 
@@ -114,6 +115,7 @@ export function ScheduleView({ projectId, onNavigate }) {
                 <Menu label={pack && pack.datasheets ? `Datasheets (${pack.datasheets})` : 'Datasheets'} items={[
                   { label: `Submittal pack: datasheets${withCerts ? ' and certificates' : ''}`, onClick: () => download('pack') },
                   ...(pack && pack.missing.length ? [{ label: `Missing datasheets (${pack.missing.length})`, onClick: () => setMissing(true) }] : []),
+                  { label: pack?.cover?.cover ? 'Cover and back page' : 'Add a cover and back page', onClick: () => setCovering(true) },
                   { label: withCerts ? 'Leave certificates out' : `Add certificates too${pack && pack.certificates ? ` (${pack.certificates})` : ''}`, onClick: () => setWithCerts(v => !v) },
                 ]} />
                 <button className="btn" onClick={() => download('excel')} disabled={!!busy}>{busy === 'excel' ? <span className="spinner" /> : 'Excel'}</button>
@@ -203,6 +205,7 @@ export function ScheduleView({ projectId, onNavigate }) {
           </aside>
         </div>
       </div>
+      {covering && <CoverModal projectId={projectId} status={pack?.cover} onClose={() => { setCovering(false); apiFetch(`/projects/${projectId}/schedule/pack-status`).then(setPack).catch(() => {}) }} />}
       {missing && pack && <MissingDocsModal items={pack.missing} onClose={() => { setMissing(false); apiFetch(`/projects/${projectId}/schedule/pack-status`).then(setPack).catch(() => {}) }} />}
       {packing && <PackingModal projectId={projectId} data={data} onClose={() => setPacking(false)}
                                 stem={`${job.quote_no ? job.quote_no + '_' : ''}${job.name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_')}`} />}
@@ -386,6 +389,53 @@ function MissingDocsModal({ items, onClose }) {
           ))}
         </div>
         <div className="modal-actions"><button className="btn btn-primary" onClick={onClose} disabled={busy !== null}>Done</button></div>
+      </div>
+    </div>
+  )
+}
+
+/* The office's own cover and back page for every submittal pack. */
+function CoverModal({ projectId, status, onClose }) {
+  const [st, setSt] = useState(status || null)
+  const [busy, setBusy] = useState('')
+  const input = useRef()
+  useEffect(() => { apiFetch('/submittal/cover').then(setSt).catch(() => {}) }, [])
+  const upload = async file => {
+    if (!file) return
+    setBusy('up')
+    try {
+      const form = new FormData(); form.append('file', file)
+      setSt(await apiFetch('/submittal/cover', { method: 'POST', body: form }))
+      showToast('Cover saved. Every pack starts with it now.', 'success')
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy('')
+  }
+  const remove = async () => {
+    setBusy('rm')
+    try { await apiFetch('/submittal/cover', { method: 'DELETE' }); setSt({ cover: false, back: false }); showToast('Cover taken off', 'info') }
+    catch (err) { showToast(err.message, 'error') }
+    setBusy('')
+  }
+  const preview = () => openBlob(`/projects/${projectId}/schedule/pack-cover`).catch(e => showToast(e.message, 'error'))
+  return (
+    <div className="modal-overlay" onMouseDown={e => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal" style={{ maxWidth: 640 }}>
+        <h2>Cover and back page</h2>
+        <input ref={input} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }} onChange={e => { upload(e.target.files[0]); e.target.value = '' }} />
+        {st?.cover ? (
+          <p>Every submittal pack starts with the office cover{st.back ? ' and ends with the back page' : ''}. The job name, site and client are written on the cover for each job.</p>
+        ) : (
+          <p>Upload the office cover as a PDF. A submittal sent before works too: its first page becomes the cover and its last page the back page. The old job's name and contractor are taken off and each job's own written in.</p>
+        )}
+        <div className="modal-actions" style={{ justifyContent: 'flex-start', flexWrap: 'wrap' }}>
+          {st?.cover && <button className="btn btn-primary" onClick={preview} disabled={!!busy}>See it on this job</button>}
+          <button className={`btn ${st?.cover ? 'btn-line' : 'btn-primary'}`} onClick={() => input.current.click()} disabled={!!busy}>
+            {busy === 'up' ? <span className="spinner" /> : st?.cover ? 'Upload a different one' : 'Upload PDF'}
+          </button>
+          {st?.cover && <button className="btn btn-ghost danger" onClick={remove} disabled={!!busy}>Take it off</button>}
+          <span className="spacer" style={{ flex: 1 }} />
+          <button className="btn btn-ghost" onClick={onClose} disabled={!!busy}>Close</button>
+        </div>
       </div>
     </div>
   )
