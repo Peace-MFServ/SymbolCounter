@@ -30,14 +30,16 @@ router = APIRouter(prefix="/api")
 DOC_DIR = Path("uploads") / "documents"
 KINDS = ("datasheet", "certificate")
 
-# what makes a file a certificate rather than a datasheet, by its name or folder
-_CERT = re.compile(r"(\bdops?\b|declaration|certif|\bcerts?\b|submittal)", re.I)
+# what makes a file a certificate rather than a datasheet, by its name or folder.
+# Not "submittal": a folder of old submittals is full of datasheets.
+_CERT = re.compile(r"(\bdops?\b|declaration|certif|\bcerts?\b)", re.I)
 # the product code a sheet is named for: CDC7505, CH 311, CBH102R, ECO_TS-14 ...
 _CODE = re.compile(r"^([A-Za-z]{1,6}[ \-_.]?\d[A-Za-z0-9.\-/]*)")
 
 
 def kind_of(path_in_zip: str) -> str:
-    return "certificate" if _CERT.search(path_in_zip) else "datasheet"
+    words = re.sub(r"[_\-.]+", " ", path_in_zip)          # Hinges_DOP counts as DOP
+    return "certificate" if _CERT.search(words) else "datasheet"
 
 
 def title_of(name: str) -> str:
@@ -97,6 +99,7 @@ _IN_TEXT = re.compile(r"(?<![A-Za-z0-9])((?:[A-Z]{1,6}[ \-]?){1,2}\d[A-Z0-9]*(?:
 _NUMBER = re.compile(r"(?<![\w.])(\d{5,}(?:[./\-][A-Z0-9]+)*)(?![\w])")
 READ_PAGES = 20            # a datasheet lists its codes early; a 200-page brochure is not read to the end
 BROCHURE = 25              # a document naming more of our products than this is a catalogue, not a sheet
+FAMILIES = 2               # ...and one naming products of more kinds than this (CH, CPHH, DS, CBH) is a pack or a quote
 
 
 def read_codes(data: bytes) -> tuple:
@@ -147,8 +150,11 @@ def content_matches(codes: list, idx: dict) -> tuple:
             if p.id not in out or out[p.id][1] < score:
                 out[p.id] = (p, score, c)
     ranked = sorted(out.values(), key=lambda x: (-x[1], x[0].sku))
-    exact = sum(1 for x in ranked if x[1] >= 1.0)
-    return ranked, exact > BROCHURE
+    exact = [x for x in ranked if x[1] >= 1.0]
+    # One sheet covers one range: CPHH1 to CPHH27 is one family. An old job's
+    # pack or a quote names hinges, handles, stops and signs all at once.
+    families = {re.match(r"[a-z]*", _flat(x[0].sku)).group() for x in exact}
+    return ranked, len(exact) > BROCHURE or len(families) > FAMILIES
 
 
 def ensure_read(d: models.Document) -> None:
@@ -201,7 +207,7 @@ def _doc_out(d: models.Document) -> dict:
 
 # ── Import ────────────────────────────────────────────────────────────────────
 @router.post("/products/import-documents")
-async def import_documents(file: UploadFile = File(...), dry_run: bool = False,
+async def import_documents(file: UploadFile = File(...), dry_run: bool = False, only_matched: bool = False,
                            db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """A zip of datasheets and certificates, any folder layout. Each PDF is kept
     once, attached to the products its name is for, and the rest wait on the
@@ -212,7 +218,7 @@ async def import_documents(file: UploadFile = File(...), dry_run: bool = False,
     if not (file.filename or "").lower().endswith(".zip"):
         raise HTTPException(400, "Upload a .zip of the datasheet folders")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-    stored = duplicates = links = certificates = 0
+    stored = duplicates = links = certificates = left_out = held = 0
     attached_docs: set = set()
     placed: list[dict] = []          # name -> the products it goes on
     unplaced: list[dict] = []        # name, kind, best guess if any
@@ -237,40 +243,43 @@ async def import_documents(file: UploadFile = File(...), dry_run: bool = False,
                 continue
             kind = kind_of(info.filename)
             has_text, printed = read_codes(data)
+            found = matches(Path(name).stem, index)
+            strong = [(p, sc) for p, sc in found if sc >= 0.9]
+            # what the document itself prints, unless it reads like a catalogue or a pack
+            inside, pack = content_matches(printed, cidx)
+            if pack:
+                held += 1
+            else:
+                have = {p.id for p, _ in strong}
+                strong += [(p, sc) for p, sc, _seen in inside if p.id not in have]
+            sha = hashlib.sha1(data).hexdigest()
+            if sha in seen_sha or db.query(models.Document.id).filter(models.Document.sha1 == sha).first():
+                duplicates += 1
+                continue
+            seen_sha.add(sha)
+            if only_matched and not strong:
+                left_out += 1
+                if len(unplaced) < 300:
+                    unplaced.append({"name": title_of(name), "kind": kind, "guess": "", "pack": pack, "left_out": True})
+                continue
             if dry_run:
-                sha = hashlib.sha1(data).hexdigest()
-                if sha in seen_sha or db.query(models.Document.id).filter(models.Document.sha1 == sha).first():
-                    duplicates += 1
-                    continue
-                seen_sha.add(sha)
                 doc_key = sha
             else:
-                doc, fresh = _store(data, info.filename, kind, db)
-                if not fresh:
-                    duplicates += 1
-                    continue
+                doc, _fresh = _store(data, info.filename, kind, db)
                 doc.has_text = has_text
                 doc.codes = "\n".join(printed)
                 doc_key = doc.id
             stored += 1
             if kind == "certificate":
                 certificates += 1
-            found = matches(Path(name).stem, index)
-            strong = [(p, sc) for p, sc in found if sc >= 0.9]
-            if kind == "datasheet":
-                # what the sheet itself prints, unless it reads like a catalogue
-                inside, catalogue = content_matches(printed, cidx)
-                if not catalogue:
-                    have = {p.id for p, _ in strong}
-                    strong += [(p, sc) for p, sc, _seen in inside if p.id not in have]
             for p, _sc in strong:
                 if not dry_run:
                     db.add(models.ProductDocument(product_id=p.id, document_id=doc_key))
                 links += 1; attached_docs.add(doc_key)
             if strong:
                 placed.append({"name": title_of(name), "kind": kind, "skus": [p.sku for p, _ in strong]})
-            else:
-                unplaced.append({"name": title_of(name), "kind": kind,
+            elif len(unplaced) < 300:
+                unplaced.append({"name": title_of(name), "kind": kind, "pack": pack,
                                  "guess": f"{found[0][0].sku}" if found else ""})
         if dry_run:
             db.rollback()
@@ -281,6 +290,7 @@ async def import_documents(file: UploadFile = File(...), dry_run: bool = False,
         except OSError: pass
     return {"dry_run": dry_run, "stored": stored, "duplicates": duplicates, "attached": len(attached_docs),
             "links": links, "unmatched": stored - len(attached_docs), "certificates": certificates,
+            "left_out": left_out, "held": held, "only_matched": only_matched,
             "placed": placed, "unplaced": unplaced}
 
 

@@ -141,7 +141,7 @@ function DocRow({ it, products, onAttach, onSkip, onKind }) {
         <button className="btn btn-line btn-row" onClick={() => openBlob(it.url).catch(e => showToast(e.message, 'error'))}>Open</button>
       </div>
       {it.has_text === false && <p className="doc-note">A scanned sheet: there is no text in it to read, so match it by hand.</p>}
-      {it.catalogue && <p className="doc-note">It names {rows.filter(r => r.source === 'sheet').length} of your products, so it reads like a catalogue. Nothing is ticked; tick the ones it is really for.</p>}
+      {it.catalogue && <p className="doc-note">It names {rows.filter(r => r.source === 'sheet').length} of your products, of several kinds, so it reads like a catalogue, an old pack or a quote. Nothing is ticked; tick the ones it is really for.</p>}
       <div className="doc-body">
         {rows.length > 0 ? (
           <div className="doc-picks">

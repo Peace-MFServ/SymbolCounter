@@ -52,12 +52,13 @@ export function ProductsView({ onNavigate }) {
   // First a check that stores nothing and says what would land where; only on
   // a yes does the same zip go in for real.
   const [docFile, setDocFile] = useState(null)
-  const importDocs = async (file, dryRun = true) => {
+  const [onlyMatched, setOnlyMatched] = useState(true)   // leave out what matches no product
+  const importDocs = async (file, dryRun = true, only = onlyMatched) => {
     if (!file) return
     setDocBusy(true)
     try {
       const form = new FormData(); form.append('file', file)
-      const r = await apiFetch(`/products/import-documents?dry_run=${dryRun}`, { method: 'POST', body: form })
+      const r = await apiFetch(`/products/import-documents?dry_run=${dryRun}&only_matched=${only}`, { method: 'POST', body: form })
       setDocFile(dryRun ? file : null); setDocReport(r)
       if (!dryRun) await load()
     } catch (err) { showToast('Datasheet import failed: ' + err.message, 'error') }
@@ -230,6 +231,8 @@ export function ProductsView({ onNavigate }) {
         {checking && <DocCheckModal onClose={() => { setChecking(false); load() }} />}
         {syncRep && <Cin7Modal r={syncRep} busy={syncBusy} onApply={() => cin7Sync(true)} onPictures={cin7Pictures} onClose={() => setSyncRep(null)} />}
         {docReport && <DocReportModal r={docReport} busy={docBusy}
+                                      onlyMatched={onlyMatched}
+                                      onOnlyMatched={v => { setOnlyMatched(v); importDocs(docFile, true, v) }}
                                       onImport={() => importDocs(docFile, false)}
                                       onClose={() => { setDocReport(null); setDocFile(null) }}
                                       onMatch={() => { setDocReport(null); onNavigate('match-documents') }} />}
@@ -740,19 +743,28 @@ function ProductDocs({ productId }) {
 }
 
 /* The datasheet zip: first what would happen, then what did. */
-function DocReportModal({ r, busy, onImport, onClose, onMatch }) {
+function DocReportModal({ r, busy, onlyMatched, onOnlyMatched, onImport, onClose, onMatch }) {
   const check = r.dry_run
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !busy && onClose()}>
       <div className="modal" style={{ maxWidth: 720 }}>
         <h2>{check ? 'Check before importing' : 'Datasheets imported'}</h2>
         {check && <p className="muted" style={{ margin: '-8px 0 12px' }}>Nothing has been stored yet.</p>}
-        <div className="total-row"><span>{check ? 'Documents in the zip' : 'Documents kept'}</span><strong>{r.stored}</strong></div>
+        {check && (
+          <label className="check doc-only" title="For a big mixed folder: anything that names none of your products is not kept">
+            <input type="checkbox" checked={onlyMatched} onChange={e => onOnlyMatched(e.target.checked)} disabled={busy} />
+            Only keep sheets that match a product
+          </label>
+        )}
+        <div className="total-row"><span>{check ? (r.only_matched ? 'Documents to keep' : 'Documents in the zip') : 'Documents kept'}</span><strong>{r.stored}</strong></div>
         <div className="total-row"><span>Copies of one already kept, skipped</span><strong>{r.duplicates}</strong></div>
         <div className="total-row"><span>{check ? 'Would go on products by their code' : 'Put on products by their code'}</span><strong>{r.attached}</strong></div>
         <div className="total-row"><span>Products covered</span><strong>{r.links}</strong></div>
         <div className="total-row"><span>Read as certificates</span><strong>{r.certificates}</strong></div>
-        <div className="total-row last"><span>No product found by code</span><strong>{r.unmatched}</strong></div>
+        {r.held > 0 && <div className="total-row"><span>Old packs, quotes or catalogues (they name many kinds of product)</span><strong>{r.held}</strong></div>}
+        {r.only_matched
+          ? <div className="total-row last"><span>{check ? 'Left out: they match no product' : 'Left out'}</span><strong>{r.left_out}</strong></div>
+          : <div className="total-row last"><span>No product found by code</span><strong>{r.unmatched}</strong></div>}
         {check && r.placed.length > 0 && (
           <>
             <h3 className="doc-check-h">Would go on a product</h3>
@@ -763,9 +775,9 @@ function DocReportModal({ r, busy, onImport, onClose, onMatch }) {
         )}
         {check && r.unplaced.length > 0 && (
           <>
-            <h3 className="doc-check-h">No product by code: these go to Match datasheets</h3>
+            <h3 className="doc-check-h">{r.only_matched ? 'Left out' : 'No product by code: these go to Match datasheets'}</h3>
             <div className="doc-check">
-              {r.unplaced.map((x, i) => <div key={i}><span>{x.name}</span><em>{x.kind}{x.guess ? ` · best guess ${x.guess}` : ' · no guess'}</em></div>)}
+              {r.unplaced.map((x, i) => <div key={i}><span>{x.name}</span><em>{x.pack ? 'old pack, quote or catalogue' : r.only_matched ? 'matches no product' : `${x.kind}${x.guess ? ` · best guess ${x.guess}` : ' · no guess'}`}</em></div>)}
             </div>
           </>
         )}

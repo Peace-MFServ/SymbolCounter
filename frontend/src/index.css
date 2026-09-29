@@ -1513,3 +1513,4 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .md-row.done .md-name { color: var(--text3); }
 .md-done { font-size: 13px; font-weight: 600; color: #1D6B3F; padding: 0 10px; }
 @media (max-width: 640px) { .dc-row { grid-template-columns: 1fr; } .md-row { grid-template-columns: 1fr auto; } .md-row .doc-sku { grid-column: 1 / -1; } }
+.check.doc-only { margin: 0 0 12px; font-weight: 600; }
