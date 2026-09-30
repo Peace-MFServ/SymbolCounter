@@ -102,10 +102,6 @@ export function ScheduleView({ projectId, onNavigate }) {
             {!nothing && (
               <>
               <div className="actions">
-                <Menu wide label={busy === 'picking' ? 'Downloading…' : 'Picking lists'} items={[
-                  { label: 'Download picking list', note: 'Every product on the job and how many, to pick from the stores', onClick: () => download('picking') },
-                  ...(data.project.sets_only ? [] : [{ label: 'Download packing list', note: 'Choose the doors going out in one delivery first', onClick: () => setPacking(true) }]),
-                ]} />
                 <Menu wide label={busy === 'pack' || busy === 'pack-certs' ? 'Preparing pack…' : 'Submittal pack'} items={[
                   { heading: 'Download' },
                   { label: 'Download submittal pack', disabled: !pack?.datasheets,
