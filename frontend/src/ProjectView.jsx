@@ -321,7 +321,7 @@ export function ProjectView({ id, onNavigate }) {
 }
 
 /* A small dropdown of secondary actions — one button in the header instead of five. */
-export function Menu({ label, items, small = false }) {
+export function Menu({ label, items, small = false, wide = false }) {
   const [open, setOpen] = useState(false)
   const ref = useRef()
   useEffect(() => {
@@ -339,10 +339,14 @@ export function Menu({ label, items, small = false }) {
         {label}<span className="caret" />
       </button>
       {open && (
-        <div className="menu-list" role="menu">
-          {items.map(it => (
-            <button key={it.label} role="menuitem" className={it.danger ? 'danger' : ''} onClick={() => { setOpen(false); it.onClick() }}>{it.label}</button>
-          ))}
+        <div className={`menu-list${wide ? ' wide' : ''}`} role="menu">
+          {items.map((it, i) => it.heading
+            ? <div key={`h${i}`} className="menu-head">{it.heading}</div>
+            : <button key={it.label} role="menuitem" className={it.danger ? 'danger' : ''} disabled={it.disabled}
+                      onClick={() => { setOpen(false); it.onClick() }}>
+                {it.label}{it.note && <small>{it.note}</small>}
+              </button>
+          )}
         </div>
       )}
     </div>

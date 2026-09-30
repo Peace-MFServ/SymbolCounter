@@ -15,7 +15,6 @@ export function ScheduleView({ projectId, onNavigate }) {
   const [busy,   setBusy]   = useState('')
   const [priced, setPriced] = useState(false)
   const [pack, setPack] = useState(null)                  // datasheets and certificates on this job
-  const [withCerts, setWithCerts] = useState(false)
   useEffect(() => { apiFetch(`/projects/${projectId}/schedule/pack-status`).then(setPack).catch(() => {}) }, [projectId])
   const [summary, setSummary] = useState(true)
   const [packing, setPacking] = useState(false)
@@ -53,14 +52,14 @@ export function ScheduleView({ projectId, onNavigate }) {
     return ok
   }
 
-  const download = async kind => {
+  const download = async (kind, withCerts = false) => {
     setBusy(kind)
     const stem = `${job.quote_no ? job.quote_no + '_' : ''}${job.name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_')}`
     try {
       if (kind === 'pdf')     await downloadBlob(`/projects/${projectId}/schedule/pdf?priced=${priced}&summary=${summary}`, `${stem}_Schedule${priced ? '_Priced' : ''}.pdf`)
       if (kind === 'excel')   await downloadBlob(`/projects/${projectId}/schedule/excel?priced=${priced}&summary=${summary}`, `${stem}_Schedule.xlsx`)
       if (kind === 'picking') await downloadBlob(`/projects/${projectId}/schedule/picking`, `${stem}_Picking_List.pdf`)
-      if (kind === 'pack')    await downloadBlob(`/projects/${projectId}/schedule/pack?datasheets=true&certificates=${withCerts}`, `${stem}_Submittal_Pack.pdf`)
+      if (kind === 'pack' || kind === 'pack-certs') await downloadBlob(`/projects/${projectId}/schedule/pack?datasheets=true&certificates=${withCerts}`, `${stem}_Submittal_Pack.pdf`)
     } catch (err) { showToast(err.message, 'error') }
     setBusy('')
   }
@@ -99,27 +98,38 @@ export function ScheduleView({ projectId, onNavigate }) {
             </p>
           </div>
           <div className="spacer" />
-          <div className="actions">
+          <div className="sched-actions">
             {!nothing && (
               <>
-                <label className="check" style={{ marginRight: 8 }} title={data.priced_ok ? '' : 'Some products have no cost in Cin7 yet'}>
+              <div className="actions">
+                <Menu wide label={busy === 'picking' ? 'Downloading…' : 'Picking lists'} items={[
+                  { label: 'Download picking list', note: 'Every product on the job and how many, to pick from the stores', onClick: () => download('picking') },
+                  ...(data.project.sets_only ? [] : [{ label: 'Download packing list', note: 'Choose the doors going out in one delivery first', onClick: () => setPacking(true) }]),
+                ]} />
+                <Menu wide label={busy === 'pack' || busy === 'pack-certs' ? 'Preparing pack…' : 'Submittal pack'} items={[
+                  { heading: 'Download' },
+                  { label: 'Download submittal pack', disabled: !pack?.datasheets,
+                    note: !pack?.datasheets ? 'No datasheets on this job yet'
+                      : `${pack.cover?.cover ? 'Cover, ' : ''}${pack.datasheets} datasheet${pack.datasheets !== 1 ? 's' : ''}${pack.cover?.back ? ' and back page' : ''}, in one PDF`,
+                    onClick: () => download('pack') },
+                  ...(pack?.certificates ? [{ label: 'Download submittal pack with certificates',
+                    note: `The same, with the ${pack.certificates} certificate${pack.certificates !== 1 ? 's' : ''} on file added`, onClick: () => download('pack-certs', true) }] : []),
+                  { heading: 'Before you send it' },
+                  ...(pack?.missing?.length ? [{ label: `Add missing datasheets (${pack.missing.length})`, note: 'Products on this job with no datasheet yet', onClick: () => setMissing(true) }] : []),
+                  { label: pack?.cover?.cover ? 'Change the cover and back page' : 'Set up the cover and back page', note: 'The office cover, with each job written on it', onClick: () => setCovering(true) },
+                ]} />
+                <button className="btn" onClick={() => download('excel')} disabled={!!busy}>{busy === 'excel' ? <span className="spinner" /> : 'Download Excel'}</button>
+                <button className="btn btn-primary" onClick={() => download('pdf')} disabled={!!busy}>{busy === 'pdf' ? <span className="spinner" /> : 'Download schedule PDF'}</button>
+              </div>
+              <div className="sched-opts">
+                <span className="opt-label">Schedule PDF and Excel:</span>
+                <label className="check" title={data.priced_ok ? '' : 'Some products have no cost in Cin7 yet'}>
                   <input type="checkbox" checked={priced} disabled={!data.priced_ok} onChange={e => setPriced(e.target.checked)} /> With prices
                 </label>
-                <label className="check" style={{ marginRight: 8 }} title="Include the product summary page in the PDF and Excel">
-                  <input type="checkbox" checked={summary} onChange={e => setSummary(e.target.checked)} /> Product summary
+                <label className="check">
+                  <input type="checkbox" checked={summary} onChange={e => setSummary(e.target.checked)} /> Product summary page
                 </label>
-                <Menu label="Lists" items={[
-                  { label: 'Picking list (whole job)', onClick: () => download('picking') },
-                  ...(data.project.sets_only ? [] : [{ label: 'Packing list (chosen doors)', onClick: () => setPacking(true) }]),
-                ]} />
-                <Menu label={pack && pack.datasheets ? `Datasheets (${pack.datasheets})` : 'Datasheets'} items={[
-                  { label: `Submittal pack: datasheets${withCerts ? ' and certificates' : ''}`, onClick: () => download('pack') },
-                  ...(pack && pack.missing.length ? [{ label: `Missing datasheets (${pack.missing.length})`, onClick: () => setMissing(true) }] : []),
-                  { label: pack?.cover?.cover ? 'Cover and back page' : 'Add a cover and back page', onClick: () => setCovering(true) },
-                  { label: withCerts ? 'Leave certificates out' : `Add certificates too${pack && pack.certificates ? ` (${pack.certificates})` : ''}`, onClick: () => setWithCerts(v => !v) },
-                ]} />
-                <button className="btn" onClick={() => download('excel')} disabled={!!busy}>{busy === 'excel' ? <span className="spinner" /> : 'Excel'}</button>
-                <button className="btn btn-primary" onClick={() => download('pdf')} disabled={!!busy}>{busy === 'pdf' ? <span className="spinner" /> : 'Download schedule PDF'}</button>
+              </div>
               </>
             )}
           </div>
