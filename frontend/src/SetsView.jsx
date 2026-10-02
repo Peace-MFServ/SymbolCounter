@@ -345,16 +345,18 @@ export function SetEditor({ id, projectId, onNavigate }) {
   const heartbeat = useRef()
 
   useEffect(() => {
-    apiFetch('/products').then(p => setProducts(p || []))
+    // on a job, every price is that job's (its Cost summary)
+    Promise.all([apiFetch('/products'), projectId ? apiFetch(`/projects/${projectId}/prices`) : null])
+      .then(([ps, jp]) => setProducts((ps || []).map(p => jp && p.id in jp ? { ...p, price: jp[p.id] } : p)))
     if (projectId) apiFetch(`/projects/${projectId}`).then(setJob)
     if (isNew) {
-      apiFetch('/sets/next-code').then(r => setCode(r?.code || 'MF 01'))
+      apiFetch(`/sets/next-code${projectId ? `?project_id=${projectId}` : ''}`).then(r => setCode(r?.code || 'MF 01'))
       setSet({ items: [], used_on: [], is_standard: !projectId })
       return
     }
     let alive = true
     const open = async () => {
-      const s = await apiFetch(`/sets/${id}`)
+      const s = await apiFetch(`/sets/${id}${projectId ? `?project_id=${projectId}` : ''}`)
       if (!s || !alive) return
       setSet(s); setCode(s.code); setName(s.name); setDesc(s.description); setFire(s.fire_rated)
       setItems(s.items.map(i => ({ ...i })))
@@ -396,16 +398,22 @@ export function SetEditor({ id, projectId, onNavigate }) {
     let ok = true
     try {
       const body = { code, name, description: desc, fire_rated: fire, notes: '', items: items.map(i => ({ product_id: i.product_id, qty: i.qty })) }
-      const s = isNew ? await apiFetch('/sets', { method: 'POST', body: JSON.stringify(body) })
+      // a set made on a job stays on that job; only the Sets page adds to the library
+      const s = isNew ? await apiFetch(projectId ? `/projects/${projectId}/sets` : '/sets', { method: 'POST', body: JSON.stringify(body) })
                       : await apiFetch(`/sets/${id}`, { method: 'PUT', body: JSON.stringify(body) })
-      if (isNew && projectId) await apiFetch(`/projects/${projectId}/sets/${s.id}/add`, { method: 'POST' })
       showToast('Set saved', 'success'); setDirty(false)
-      if (isNew) onNavigate('set', { id: s.id, projectId }); else setSet(s)
+      if (isNew) onNavigate('set', { id: s.id, projectId }); else setSet(x => ({ ...x, ...s, used_on: x.used_on }))
     } catch (err) { showToast(err.message, 'error'); ok = false }
     setBusy(false)
     return ok
   }
   const back = () => (projectId ? onNavigate('job', { id: projectId }) : onNavigate('sets'))
+  const toLibrary = async () => {
+    setBusy(true)
+    try { const c = await apiFetch(`/sets/${id}/to-library`, { method: 'POST' }); showToast(`Saved to the library as ${c.code}`, 'success') }
+    catch (err) { showToast(err.message, 'error') }
+    setBusy(false)
+  }
   // leaving with unsaved changes asks first
   const { guard, modal: leaveModal } = useLeaveGuard({ dirty: dirty && !readOnly, onSave: save, what: 'set' })
   const goBack = guard(back)
@@ -509,6 +517,13 @@ export function SetEditor({ id, projectId, onNavigate }) {
               </div>
             )}
             {set.copied_from && <div className="rail-panel" style={{ marginTop: 20 }}><h3>Started from</h3><p className="muted">{set.copied_from}</p></div>}
+            {!isNew && !set.is_standard && !readOnly && (
+              <div className="rail-panel" style={{ marginTop: 20 }}>
+                <h3>Save to the set library</h3>
+                <p className="muted" style={{ marginBottom: 12 }}>This set is on this job only. Save a copy to the library to use it on other jobs. It gets the next library number.</p>
+                <button className="btn btn-line wide" onClick={toLibrary} disabled={busy || dirty} title={dirty ? 'Save the set first' : ''}>Save a copy to the library</button>
+              </div>
+            )}
             {!isNew && !readOnly && (
               <div className="rail-panel" style={{ marginTop: 20 }}>
                 <h3>{set.is_standard ? 'Delete set' : 'Delete this copy'}</h3>
@@ -550,20 +565,22 @@ const REPLACE_SHOWN = 60
 
 /* Replace a product: a proper window, with the full name of every product,
    its picture and price, the same kind of product first. */
-function ReplaceModal({ item, products, taken, onPick, onClose }) {
+export function ReplaceModal({ item, products, taken, onPick, onClose, keepNote = null, nowLabel = 'In the set now', title = 'Replace a product', pickLabel = 'Use this' }) {
   const [q, setQ] = useState('')
-  const type = item.product_type || ''
-  const sameType = products.filter(p => (p.product_type || '') === type && p.id !== item.product_id && !taken.has(p.id))
+  // with no item it is a picker for adding a product
+  const type = item ? item.product_type || '' : null
+  const curId = item ? item.product_id : null
+  const sameType = item ? products.filter(p => (p.product_type || '') === type && p.id !== curId && !taken.has(p.id)) : []
   const [scope, setScope] = useState(sameType.length ? 'type' : 'all')
   const [at, setAt] = useState(0)
   const listRef = useRef()
   const found = useMemo(() => {
     const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
-    const pool = products.filter(p => p.id !== item.product_id && !taken.has(p.id) && (scope === 'all' || (p.product_type || '') === type))
+    const pool = products.filter(p => p.id !== curId && !taken.has(p.id) && (scope === 'all' || (p.product_type || '') === type))
     const hit = pool.filter(p => { const t = `${p.sku} ${p.name}`.toLowerCase(); return words.every(w => t.includes(w)) })
     const lead = words[0] || ''
     return hit.sort((a, b) => (b.sku.toLowerCase().startsWith(lead) - a.sku.toLowerCase().startsWith(lead)) || a.sku.localeCompare(b.sku))
-  }, [q, scope, products, item.product_id, taken, type])
+  }, [q, scope, products, curId, taken, type])
   const shown = found.slice(0, REPLACE_SHOWN)
   useEffect(() => { setAt(0) }, [q, scope])
   useEffect(() => { listRef.current?.children[at]?.scrollIntoView({ block: 'nearest' }) }, [at])
@@ -575,20 +592,20 @@ function ReplaceModal({ item, products, taken, onPick, onClose }) {
   }
   return createPortal(
     <div className="modal-overlay" onMouseDown={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal replace-modal" role="dialog" aria-label={`Replace ${item.sku}`}>
+      <div className="modal replace-modal" role="dialog" aria-label={title}>
         <div className="rp-head">
-          <h2>Replace a product</h2>
+          <h2>{title}</h2>
           <button className="rp-x" onClick={onClose} aria-label="Close">×</button>
         </div>
-        <div className="rp-current">
+        {item && <div className="rp-current">
           <RpThumb url={products.find(p => p.id === item.product_id)?.image_url} />
           <div className="rp-text">
-            <span className="rp-label">In the set now</span>
+            <span className="rp-label">{nowLabel}</span>
             <span className="rp-sku">{item.sku}</span>
             <span className="rp-name">{item.name}</span>
           </div>
-          <div className="rp-keep">Keeps the quantity<strong>{item.qty}</strong></div>
-        </div>
+          {keepNote ? <div className="rp-keep rp-keep-note">{keepNote}</div> : <div className="rp-keep">Keeps the quantity<strong>{item.qty}</strong></div>}
+        </div>}
         <div className="rp-tools">
           <div className="rp-search">
             <IconSearch size={17} />
@@ -609,7 +626,7 @@ function ReplaceModal({ item, products, taken, onPick, onClose }) {
                 <span className="rp-meta">{[p.category, scope === 'all' ? TYPE_NAMES[p.product_type || ''] : ''].filter(Boolean).join(' · ')}</span>
               </span>
               <span className="rp-price">{p.price != null ? money(p.price) : <span className="muted">No price</span>}</span>
-              <span className="rp-use">Use this</span>
+              <span className="rp-use">{pickLabel}</span>
             </button>
           ))}
           {found.length === 0 && (

@@ -145,6 +145,7 @@ export function JobView({ projectId, onNavigate }) {
             { label: `Plans and door types${job.plans ? ` (${job.plans})` : ''}`, onClick: () => goNav('doors', { id: projectId }) },
             { label: 'Set library', onClick: () => goNav('sets') },
           ]} />
+          <button className="btn" onClick={() => goNav('door-summary', { id: projectId })} disabled={!job.sets.length}>{job.sets_only ? 'Set summary' : 'Door summary'}</button>
           <button className="btn" onClick={() => goNav('cost', { id: projectId })} disabled={!job.sets.length}>Cost summary</button>
           <button className="btn btn-primary" onClick={() => goNav('schedule', { id: projectId })} disabled={!job.sets.length}><IconFile size={16} /> Produce schedule</button>
         </>
@@ -353,6 +354,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
   const [busy,   setBusy]   = useState('')
   const [showRange, setShowRange] = useState(false)
   const [showAll, setShowAll] = useState(false)
+  const [many, setMany] = useState(false)          // the Add multiple doors grid
   const { ask, modal: confirmModal } = useConfirm()
   const removeAll = async () => {
     const fromPlans = doors.filter(d => d.source === 'plan').length
@@ -457,8 +459,10 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
           <label>Door ref<input className="form-control" value={refs} onChange={e => setRefs(e.target.value)} autoComplete="off"
                                 placeholder="e.g. EXTY4, or several: D01 D02 ED03" /></label>
           <label>Floor (optional)<input className="form-control" value={floor} onChange={e => setFloor(e.target.value)} placeholder="e.g. Ground" /></label>
-          <button className="btn btn-primary" type="submit" disabled={busy === 'refs' || !refs.trim()}>{busy === 'refs' ? <span className="spinner" /> : <><IconPlus size={16} /> Add doors</>}</button>
+          <button className="btn btn-primary" type="submit" disabled={busy === 'refs' || !refs.trim()}>{busy === 'refs' ? <span className="spinner" /> : <><IconPlus size={16} /> Add door</>}</button>
+          <button className="btn btn-line" type="button" onClick={() => setMany(true)}>Add multiple doors</button>
         </form>}
+        {many && <AddManyDoors projectId={projectId} set={s} onClose={() => setMany(false)} onAdded={onChanged} />}
         {!readOnly && <div className="add-range-row">
           <form onSubmit={addQty} className="add-qty-form">
             <span className="muted">Or add a quantity</span>
@@ -552,6 +556,113 @@ function QuantityCard({ js, projectId, readOnly, onChanged }) {
           <span className="muted">Each one is the full list of products below.</span>
         </form>
       )}
+    </div>
+  )
+}
+
+/* Add multiple doors: a short sheet, one door a row. Enter goes to the next
+   row; a column copied out of Excel can be pasted straight in. */
+function AddManyDoors({ projectId, set, onClose, onAdded }) {
+  const blank = () => ({ ref: '', floor: '' })
+  const [rows, setRows] = useState(() => Array.from({ length: 8 }, blank))
+  const [onJob, setOnJob] = useState(null)        // refs already on the job, lower case
+  const [busy, setBusy] = useState(false)
+  const cells = useRef({})
+  useEffect(() => {
+    apiFetch(`/projects/${projectId}/doors`).then(ds => setOnJob(new Set((ds || []).map(d => (d.ref || '').trim().toLowerCase()))))
+  }, [projectId])
+  // straight away when the row is there, so fast typing never lands in the row above
+  const focus = (i, col) => { const el = cells.current[`${i}-${col}`]; if (el) el.focus(); else setTimeout(() => cells.current[`${i}-${col}`]?.focus(), 0) }
+  const set_ = (i, col, v) => setRows(rs => rs.map((r, k) => (k === i ? { ...r, [col]: v } : r)))
+  const key = (e, i, col) => {
+    if (e.key === 'Enter' || (e.key === 'ArrowDown' && col === 'ref')) {
+      e.preventDefault()
+      if (i === rows.length - 1) setRows(rs => [...rs, blank()])
+      focus(i + 1, col)
+    }
+    if (e.key === 'ArrowUp' && i > 0) { e.preventDefault(); focus(i - 1, col) }
+  }
+  // a block pasted from Excel: one door a line, a second column is the floor
+  const paste = (e, i, col) => {
+    const text = e.clipboardData.getData('text')
+    if (!/[\n\t]/.test(text)) return
+    e.preventDefault()
+    const lines = text.replace(/\r/g, '').split('\n').filter((l, k, a) => l.trim() || k < a.length - 1).map(l => l.split('\t'))
+    setRows(rs => {
+      const out = [...rs]
+      lines.forEach((cols, k) => {
+        const at = i + k
+        while (out.length <= at) out.push(blank())
+        const r = { ...out[at] }
+        if (col === 'ref') { r.ref = (cols[0] || '').trim(); if (cols.length > 1) r.floor = (cols[1] || '').trim() }
+        else r.floor = (cols[0] || '').trim()
+        out[at] = r
+      })
+      if (out[out.length - 1].ref) out.push(blank())
+      return out
+    })
+  }
+  const norm = r => r.ref.trim().replace(/\s+/g, ' ')
+  const seen = {}
+  const status = rows.map(r => {
+    const k = norm(r).toLowerCase()
+    if (!k) return ''
+    if (onJob?.has(k)) return 'Already on the job'
+    if (seen[k]) return 'Twice in this list'
+    seen[k] = true
+    return 'ok'
+  })
+  const ready = rows.filter((r, i) => status[i] === 'ok')
+  const problems = status.filter(x => x && x !== 'ok').length
+  const typed = rows.some(r => r.ref.trim())
+  const add = async () => {
+    if (!ready.length) return
+    setBusy(true)
+    try {
+      const r = await apiFetch(`/projects/${projectId}/doors/add-refs`, { method: 'POST',
+        body: JSON.stringify({ set_id: set.id, rows: ready.map(x => ({ ref: norm(x), floor: x.floor.trim() })) }) })
+      showToast(`${r.added} door${r.added !== 1 ? 's' : ''} added to ${set.code}`, 'success')
+      await onAdded(); onClose()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy(false)
+  }
+  const { guard, modal: leaveModal } = useLeaveGuard({ dirty: typed && !busy, onSave: async () => { await add(); return true }, what: 'doors' })
+  const close = guard(onClose)
+  return (
+    <div className="modal-overlay" onMouseDown={e => e.target === e.currentTarget && !busy && close()}>
+      {leaveModal}
+      <div className="modal many-doors">
+        <div className="md-head">
+          <h2>Add multiple doors to {set.code}</h2>
+          <p className="muted">Type a door reference and press Enter for the next row. A column copied from Excel can be pasted in. Floor is optional.</p>
+        </div>
+        <div className="sheet-wrap">
+          <table className="sheet">
+            <thead><tr><th className="sheet-n" /><th>Door reference</th><th>Floor</th><th className="sheet-st" /></tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className={status[i] && status[i] !== 'ok' ? 'bad' : ''}>
+                  <td className="sheet-n">{i + 1}</td>
+                  <td><input ref={el => (cells.current[`${i}-ref`] = el)} value={r.ref} autoFocus={i === 0} spellCheck={false}
+                             onChange={e => set_(i, 'ref', e.target.value)} onKeyDown={e => key(e, i, 'ref')} onPaste={e => paste(e, i, 'ref')} /></td>
+                  <td><input ref={el => (cells.current[`${i}-floor`] = el)} value={r.floor}
+                             onChange={e => set_(i, 'floor', e.target.value)} onKeyDown={e => key(e, i, 'floor')} onPaste={e => paste(e, i, 'floor')} /></td>
+                  <td className="sheet-st">{status[i] && status[i] !== 'ok' ? status[i] : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <button className="link-btn inline sheet-more" onClick={() => { setRows(rs => [...rs, ...Array.from({ length: 5 }, blank)]); focus(rows.length, 'ref') }}>Add 5 more rows</button>
+        <div className="modal-actions md-foot">
+          <span className="muted">{ready.length ? `${ready.length} door${ready.length !== 1 ? 's' : ''} ready` : 'No doors typed yet'}{problems ? `, ${problems} marked in red will be left out` : ''}</span>
+          <span className="spacer" style={{ flex: 1 }} />
+          <button className="btn btn-ghost" onClick={close} disabled={busy}>Cancel</button>
+          <button className="btn btn-primary" onClick={add} disabled={busy || !ready.length || onJob === null}>
+            {busy ? <span className="spinner" /> : `Add ${ready.length || ''} door${ready.length !== 1 ? 's' : ''} to ${set.code}`}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -88,6 +88,26 @@ def product_price(p: models.Product) -> Optional[float]:
     return p.cost if p.cost else (p.sell if p.sell else None)
 
 
+def job_price_fn(db: Session, pid: int):
+    """Prices as this job's Cost summary has them: the sell price typed on the
+    job, else the product's own, else its cost, less the job's discounts. The
+    same figure the priced schedule uses, so the job page, the Door summary and
+    the Cost summary always agree."""
+    jps = {jp.product_id: jp for jp in db.query(models.JobPrice).filter_by(project_id=pid).all()}
+
+    def price(p: models.Product) -> Optional[float]:
+        jp = jps.get(p.id)
+        cost = jp.cost if (jp and jp.cost is not None) else (p.cost or 0.0)
+        sell = jp.sell if (jp and jp.sell is not None) else (p.sell if p.sell else cost)
+        if jp:
+            sell = sell * (1 - (jp.disc_a or 0) / 100) * (1 - (jp.disc_b or 0) / 100)
+        return round(sell, 2) if sell else None
+    price.sell_of = lambda p: (jps[p.id].sell if p.id in jps and jps[p.id].sell is not None
+                               else (p.sell if p.sell else (jps[p.id].cost if p.id in jps and jps[p.id].cost is not None else p.cost)))
+    price.discounted = lambda p: bool(p.id in jps and ((jps[p.id].disc_a or 0) or (jps[p.id].disc_b or 0)))
+    return price
+
+
 _TYPE_BY_CATEGORY = {
     "hinges": "01", "pivots": "01",
     "door closers": "02", "closers": "02",
@@ -160,13 +180,13 @@ def _type_rank(t: str) -> int:
     return int(t) if (t or "").isdigit() else 99
 
 
-def _set_out(db: Session, s: models.HardwareSet, with_uses: bool = True, cu=None) -> SetOut:
+def _set_out(db: Session, s: models.HardwareSet, with_uses: bool = True, cu=None, price_of=None) -> SetOut:
     items = []
     cost_total, cost_known = 0.0, True
     value_total, priced = 0.0, True
     for it in sorted(s.items, key=lambda i: (_type_rank(i.product.product_type), i.sort_order)):
         p = it.product
-        price = product_price(p)
+        price = (price_of or product_price)(p)
         items.append(SetItemOut(id=it.id, product_id=p.id, sku=p.sku, name=p.name,
                                 category=p.category or "Other", unit=p.unit or "EACH",
                                 qty=it.qty, cost=p.cost, price=price,
@@ -195,9 +215,30 @@ def _set_out(db: Session, s: models.HardwareSet, with_uses: bool = True, cu=None
     )
 
 
-def _next_set_code(db: Session) -> str:
+def _job_set_ids(db: Session, pid: int) -> list[int]:
+    """Every set on a job: placed on it, made for it, or on one of its doors."""
+    ids = [ps.set_id for ps in db.query(models.ProjectSet).filter_by(project_id=pid).order_by(models.ProjectSet.sort_order).all()]
+    for (sid,) in db.query(models.HardwareSet.id).filter(models.HardwareSet.project_id == pid,
+                                                         models.HardwareSet.archived == False).all():   # noqa: E712
+        if sid not in ids:
+            ids.append(sid)
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        e = _effective_set_id(d)
+        if e and e not in ids:
+            ids.append(e)
+    return ids
+
+
+def _next_set_code(db: Session, pid: Optional[int] = None) -> str:
+    """The next MF number: in the library, library sets only; on a job, the
+    sets on that job only, so sets made for jobs never use up library numbers."""
     best = 0
-    for (code,) in db.query(models.HardwareSet.code).all():
+    if pid is None:
+        codes = db.query(models.HardwareSet.code).filter(models.HardwareSet.project_id.is_(None)).all()
+    else:
+        ids = _job_set_ids(db, pid)
+        codes = db.query(models.HardwareSet.code).filter(models.HardwareSet.id.in_(ids)).all() if ids else []
+    for (code,) in codes:
         m = re.fullmatch(r"MF\s*(\d+)", (code or "").strip(), re.I)
         if m:
             best = max(best, int(m.group(1)))
@@ -755,16 +796,60 @@ def list_sets(include_archived: bool = False, project_id: Optional[int] = None,
 
 
 @router.get("/sets/next-code")
-def next_set_code(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    return {"code": _next_set_code(db)}
+def next_set_code(project_id: Optional[int] = None, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    return {"code": _next_set_code(db, project_id)}
+
+
+@router.post("/projects/{pid}/sets", response_model=SetOut, status_code=201)
+def create_job_set(pid: int, payload: SetIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """A set made on a job belongs to that job: it is not added to the set library."""
+    _edit_project(pid, db, cu)
+    if not payload.name.strip():
+        raise HTTPException(400, "A set needs a name")
+    code = payload.code.strip() or _next_set_code(db, pid)
+    ids = _job_set_ids(db, pid)
+    if ids and db.query(models.HardwareSet).filter(models.HardwareSet.id.in_(ids), models.HardwareSet.code == code).first():
+        raise HTTPException(409, f"This job already has a set {code}")
+    s = models.HardwareSet(code=code, name=payload.name.strip(), description=payload.description,
+                           fire_rated=payload.fire_rated, notes=payload.notes, created_by_id=cu.id, project_id=pid)
+    db.add(s); db.flush()
+    _apply_items(db, s, payload.items)
+    _link_set(db, pid, s.id)
+    db.commit(); db.refresh(s)
+    return _set_out(db, s, cu=cu, price_of=job_price_fn(db, pid))
+
+
+@router.post("/sets/{sid}/to-library", response_model=SetOut)
+def save_set_to_library(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """A job's set worth keeping: a copy goes into the library under the next
+    library number. The job keeps its own set as it is."""
+    src = _set_or_404(sid, db)
+    if src.project_id is None:
+        raise HTTPException(400, "That set is already in the library")
+    s = models.HardwareSet(code=_next_set_code(db), name=src.name, description=src.description,
+                           fire_rated=src.fire_rated, notes=src.notes, created_by_id=cu.id)
+    db.add(s); db.flush()
+    for i, it in enumerate(src.items):
+        s.items.append(models.SetItem(product_id=it.product_id, qty=it.qty, sort_order=i))
+    db.commit(); db.refresh(s)
+    return _set_out(db, s, cu=cu)
 
 
 @router.get("/sets/{sid}", response_model=SetOut)
-def get_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+def get_set(sid: int, project_id: Optional[int] = None, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """With project_id, prices are that job's (its Cost summary)."""
     s = db.query(models.HardwareSet).get(sid)
     if not s:
         raise HTTPException(404, "Set not found")
-    return _set_out(db, s, cu=cu)
+    return _set_out(db, s, cu=cu, price_of=job_price_fn(db, project_id) if project_id else None)
+
+
+@router.get("/projects/{pid}/prices")
+def job_prices(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Every product's price on this job, as {product_id: price}."""
+    _own_project(pid, db, cu)
+    pf = job_price_fn(db, pid)
+    return {p.id: pf(p) for p in db.query(models.Product).filter(models.Product.active == True).all()}   # noqa: E712
 
 
 def _apply_items(db: Session, s: models.HardwareSet, items: list[SetItemIn]):
@@ -1701,6 +1786,7 @@ def _next_number(db: Session, pid: int, prefix: str, sep: str) -> int:
 @router.get("/projects/{pid}/job", response_model=JobOut)
 def get_job(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     p = _own_project(pid, db, cu)
+    pf = job_price_fn(db, pid)
     doors = db.query(models.Door).filter(models.Door.project_id == pid).all()
     by_set: dict[int, list] = {}
     no_set = 0
@@ -1722,7 +1808,7 @@ def get_job(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current
         s = db.query(models.HardwareSet).get(sid)
         if not s or s.archived:
             continue
-        so = _set_out(db, s, with_uses=False, cu=cu)
+        so = _set_out(db, s, with_uses=False, cu=cu, price_of=pf)
         ds = sorted(by_set.get(sid, []), key=lambda d: _ref_key(d.ref))
         n = len(ds)
         items_total += so.items_per_door * n
@@ -1846,8 +1932,13 @@ def set_quantity(pid: int, sid: int, payload: SetQuantityIn, db: Session = Depen
     return {"count": want}
 
 
+class DoorRowIn(BaseModel):
+    ref: str; floor: str = ""
+
+
 class DoorRefsIn(BaseModel):
     set_id: int; refs: list[str] = []; floor: str = ""
+    rows: list[DoorRowIn] = []          # Add multiple doors: a floor on each row
 
 
 class DoorIdsIn(BaseModel):
@@ -1871,11 +1962,11 @@ def add_doors_by_ref(pid: int, payload: DoorRefsIn, db: Session = Depends(get_db
     """Door references typed as they come off the architect's schedule: EXTY4,
     EDTW2, whatever they are. Ones already on the job are left alone and named."""
     _edit_project(pid, db, cu); _set_or_404(payload.set_id, db)
-    wanted, seen = [], set()
-    for r in payload.refs:
+    wanted, seen, floor_of = [], set(), {}
+    for r, fl in [(x, payload.floor) for x in payload.refs] + [(x.ref, x.floor) for x in payload.rows]:
         r = " ".join(r.split())
         if r and r.lower() not in seen:
-            seen.add(r.lower()); wanted.append(r)
+            seen.add(r.lower()); wanted.append(r); floor_of[r] = (fl or "").strip()
     if not wanted:
         raise HTTPException(400, "Type a door reference first")
     if len(wanted) > 2000:
@@ -1885,7 +1976,7 @@ def add_doors_by_ref(pid: int, payload: DoorRefsIn, db: Session = Depends(get_db
     for ref in wanted:
         (skipped if ref.lower() in existing else added).append(ref)
     for ref in added:
-        db.add(models.Door(project_id=pid, ref=ref, floor=payload.floor.strip(), set_id=payload.set_id, source="manual"))
+        db.add(models.Door(project_id=pid, ref=ref, floor=floor_of.get(ref, ""), set_id=payload.set_id, source="manual"))
     if added:
         _link_set(db, pid, payload.set_id)
     db.commit()
@@ -2122,6 +2213,28 @@ def unlock_set(sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_curr
 
 
 # ── Copies ────────────────────────────────────────────────────────────────────
+def _copy_for_job(db: Session, pid: int, src: models.HardwareSet, cu) -> models.HardwareSet:
+    """This job's own copy of a library set, with the job's doors, door types and
+    place in the job's list moved onto it. The library set is left as it was."""
+    s = models.HardwareSet(code=src.code, name=src.name, description=src.description, fire_rated=src.fire_rated,
+                           notes=src.notes, copied_from_id=src.id, created_by_id=cu.id, project_id=pid)
+    db.add(s); db.flush()
+    for i, it in enumerate(src.items):
+        s.items.append(models.SetItem(product_id=it.product_id, qty=it.qty, sort_order=i))
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        if _effective_set_id(d) == src.id:
+            d.set_id = s.id
+    for t in db.query(models.DoorType).filter(models.DoorType.project_id == pid, models.DoorType.set_id == src.id).all():
+        t.set_id = s.id
+    link = db.query(models.ProjectSet).filter_by(project_id=pid, set_id=src.id).first()
+    if link:
+        link.set_id = s.id
+    else:
+        _link_set(db, pid, s.id)
+    db.flush()
+    return s
+
+
 @router.post("/projects/{pid}/sets/{sid}/copy-for-job", response_model=SetOut, status_code=201)
 def copy_set_for_job(pid: int, sid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """
@@ -2131,23 +2244,201 @@ def copy_set_for_job(pid: int, sid: int, db: Session = Depends(get_db), cu=Depen
     _edit_project(pid, db, cu); src = _set_or_404(sid, db)
     if src.project_id == pid:
         return _set_out(db, src, cu=cu)
-    s = models.HardwareSet(code=src.code, name=src.name, description=src.description, fire_rated=src.fire_rated,
-                           notes=src.notes, copied_from_id=src.id, created_by_id=cu.id, project_id=pid)
-    db.add(s); db.flush()
-    for i, it in enumerate(src.items):
-        s.items.append(models.SetItem(product_id=it.product_id, qty=it.qty, sort_order=i))
-    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
-        if _effective_set_id(d) == sid:
-            d.set_id = s.id
-    for t in db.query(models.DoorType).filter(models.DoorType.project_id == pid, models.DoorType.set_id == sid).all():
-        t.set_id = s.id
-    link = db.query(models.ProjectSet).filter_by(project_id=pid, set_id=sid).first()
-    if link:
-        link.set_id = s.id
-    else:
-        _link_set(db, pid, s.id)
+    s = _copy_for_job(db, pid, src, cu)
     db.commit(); db.refresh(s)
     return _set_out(db, s, cu=cu)
+
+
+# ── Changing products across the job, or on one door ──────────────────────────
+def _apply_op(db: Session, s: models.HardwareSet, kind: str, product_id: int, new_id: Optional[int], qty: Optional[int]) -> bool:
+    """One change to a set's products. Replacing with a product already in the
+    set adds the quantities together."""
+    item = next((it for it in s.items if it.product_id == product_id), None)
+    if kind == "add":
+        if not db.query(models.Product).get(product_id):
+            raise HTTPException(404, "Product not found")
+        if item:
+            item.qty += max(1, qty or 1)
+        else:
+            s.items.append(models.SetItem(product_id=product_id, qty=max(1, qty or 1), sort_order=len(s.items)))
+        return True
+    if not item:
+        return False
+    if kind == "remove":
+        s.items.remove(item); db.delete(item)
+    elif kind == "qty":
+        item.qty = max(1, int(qty or 1))
+    elif kind == "replace":
+        if not new_id or not db.query(models.Product).get(new_id):
+            raise HTTPException(404, "Product not found")
+        other = next((it for it in s.items if it.product_id == new_id), None)
+        if other:
+            other.qty += item.qty; s.items.remove(item); db.delete(item)
+        else:
+            item.product_id = new_id
+    else:
+        raise HTTPException(400, "Unknown change")
+    return True
+
+
+def _doors_by_set(db: Session, pid: int) -> dict:
+    out: dict[int, list] = {}
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        e = _effective_set_id(d)
+        if e:
+            out.setdefault(e, []).append(d)
+    return out
+
+
+class ReplaceOnJobIn(BaseModel):
+    product_id: int; new_product_id: int; apply: bool = False
+
+
+@router.post("/projects/{pid}/replace-product")
+def replace_on_job(pid: int, payload: ReplaceOnJobIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """One product swapped for another on every set on this job, quantities
+    kept. Without apply, says what would change. Library sets get a copy for
+    this job first, so the library and other jobs are not touched."""
+    _edit_project(pid, db, cu)
+    old, new = db.query(models.Product).get(payload.product_id), db.query(models.Product).get(payload.new_product_id)
+    if not old or not new:
+        raise HTTPException(404, "Product not found")
+    if old.id == new.id:
+        raise HTTPException(400, "Pick a different product")
+    by_set = _doors_by_set(db, pid)
+    hit = [db.query(models.HardwareSet).get(sid) for sid in _job_set_ids(db, pid)]
+    hit = [x for x in hit if x and not x.archived and any(it.product_id == old.id for it in x.items)]
+    report = {"sets": [x.code for x in hit], "doors": sum(len(by_set.get(x.id, [])) for x in hit),
+              "library_sets": sum(1 for x in hit if x.project_id is None),
+              "old": {"sku": old.sku, "name": old.name}, "new": {"sku": new.sku, "name": new.name}, "applied": False}
+    if not payload.apply:
+        return report
+    for x in hit:
+        target = _copy_for_job(db, pid, x, cu) if x.project_id is None else x
+        _apply_op(db, target, "replace", old.id, new.id, None)
+    db.commit()
+    report["applied"] = True
+    return report
+
+
+class DoorChangeIn(BaseModel):
+    scope: str = "set"               # set: every door on the door's set; door: this door only
+    kind: str                        # replace | qty | remove | add
+    product_id: int
+    new_product_id: Optional[int] = None
+    qty: Optional[int] = None
+
+
+def _split_code(db: Session, pid: int, base: str) -> str:
+    """MF 04A, MF 04B ...: the next free letter after a set's code on this job."""
+    ids = _job_set_ids(db, pid)
+    taken = {c for (c,) in db.query(models.HardwareSet.code).filter(models.HardwareSet.id.in_(ids)).all()} if ids else set()
+    root = re.sub(r"[A-Z]$", "", base.strip()) if re.search(r"\d[A-Z]$", base.strip()) else base.strip()
+    for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        if f"{root}{ch}" not in taken:
+            return f"{root}{ch}"
+    return f"{root}-{len(taken) + 1}"
+
+
+@router.post("/projects/{pid}/doors/{did}/change")
+def change_door_products(pid: int, did: int, payload: DoorChangeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """A change to the products on one door. scope=set changes every door on
+    that door's set on this job; scope=door gives the door its own copy of the
+    set (MF 04A) and changes only that. A library set is never changed here."""
+    _edit_project(pid, db, cu)
+    d = db.query(models.Door).get(did)
+    if not d or d.project_id != pid:
+        raise HTTPException(404, "Door not found")
+    sid = _effective_set_id(d)
+    if not sid:
+        raise HTTPException(400, "This door has no set yet")
+    src = _set_or_404(sid, db)
+    others = [x for x in _doors_by_set(db, pid).get(sid, []) if x.id != d.id]
+    if payload.scope == "door" and others:
+        s = models.HardwareSet(code=_split_code(db, pid, src.code), name=src.name, description=src.description,
+                               fire_rated=src.fire_rated, notes=src.notes, copied_from_id=src.id,
+                               created_by_id=cu.id, project_id=pid)
+        db.add(s); db.flush()
+        for i, it in enumerate(src.items):
+            s.items.append(models.SetItem(product_id=it.product_id, qty=it.qty, sort_order=i))
+        d.set_id = s.id
+        _link_set(db, pid, s.id)
+        db.flush()
+        target, doors = s, 1
+    else:
+        target = _copy_for_job(db, pid, src, cu) if src.project_id is None else src
+        doors = len(others) + 1
+    if not _apply_op(db, target, payload.kind, payload.product_id, payload.new_product_id, payload.qty):
+        raise HTTPException(404, "That product is not on this door")
+    db.commit()
+    return {"set_id": target.id, "code": target.code, "doors": doors}
+
+
+class SetChangeIn(BaseModel):
+    kind: str; product_id: int; new_product_id: Optional[int] = None; qty: Optional[int] = None
+
+
+@router.post("/projects/{pid}/sets/{sid}/change")
+def change_set_products(pid: int, sid: int, payload: SetChangeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """A change to a set's products from a summary page: on this job only. A
+    library set gets this job's own copy first."""
+    _edit_project(pid, db, cu)
+    src = _set_or_404(sid, db)
+    if src.project_id not in (None, pid):
+        raise HTTPException(400, "That set belongs to another job")
+    target = _copy_for_job(db, pid, src, cu) if src.project_id is None else src
+    if not _apply_op(db, target, payload.kind, payload.product_id, payload.new_product_id, payload.qty):
+        raise HTTPException(404, "That product is not in this set")
+    db.commit()
+    return {"set_id": target.id, "code": target.code}
+
+
+# ── The door summary ─────────────────────────────────────────────────────────
+@router.get("/projects/{pid}/door-summary")
+def door_summary(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Every door on the job with its set, products and price per door, at
+    the job's own prices; and every set on the job, for changing a door's set."""
+    p = _own_project(pid, db, cu)
+    pf = job_price_fn(db, pid)
+    by_set = _doors_by_set(db, pid)
+    sets = []
+    for sid in _job_set_ids(db, pid):
+        x = db.query(models.HardwareSet).get(sid)
+        if not x or x.archived:
+            continue
+        items, total, priced = [], 0.0, True
+        for it in sorted(x.items, key=lambda i: (_type_rank(i.product.product_type), i.sort_order)):
+            pr = it.product
+            price = pf(pr)
+            if price is None:
+                priced = False
+            else:
+                total += price * it.qty
+            items.append({"product_id": pr.id, "sku": pr.sku, "name": pr.name, "qty": it.qty, "unit": pr.unit or "EACH",
+                          "product_type": pr.product_type or "", "price": price, "sell": pf.sell_of(pr),
+                          "discounted": pf.discounted(pr), "image_url": _img_url(pr),
+                          "line_value": round(price * it.qty, 2) if price is not None else None})
+        n = len(by_set.get(sid, []))
+        sets.append({"id": x.id, "code": x.code, "name": x.name, "is_standard": x.project_id is None,
+                     "copied_from_id": x.copied_from_id, "doors": n, "items": items,
+                     "value_per_door": round(total, 2) if items and priced else None,
+                     "value": round(total * n, 2) if items and priced else None})
+    known = {x["id"] for x in sets}
+    doors = []
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        if d.door_type and d.door_type.status == "excluded" and not d.set_id:
+            continue
+        e = _effective_set_id(d)
+        doors.append({"id": d.id, "ref": d.ref or "", "floor": d.floor or "", "handed": bool(d.handed),
+                      "set_id": e if e in known else None, "source": d.source or "", "note": d.note or "",
+                      "door_type_id": d.door_type_id})
+    doors.sort(key=lambda d: _ref_key(d["ref"]))
+    with_set = [x for x in sets if x["doors"]]
+    priced = all(x["value"] is not None for x in with_set)
+    return {"project_id": pid, "name": p.name, "sets_only": bool(p.sets_only), "can_edit": not p.owner_id or p.owner_id == cu.id,
+            "sets": sets, "doors": doors,
+            "totals": {"doors": sum(1 for d in doors if d["set_id"]), "no_set": sum(1 for d in doors if not d["set_id"]),
+                       "sets": len(with_set), "value": round(sum(x["value"] for x in with_set), 2) if with_set and priced else None}}
 
 
 @router.post("/projects/{pid}/copy")

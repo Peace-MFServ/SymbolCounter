@@ -3,6 +3,8 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { money } from './JobView'
+import { useJobProducts, useReplaceOnJob } from './JobChanges'
+import { IconLeft, IconFile } from './icons'
 
 /* Intec's Cost Summary: every product on the job with cost, markup, sell,
    discounts, line value and margin. Any price cell can be typed over. */
@@ -11,6 +13,8 @@ export function CostSummaryView({ projectId, onNavigate }) {
   const [busy, setBusy] = useState('')
   const load = () => apiFetch(`/projects/${projectId}/cost-summary`).then(setData)
   useEffect(() => { load() }, [projectId])
+  const products = useJobProducts(projectId)
+  const replaceJob = useReplaceOnJob(projectId, products, load)
 
   const crumbs = [
     { label: 'Jobs', onClick: () => onNavigate('dashboard') },
@@ -50,6 +54,7 @@ export function CostSummaryView({ projectId, onNavigate }) {
   return (
     <>
       <Topbar crumbs={crumbs} onNavigate={onNavigate} />
+      {replaceJob.ui}
       <div className="page-wrap wide">
         <div className="page-header">
           <div>
@@ -63,7 +68,9 @@ export function CostSummaryView({ projectId, onNavigate }) {
           <div className="spacer" />
           <div className="actions">
             {!ro && <button className="btn" onClick={reset} disabled={!!busy}>{busy === 'reset' ? <span className="spinner" /> : 'Update prices from product file'}</button>}
-            <button className="btn" onClick={() => onNavigate('job', { id: projectId })}>Back to job</button>
+            <button className="btn" onClick={() => onNavigate('job', { id: projectId })}><IconLeft size={16} /> Back to job</button>
+            <button className="btn" onClick={() => onNavigate('door-summary', { id: projectId })}>Door summary</button>
+            <button className="btn btn-primary" onClick={() => onNavigate('schedule', { id: projectId })}><IconFile size={16} /> Produce schedule</button>
           </div>
         </div>
 
@@ -75,6 +82,7 @@ export function CostSummaryView({ projectId, onNavigate }) {
                   <th>Code</th><th>Product</th>
                   <th className="num">Qty</th><th className="num">Cost</th><th className="num">Markup %</th><th className="num">Sell</th>
                   <th className="num">Disc. A %</th><th className="num">Disc. B %</th><th className="num">Actual S.P.</th><th className="num">Line value</th><th className="num">Margin %</th>
+                  {!ro && <th />}
                 </tr>
               </thead>
               <tbody>
@@ -91,6 +99,9 @@ export function CostSummaryView({ projectId, onNavigate }) {
                     <td className="num">{fmt(r.actual)}</td>
                     <td className="num shade">{fmt(r.line_value)}</td>
                     <td className="num">{fmt(r.margin)}</td>
+                    {!ro && <td className="row-actions"><button className="btn btn-ghost btn-sm" title="Swap this product for another on every set on the job"
+                      onClick={() => replaceJob.start({ product_id: r.product_id, sku: r.sku, name: r.name, qty: r.qty,
+                        product_type: products.find(p => p.id === r.product_id)?.product_type || '' })}>Replace</button></td>}
                   </tr>
                 ))}
               </tbody>
@@ -105,6 +116,7 @@ export function CostSummaryView({ projectId, onNavigate }) {
                   <td />
                   <td className="num strong shade">{fmt(t.line_total)}</td>
                   <td className="num strong">{fmt(t.margin)}</td>
+                  {!ro && <td />}
                 </tr>
               </tfoot>
             </table>
@@ -112,7 +124,8 @@ export function CostSummaryView({ projectId, onNavigate }) {
         )}
         <p className="hint" style={{ marginTop: 12 }}>
           Markup is on cost, margin is on the actual selling price. Actual S.P. is the sell price less discounts A and B.
-          Edited cells have a blue mark. The priced schedule uses the actual selling prices from this page.
+          Edited cells have a blue mark. The job page, the Door summary and the priced schedule all use the actual selling prices from this page.
+          Replace swaps a product on every set on this job.
         </p>
       </div>
     </>
@@ -122,7 +135,7 @@ export function CostSummaryView({ projectId, onNavigate }) {
 const fmt = n => (n == null ? '—' : Number(n).toLocaleString('en-IE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
 
 /* A number you can click and type over. Enter or Tab saves, Escape cancels. */
-function Cell({ v, flag = false, edited = false, ro = false, onSave, title = '' }) {
+export function Cell({ v, flag = false, edited = false, ro = false, onSave, title = '' }) {
   const [on, setOn] = useState(false)
   const [val, setVal] = useState('')
   const ref = useRef()
