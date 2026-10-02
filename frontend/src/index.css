@@ -893,7 +893,8 @@ h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink)
 .set-list-meta { font-size: 12.5px; }
 .set-add { gap: 8px; }
 .set-add .btn { width: 100%; }
-.add-refs-grid { display: grid; grid-template-columns: 2fr 1fr auto auto; gap: 12px; align-items: end; }
+.add-refs-grid { display: grid; grid-template-columns: 2fr auto 1fr auto; gap: 12px; align-items: end; }
+.add-refs-grid .add-many-btn { white-space: nowrap; }
 .add-refs-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text2); }
 .add-range-form .range-prefix { width: 88px; }
 /* a door reference is corrected in the chip it sits in */

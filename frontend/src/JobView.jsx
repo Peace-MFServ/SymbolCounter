@@ -458,9 +458,9 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
         {!readOnly && <form onSubmit={addRefs} className="add-refs-grid">
           <label>Door ref<input className="form-control" value={refs} onChange={e => setRefs(e.target.value)} autoComplete="off"
                                 placeholder="e.g. EXTY4, or several: D01 D02 ED03" /></label>
+          <button className="btn btn-primary add-many-btn" type="button" onClick={() => setMany(true)}>Add multiple doors</button>
           <label>Floor (optional)<input className="form-control" value={floor} onChange={e => setFloor(e.target.value)} placeholder="e.g. Ground" /></label>
           <button className="btn btn-primary" type="submit" disabled={busy === 'refs' || !refs.trim()}>{busy === 'refs' ? <span className="spinner" /> : <><IconPlus size={16} /> Add door</>}</button>
-          <button className="btn btn-line" type="button" onClick={() => setMany(true)}>Add multiple doors</button>
         </form>}
         {many && <AddManyDoors projectId={projectId} set={s} onClose={() => setMany(false)} onAdded={onChanged} />}
         {!readOnly && <div className="add-range-row">
