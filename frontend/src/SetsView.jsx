@@ -344,6 +344,8 @@ export function SetEditor({ id, projectId, onNavigate }) {
   const [job, setJob]       = useState(null)
   const searchRef = useRef()
   const heartbeat = useRef()
+  const nameRef = useRef()
+  const [noName, setNoName] = useState(false)      // tried to save without a name
 
   useEffect(() => {
     // on a job, every price is that job's (its Cost summary)
@@ -396,7 +398,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
   }
 
   const save = async () => {
-    if (!name.trim()) { showToast('Give the set a name', 'error'); return false }
+    if (!name.trim()) { setNoName(true); nameRef.current?.focus(); return false }
     setBusy(true)
     let ok = true
     try {
@@ -469,8 +471,15 @@ export function SetEditor({ id, projectId, onNavigate }) {
         {readOnly && <div className="suggest-bar"><div><strong>{lockedBy} has this set open.</strong><span className="muted"> You can look but not save. It frees up when they close it.</span></div></div>}
         <div className="page-header set-edit-head">
           <div className="set-title">
-            <input className="set-code" value={code} onChange={e => { setCode(e.target.value); setDirty(true) }} placeholder="MF 01" disabled={readOnly} />
-            <input className="set-name" value={name} onChange={e => { setName(e.target.value); setDirty(true) }} placeholder="Int Sgl Bathroom Doors FR" disabled={readOnly} />
+            <label className="set-field">Set code
+              <input className="form-control set-code" value={code} onChange={e => { setCode(e.target.value); setDirty(true) }} placeholder="MF 01" disabled={readOnly} />
+            </label>
+            <label className={`set-field${noName ? ' missing' : ''}`}>Set name
+              <input ref={nameRef} className="form-control set-name" value={name} autoFocus={isNew}
+                     onChange={e => { setName(e.target.value); setDirty(true); if (e.target.value.trim()) setNoName(false) }}
+                     placeholder="Name this set, e.g. Int Sgl Bathroom Doors FR" disabled={readOnly} />
+              {noName && <span className="set-field-err">Give the set a name before saving it.</span>}
+            </label>
             <input className="form-control set-desc" value={desc} onChange={e => { setDesc(e.target.value); setDirty(true) }} placeholder="Description (optional)" disabled={readOnly} />
             <label className="check"><input type="checkbox" checked={fire} onChange={e => { setFire(e.target.checked); setDirty(true) }} disabled={readOnly} /> Fire rated</label>
           </div>
