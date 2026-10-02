@@ -166,7 +166,10 @@ export function JobView({ projectId, onNavigate }) {
             <ul className="set-list">
               {job.sets.map(js => (
                 <li key={js.set.id} className={js.set.id === selected && !choosing ? 'on' : ''} onClick={() => { setSelected(js.set.id); setChoosing(false) }}>
-                  <div className="set-list-code">{js.set.code}{!js.set.is_standard && <span className="tag">this job</span>}</div>
+                  <div className="set-list-code">{js.set.code}{!js.set.is_standard && <span className="tag">this job</span>}
+                    {mine && <button className="set-list-x" title={js.set.is_standard ? `Take ${js.set.code} off this job` : `Delete this job's ${js.set.code}`}
+                                     aria-label={`Remove ${js.set.code}`} onClick={e => { e.stopPropagation(); removeSet(js) }}><IconTrash size={15} /></button>}
+                  </div>
                   <div className="set-list-name">{js.set.name}</div>
                   <div className="set-list-meta">
                     <span>{job.sets_only ? `Qty ${js.doors}` : `${js.doors} door${js.doors !== 1 ? 's' : ''}`}</span>

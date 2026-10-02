@@ -1625,3 +1625,20 @@ button.ds-stat { cursor: pointer; }
 .cost-table .cost-act { position: sticky; right: 0; background: #fff; box-shadow: -1px 0 0 var(--card-border); padding-left: 6px; padding-right: 10px; }
 .cost-table thead .cost-act { background: var(--bg3); }
 .ledger.cost-table { overflow: visible; }
+
+/* Sets on this job: take one off from its card */
+.set-list li { position: relative; }
+.set-list-x { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: #98A2B3; cursor: pointer; }
+.set-list-x:hover { background: #FBEDE6; color: var(--red); }
+
+/* Set editor: room for the product name */
+.set-edit-table { table-layout: fixed; width: 100%; }
+.set-edit-table th:nth-child(1), .set-edit-table td:nth-child(1) { width: 160px; }
+.set-edit-table th:nth-child(3), .set-edit-table td:nth-child(3) { width: 96px; }
+.set-edit-table th:nth-child(4), .set-edit-table td:nth-child(4),
+.set-edit-table th:nth-child(5), .set-edit-table td:nth-child(5) { width: 92px; }
+.set-edit-table th:nth-child(6), .set-edit-table td:nth-child(6) { width: 204px; }
+.set-edit-table td.mono { white-space: normal; overflow-wrap: break-word; font-size: 12.5px; }
+.set-edit-table tr.group-row td { width: auto; }
+.rail-panel .total-row strong { white-space: nowrap; }
+.set-edit-table th.num, .set-edit-table td.num { width: 90px; }

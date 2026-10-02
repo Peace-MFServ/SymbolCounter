@@ -465,7 +465,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
     <>
       <Topbar crumbs={crumbs} onNavigate={goNav} active={projectId ? 'projects' : 'sets'} />
       {leaveModal}
-      <div className="page-wrap">
+      <div className="page-wrap wide">
         {askModal}
         {jobCopy && !readOnly && <div className="suggest-bar job-copy-bar"><div><strong>{set.code} is a library set.</strong><span className="muted"> Your changes are saved as this job's own copy. The library {set.code} and other people's jobs are not changed.</span></div></div>}
         {readOnly && <div className="suggest-bar"><div><strong>{lockedBy} has this set open.</strong><span className="muted"> You can look but not save. It frees up when they close it.</span></div></div>}
@@ -508,7 +508,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
                 )}
               </div>
             )}
-            <table className="ledger set-items soft">
+            <table className="ledger set-items soft set-edit-table">
               <thead><tr><th>Code</th><th>Product</th><th className="num">Per door</th><th className="num">Price</th><th className="num">Value</th><th></th></tr></thead>
               <tbody>
                 {groups.map(g => (
