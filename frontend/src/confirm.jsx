@@ -34,3 +34,44 @@ function ConfirmModal({ title, body = '', confirm = 'Yes', danger = false, onAns
     </div>
   )
 }
+
+/*
+  A question with more than one answer, each saying what it does.
+
+    const { choose, modal } = useChoice()
+    const pick = await choose({ title, body, choices: [{ value: 'copy', label, note }, ...] })
+    // pick is the chosen value, or null for Cancel
+*/
+export function useChoice() {
+  const [asking, setAsking] = useState(null)
+  const choose = useCallback(opts => new Promise(resolve => setAsking({ ...opts, resolve })), [])
+  const answer = v => { asking?.resolve(v); setAsking(null) }
+  const modal = asking ? <ChoiceModal {...asking} onAnswer={answer} /> : null
+  return { choose, modal }
+}
+
+function ChoiceModal({ title, body = '', choices, hint = '', onAnswer }) {
+  useEffect(() => {
+    const key = e => { if (e.key === 'Escape') { e.stopPropagation(); onAnswer(null) } }
+    document.addEventListener('keydown', key)
+    return () => document.removeEventListener('keydown', key)
+  })
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onAnswer(null)}>
+      <div className="modal scope-modal">
+        <h2>{title}</h2>
+        {body && <p className="muted">{body}</p>}
+        <div className="scope-opts">
+          {choices.map(c => (
+            <button key={c.value} className={`scope-opt${c.danger ? ' danger' : ''}`} onClick={() => onAnswer(c.value)}>
+              <strong>{c.label}</strong>
+              {c.note && <span>{c.note}</span>}
+            </button>
+          ))}
+        </div>
+        {hint && <p className="hint">{hint}</p>}
+        <div className="modal-actions"><button className="btn btn-ghost" onClick={() => onAnswer(null)}>Cancel</button></div>
+      </div>
+    </div>
+  )
+}

@@ -4,7 +4,7 @@ import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { useAuth } from './auth'
 import { useLeaveGuard } from './unsaved'
-import { useConfirm } from './confirm'
+import { useConfirm, useChoice } from './confirm'
 import { Menu } from './ProjectView'
 import { IconPlus, IconEdit, IconSave, IconBars, IconDoc, IconCheck, IconWarn, IconFile, IconRight, IconDoor, IconLayers, IconFolder, IconTrash, IconLeft } from './icons'
 
@@ -30,6 +30,8 @@ export function JobView({ projectId, onNavigate }) {
   const [busy,     setBusy]     = useState('')
   const [details,  setDetails]  = useState(null)      // editable job details
   const [choosing, setChoosing] = useState(false)     // show the set chooser even when a set is selected
+  const { ask, modal: askModal } = useConfirm()
+  const { choose, modal: chooseModal } = useChoice()
 
   const load = async () => {
     const j = await apiFetch(`/projects/${projectId}/job`)
@@ -56,8 +58,11 @@ export function JobView({ projectId, onNavigate }) {
   }
   const removeSet = async js => {
     const n = js.doors
-    const what = js.set.is_standard ? `Take ${js.set.code} off this job?` : `Delete this job's copy of ${js.set.code}?`
-    if (!confirm(n ? `${what} Its ${n} door${n !== 1 ? 's' : ''} will be left without a set.` : what)) return
+    const ok = await ask({
+      title: js.set.is_standard ? `Take ${js.set.code} off this job?` : `Delete this job's copy of ${js.set.code}?`,
+      body: n ? `Its ${n} door${n !== 1 ? 's' : ''} will be left without a set.` : (js.set.is_standard ? 'It stays in the set library.' : ''),
+      confirm: js.set.is_standard ? 'Take it off' : 'Delete copy', danger: true })
+    if (!ok) return
     try { await apiFetch(`/projects/${projectId}/sets/${js.set.id}`, { method: 'DELETE' }); setSelected(null); await load() }
     catch (err) { showToast(err.message, 'error') }
   }
@@ -65,10 +70,13 @@ export function JobView({ projectId, onNavigate }) {
     let usedOn = s.used_on || []
     try { usedOn = (await apiFetch(`/sets/${s.id}`)).used_on || [] } catch {}
     const others = usedOn.filter(u => u.project_id !== Number(projectId))
-    const msg = others.length
-      ? `${s.code} ${s.name} is also on ${others.map(u => u.project).join(', ')}.\n\nDelete it from the library anyway? Doors using it on every job will be left without a set.`
-      : `Delete ${s.code} ${s.name} from the set library? Doors using it on this job will be left without a set.`
-    if (!confirm(msg)) return
+    const ok = await ask({
+      title: `Delete ${s.code} from the set library?`,
+      body: others.length
+        ? `${s.code} ${s.name} is also on ${others.map(u => u.project).join(', ')}. Doors using it on every one of those jobs will be left without a set.`
+        : `Doors using ${s.code} on this job will be left without a set.`,
+      confirm: 'Delete from library', danger: true })
+    if (!ok) return
     try { await apiFetch(`/sets/${s.id}?force=true`, { method: 'DELETE' }); showToast('Set deleted', 'info'); setSelected(null); await load() }
     catch (err) { showToast(err.message, 'error') }
   }
@@ -77,10 +85,23 @@ export function JobView({ projectId, onNavigate }) {
     if (s.is_standard) {
       const others = (await apiFetch(`/sets/${s.id}`)).used_on.filter(u => u.project_id !== Number(projectId))
       if (others.length) {
-        const copy = confirm(`${s.code} is also used on ${others.map(u => u.project).join(', ')}.\n\nOK: make a copy for this job only and edit that.\nCancel: edit the standard set, which changes it on every job.`)
-        if (copy) {
-          const c = await apiFetch(`/projects/${projectId}/sets/${s.id}/copy-for-job`, { method: 'POST' })
-          onNavigate('set', { id: c.id, projectId }); return
+        const names = others.map(u => u.project)
+        const list = names.length > 3 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ')
+        const pick = await choose({
+          title: `Edit ${s.code} for this job, or everywhere?`,
+          body: `${s.code} ${s.name} is a library set, also used on ${list}.`,
+          choices: [
+            { value: 'copy', label: 'Edit a copy for this job only', note: `This job gets its own ${s.code}. ${names.length === 1 ? names[0] : 'The other jobs'} and the set library stay as they are.` },
+            { value: 'library', label: 'Edit the library set', note: `Changes ${s.code} on every job that uses it, including ${list}.` },
+          ],
+        })
+        if (!pick) return
+        if (pick === 'copy') {
+          try {
+            const c = await apiFetch(`/projects/${projectId}/sets/${s.id}/copy-for-job`, { method: 'POST' })
+            onNavigate('set', { id: c.id, projectId })
+          } catch (err) { showToast(err.message, 'error') }
+          return
         }
       }
     }
@@ -151,6 +172,8 @@ export function JobView({ projectId, onNavigate }) {
         </>
       } />
       {leaveModal}
+      {askModal}
+      {chooseModal}
       <div className="page-wrap wide">
         {!mine && (
           <div className="suggest-bar readonly-bar">
