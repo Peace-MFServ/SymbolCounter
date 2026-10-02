@@ -37,8 +37,8 @@ export function JobView({ projectId, onNavigate }) {
     const j = await apiFetch(`/projects/${projectId}/job`)
     setJob(j)
     if (!details) setDetails({ name: j.name, client: j.client, site: j.site, quote_no: j.quote_no, rep: j.rep, revision: j.revision })
-    const stillThere = j.sets.some(s => s.set.id === selected)
-    if (!stillThere) setSelected(j.sets[0]?.set.id ?? null)
+    // keep the set that is open; if it has gone, open the first one left
+    setSelected(cur => (j.sets.some(s => s.set.id === cur) ? cur : j.sets[0]?.set.id ?? null))
   }
   useEffect(() => { load() }, [projectId])
 
@@ -63,7 +63,7 @@ export function JobView({ projectId, onNavigate }) {
       body: n ? `Its ${n} door${n !== 1 ? 's' : ''} will be left without a set.` : (js.set.is_standard ? 'It stays in the set library.' : ''),
       confirm: js.set.is_standard ? 'Take it off' : 'Delete copy', danger: true })
     if (!ok) return
-    try { await apiFetch(`/projects/${projectId}/sets/${js.set.id}`, { method: 'DELETE' }); setSelected(null); await load() }
+    try { await apiFetch(`/projects/${projectId}/sets/${js.set.id}`, { method: 'DELETE' }); setChoosing(false); await load() }
     catch (err) { showToast(err.message, 'error') }
   }
   const deleteFromLibrary = async s => {
@@ -77,7 +77,7 @@ export function JobView({ projectId, onNavigate }) {
         : `Doors using ${s.code} on this job will be left without a set.`,
       confirm: 'Delete from library', danger: true })
     if (!ok) return
-    try { await apiFetch(`/sets/${s.id}?force=true`, { method: 'DELETE' }); showToast('Set deleted', 'info'); setSelected(null); await load() }
+    try { await apiFetch(`/sets/${s.id}?force=true`, { method: 'DELETE' }); showToast('Set deleted', 'info'); await load() }
     catch (err) { showToast(err.message, 'error') }
   }
   // Editing a set from a job never touches the library: the set editor saves a
