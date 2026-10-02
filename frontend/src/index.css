@@ -1619,3 +1619,10 @@ button.ds-stat { cursor: pointer; }
 .scope-opt:hover, .scope-opt:focus-visible { border-color: var(--accent); background: #F1F6FC; outline: none; }
 .scope-opt:hover strong, .scope-opt:focus-visible strong { color: var(--accent); }
 .scope-modal .hint { margin: 14px 0 0; font-size: 12.5px; }
+
+/* Cost summary: use the screen, and keep Replace in view */
+.cost-table th, .cost-table td { padding-left: 10px; padding-right: 10px; }
+.cost-table .cost-name { max-width: 290px; }
+.cost-table .cost-act { position: sticky; right: 0; background: #fff; box-shadow: -1px 0 0 var(--card-border); padding-left: 6px; padding-right: 10px; }
+.cost-table thead .cost-act { background: var(--bg3); }
+.ledger.cost-table { overflow: visible; }

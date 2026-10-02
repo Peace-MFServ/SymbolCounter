@@ -55,7 +55,7 @@ export function CostSummaryView({ projectId, onNavigate }) {
     <>
       <Topbar crumbs={crumbs} onNavigate={onNavigate} />
       {replaceJob.ui}
-      <div className="page-wrap wide">
+      <div className="page-wrap wide cost-wrap">
         <div className="page-header">
           <div>
             <h1>Cost summary</h1>
@@ -82,7 +82,7 @@ export function CostSummaryView({ projectId, onNavigate }) {
                   <th>Code</th><th>Product</th>
                   <th className="num">Qty</th><th className="num">Cost</th><th className="num">Markup %</th><th className="num">Sell</th>
                   <th className="num">Disc. A %</th><th className="num">Disc. B %</th><th className="num">Actual S.P.</th><th className="num">Line value</th><th className="num">Margin %</th>
-                  {!ro && <th />}
+                  {!ro && <th className="cost-act" />}
                 </tr>
               </thead>
               <tbody>
@@ -90,7 +90,7 @@ export function CostSummaryView({ projectId, onNavigate }) {
                   <tr key={r.product_id}>
                     <td className="mono">{r.sku}</td>
                     <td className="cost-name" title={r.name}>{r.name}</td>
-                    <td className={'num' + (r.qty ? '' : ' flag')}>{fmt(r.qty)}</td>
+                    <td className={'num' + (r.qty ? '' : ' flag')}>{r.qty == null ? '—' : Number(r.qty).toLocaleString('en-IE')}</td>
                     <Cell v={r.cost} flag={!r.cost} edited={r.cost_edited} ro={ro} onSave={v => edit(r, 'cost', v)} title={r.cost_edited && r.product_cost != null ? `Product file: ${money(r.product_cost)}` : ''} />
                     <Cell v={r.markup} ro={ro} onSave={v => edit(r, 'markup', v)} />
                     <Cell v={r.sell} edited={r.sell_edited} ro={ro} onSave={v => edit(r, 'sell', v)} title={r.sell_edited && r.product_sell != null ? `Product file: ${money(r.product_sell)}` : ''} />
@@ -99,7 +99,7 @@ export function CostSummaryView({ projectId, onNavigate }) {
                     <td className="num">{fmt(r.actual)}</td>
                     <td className="num shade">{fmt(r.line_value)}</td>
                     <td className="num">{fmt(r.margin)}</td>
-                    {!ro && <td className="row-actions"><button className="btn btn-ghost btn-sm" title="Swap this product for another on every set on the job"
+                    {!ro && <td className="row-actions cost-act"><button className="btn btn-ghost btn-sm" title="Swap this product for another on every set on the job"
                       onClick={() => replaceJob.start({ product_id: r.product_id, sku: r.sku, name: r.name, qty: r.qty,
                         product_type: products.find(p => p.id === r.product_id)?.product_type || '' })}>Replace</button></td>}
                   </tr>
@@ -116,7 +116,7 @@ export function CostSummaryView({ projectId, onNavigate }) {
                   <td />
                   <td className="num strong shade">{fmt(t.line_total)}</td>
                   <td className="num strong">{fmt(t.margin)}</td>
-                  {!ro && <td />}
+                  {!ro && <td className="cost-act" />}
                 </tr>
               </tfoot>
             </table>
