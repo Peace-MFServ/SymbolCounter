@@ -53,7 +53,7 @@ class SetItemOut(BaseModel):
     product_type: str = ""; image_url: str = ""
 
 class SetUse(BaseModel):
-    project_id: int; project: str; doors: int
+    project_id: int; project: str; doors: int; owner: str = ""
 
 class SetOut(BaseModel):
     id: int; code: str; name: str; description: str = ""; fire_rated: bool = False
@@ -150,6 +150,7 @@ def _set_uses(db: Session, sid: int) -> list[SetUse]:
     """Projects using this set, with door counts (type assignment or per-door override)."""
     counts: dict[int, int] = {}
     names: dict[int, str] = {}
+    owners: dict[int, str] = {}
     for d in db.query(models.Door).all():
         eff = d.set_id or (d.door_type.set_id if d.door_type else None)
         if eff == sid:
@@ -157,7 +158,8 @@ def _set_uses(db: Session, sid: int) -> list[SetUse]:
     if counts:
         for p in db.query(models.Project).filter(models.Project.id.in_(list(counts))).all():
             names[p.id] = p.name
-    return [SetUse(project_id=pid, project=names.get(pid, f"Project {pid}"), doors=n)
+            owners[p.id] = p.owner.name if p.owner else ""
+    return [SetUse(project_id=pid, project=names.get(pid, f"Project {pid}"), doors=n, owner=owners.get(pid, ""))
             for pid, n in sorted(counts.items())]
 
 

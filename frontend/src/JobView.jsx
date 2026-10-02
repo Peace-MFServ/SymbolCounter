@@ -80,33 +80,10 @@ export function JobView({ projectId, onNavigate }) {
     try { await apiFetch(`/sets/${s.id}?force=true`, { method: 'DELETE' }); showToast('Set deleted', 'info'); setSelected(null); await load() }
     catch (err) { showToast(err.message, 'error') }
   }
-  const editSet = async js => {
-    const s = js.set
-    if (s.is_standard) {
-      const others = (await apiFetch(`/sets/${s.id}`)).used_on.filter(u => u.project_id !== Number(projectId))
-      if (others.length) {
-        const names = others.map(u => u.project)
-        const list = names.length > 3 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ')
-        const pick = await choose({
-          title: `Edit ${s.code} for this job, or everywhere?`,
-          body: `${s.code} ${s.name} is a library set, also used on ${list}.`,
-          choices: [
-            { value: 'copy', label: 'Edit a copy for this job only', note: `This job gets its own ${s.code}. ${names.length === 1 ? names[0] : 'The other jobs'} and the set library stay as they are.` },
-            { value: 'library', label: 'Edit the library set', note: `Changes ${s.code} on every job that uses it, including ${list}.` },
-          ],
-        })
-        if (!pick) return
-        if (pick === 'copy') {
-          try {
-            const c = await apiFetch(`/projects/${projectId}/sets/${s.id}/copy-for-job`, { method: 'POST' })
-            onNavigate('set', { id: c.id, projectId })
-          } catch (err) { showToast(err.message, 'error') }
-          return
-        }
-      }
-    }
-    onNavigate('set', { id: s.id, projectId })
-  }
+  // Editing a set from a job never touches the library: the set editor saves a
+  // library set's changes as this job's own copy. The library MF sets are only
+  // changed on the Sets page.
+  const editSet = js => onNavigate('set', { id: js.set.id, projectId })
   const copyForJob = async js => {
     try { const c = await apiFetch(`/projects/${projectId}/sets/${js.set.id}/copy-for-job`, { method: 'POST' }); showToast(`${c.code} is now this job's own copy`, 'success'); await load(); setSelected(c.id) }
     catch (err) { showToast(err.message, 'error') }
@@ -222,7 +199,7 @@ export function JobView({ projectId, onNavigate }) {
             {!mine && !current ? (
               <div className="card-panel"><p className="muted" style={{ margin: 0 }}>No sets on this job yet.</p></div>
             ) : choosing || !current ? (
-              <SetChooser library={job.library} onJob={job.sets.map(js => js.set.id)} onPick={addSet} onDelete={deleteFromLibrary}
+              <SetChooser library={job.library} onJob={job.sets.map(js => js.set.id)} onPick={addSet}
                           onCancel={current ? () => setChoosing(false) : null} />
             ) : (
               <SetPanel js={current} doors={doors} projectId={projectId}
@@ -451,9 +428,9 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
 
   const shown = showAll ? doors : doors.slice(0, 40)
   const menuItems = [
-    ...(s.is_standard ? [{ label: 'Copy for this job only', onClick: onCopy }] : []),
+
     { label: s.is_standard ? 'Remove from job' : 'Delete this copy', onClick: onRemove },
-    ...(s.is_standard ? [{ label: 'Delete from set library', onClick: onDelete, danger: true }] : []),
+
   ]
   return (
     <div className="set-panel">
@@ -462,7 +439,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
         <div>
           <h1>{s.code} · {s.name}</h1>
           <div className="subline">
-            {s.is_standard ? 'Standard set shared by every job' : 'This job’s own copy'}
+            {s.is_standard ? 'Library set. Changes made on this job are saved as this job’s own copy' : 'This job’s own copy'}
             {s.fire_rated ? ' · fire rated' : ''}
             <span className="pill">{setsOnly ? `Qty ${js.doors}` : `${js.doors} door${js.doors !== 1 ? 's' : ''}`}</span>
             {js.from_types > 0 && <span className="pill">{js.from_types} type{js.from_types !== 1 ? 's' : ''} from plans</span>}

@@ -6,6 +6,7 @@ import { Topbar, place, rowOpen } from './Dashboard'
 import { IconTrash, IconSearch, IconPlus, IconFile, IconDoc } from './icons'
 import { TYPE_NAMES, groupItems, money } from './JobView'
 import { useLeaveGuard } from './unsaved'
+import { useConfirm } from './confirm'
 import { Picker, Pager, FilterMenu, FilterGroup } from './ProductsView'
 import { useAuthImage } from './TemplatesView'
 
@@ -374,6 +375,8 @@ export function SetEditor({ id, projectId, onNavigate }) {
   }, [id])
 
   const readOnly = !!lockedBy
+  const jobCopy = !isNew && !!projectId && !!set?.is_standard     // library set opened from a job
+  const { ask, modal: askModal } = useConfirm()
   const matches = useMemo(() => {
     const n = q.trim().toLowerCase()
     if (!n) return []
@@ -399,6 +402,19 @@ export function SetEditor({ id, projectId, onNavigate }) {
     try {
       const body = { code, name, description: desc, fire_rated: fire, notes: '', items: items.map(i => ({ product_id: i.product_id, qty: i.qty })) }
       // a set made on a job stays on that job; only the Sets page adds to the library
+      if (jobCopy) {
+        // a library set opened from a job: the change becomes this job's own copy
+        const c = await apiFetch(`/projects/${projectId}/sets/${id}/copy-for-job`, { method: 'POST' })
+        await apiFetch(`/sets/${c.id}?project_id=${projectId}`, { method: 'PUT', body: JSON.stringify(body) })
+        showToast(`Saved as this job's own ${c.code}. The library ${set.code} is not changed.`, 'success'); setDirty(false)
+        onNavigate('set', { id: c.id, projectId })
+        setBusy(false)
+        return true
+      }
+      if (!isNew && set.is_standard && set.used_on.length && !await ask({
+        title: `Change ${set.code} on every job that uses it?`,
+        body: `${set.code} is a library set, on ${set.used_on.map(u => `${u.project}${u.owner ? ` (${u.owner})` : ''}`).join(', ')}. ${set.used_on.length === 1 ? 'Saving changes it on that job too.' : `Saving changes it on all ${set.used_on.length} of them.`}`,
+        confirm: `Save on ${set.used_on.length} job${set.used_on.length !== 1 ? 's' : ''}`, danger: true })) { setBusy(false); return false }
       const s = isNew ? await apiFetch(projectId ? `/projects/${projectId}/sets` : '/sets', { method: 'POST', body: JSON.stringify(body) })
                       : await apiFetch(`/sets/${id}`, { method: 'PUT', body: JSON.stringify(body) })
       showToast('Set saved', 'success'); setDirty(false)
@@ -421,10 +437,13 @@ export function SetEditor({ id, projectId, onNavigate }) {
   const archive = async () => {
     if (isNew) return
     const used = set.used_on?.length || 0
-    const msg = !set.is_standard ? 'Delete this copy? Its doors on the job will be left without a set.'
-      : used ? `This set is on ${set.used_on.map(u => u.project).join(', ')}.\n\nDelete it anyway? Those doors will be left without a set.`
-      : 'Delete this set?'
-    if (!confirm(msg)) return
+    const ok = await ask({
+      title: set.is_standard ? `Delete ${set.code} from the set library?` : `Delete this job's copy of ${set.code}?`,
+      body: !set.is_standard ? 'Its doors on the job will be left without a set.'
+        : used ? `It is on ${set.used_on.map(u => `${u.project}${u.owner ? ` (${u.owner})` : ''}`).join(', ')}. Doors using it on those jobs will be left without a set.`
+        : 'No job uses it.',
+      confirm: 'Delete', danger: true })
+    if (!ok) return
     try { await apiFetch(`/sets/${id}${used || !set.is_standard ? '?force=true' : ''}`, { method: 'DELETE' }); showToast('Set deleted', 'info'); back() }
     catch (err) { showToast(err.message, 'error') }
   }
@@ -445,6 +464,8 @@ export function SetEditor({ id, projectId, onNavigate }) {
       <Topbar crumbs={crumbs} onNavigate={goNav} active={projectId ? 'projects' : 'sets'} />
       {leaveModal}
       <div className="page-wrap">
+        {askModal}
+        {jobCopy && !readOnly && <div className="suggest-bar job-copy-bar"><div><strong>{set.code} is a library set.</strong><span className="muted"> Your changes are saved as this job's own copy. The library {set.code} and other people's jobs are not changed.</span></div></div>}
         {readOnly && <div className="suggest-bar"><div><strong>{lockedBy} has this set open.</strong><span className="muted"> You can look but not save. It frees up when they close it.</span></div></div>}
         <div className="page-header set-edit-head">
           <div className="set-title">
@@ -511,8 +532,8 @@ export function SetEditor({ id, projectId, onNavigate }) {
                 <h3>Used on</h3>
                 {set.used_on.length === 0 ? <p className="muted">No jobs yet.</p>
                   : <>
-                      {set.used_on.map(u => <div key={u.project_id} className="total-row"><span>{u.project}</span><strong>{u.doors} door{u.doors !== 1 ? 's' : ''}</strong></div>)}
-                      <p className="hint" style={{ marginTop: 8 }}>Saving changes this set on every job listed.</p>
+                      {set.used_on.map(u => <div key={u.project_id} className="total-row"><span>{u.project}{u.owner && <span className="muted"> · {u.owner}</span>}</span><strong>{u.doors} door{u.doors !== 1 ? 's' : ''}</strong></div>)}
+                      <p className="hint" style={{ marginTop: 8 }}>{jobCopy ? 'Saving here changes this job only.' : 'Saving changes this set on every job listed.'}</p>
                     </>}
               </div>
             )}
@@ -524,7 +545,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
                 <button className="btn btn-line wide" onClick={toLibrary} disabled={busy || dirty} title={dirty ? 'Save the set first' : ''}>Save a copy to the library</button>
               </div>
             )}
-            {!isNew && !readOnly && (
+            {!isNew && !readOnly && !jobCopy && (
               <div className="rail-panel" style={{ marginTop: 20 }}>
                 <h3>{set.is_standard ? 'Delete set' : 'Delete this copy'}</h3>
                 <p className="muted" style={{ marginBottom: 12 }}>{set.is_standard ? 'Removes it from the set library. You will be asked to confirm.' : 'Removes this copy from the job. You will be asked to confirm.'}</p>
