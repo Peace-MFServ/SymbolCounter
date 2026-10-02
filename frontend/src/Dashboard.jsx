@@ -291,7 +291,7 @@ function RowMenu({ onOpen, onDuplicate, onDelete }) {
       <button className="row-dots" aria-label="Actions" onClick={toggle}>···</button>
       {at && createPortal(
         <div className="menu-list row-menu-pop" role="menu" ref={pop}
-             style={{ position: 'fixed', top: at.top, right: at.right }} onClick={e => e.stopPropagation()}>
+             style={{ position: 'fixed', top: at.top, bottom: at.bottom, right: at.right }} onClick={e => e.stopPropagation()}>
           <button role="menuitem" onClick={pick(onOpen)}>Open</button>
           {onDuplicate && <button role="menuitem" onClick={pick(onDuplicate)}>Duplicate</button>}
           {onDelete && <button role="menuitem" className="danger" onClick={pick(onDelete)}>Delete</button>}
@@ -313,9 +313,14 @@ export const rowOpen = fn => ({
   },
 })
 
-export const place = el => {
+// Where a row's menu opens: under its button, or above it when the button is
+// near the bottom of the window and the menu would be cut off.
+export const place = (el, height = 180) => {
   const r = el.getBoundingClientRect()
-  return { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) }
+  const right = Math.max(8, window.innerWidth - r.right)
+  if (r.bottom + 4 + height > window.innerHeight && r.top - 4 - height > 0)
+    return { top: 'auto', bottom: window.innerHeight - r.top + 4, right }
+  return { top: r.bottom + 4, bottom: 'auto', right }
 }
 const initials = name => (name || '?').split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
 const AVATARS = [['#DCE6F5', '#12366E'], ['#DCEBE1', '#134A2C'], ['#E8DDF2', '#3B2358'], ['#F6E2D3', '#5E2D0C'], ['#DFE7EC', '#1F3743']]

@@ -305,7 +305,7 @@ function SetMenu({ onDelete }) {
       <button className="row-dots" aria-label="More actions" onClick={e => setAt(at ? null : place(e.currentTarget))}>···</button>
       {at && createPortal(
         <div className="menu-list row-menu-pop" role="menu" ref={pop}
-             style={{ position: 'fixed', top: at.top, right: at.right }} onClick={e => e.stopPropagation()}>
+             style={{ position: 'fixed', top: at.top, bottom: at.bottom, right: at.right }} onClick={e => e.stopPropagation()}>
           <button role="menuitem" className="danger" onClick={pick(onDelete)}>Delete set</button>
         </div>, document.body)}
     </div>
