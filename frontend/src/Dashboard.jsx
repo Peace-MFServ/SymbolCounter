@@ -4,7 +4,7 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { useAuth } from './auth'
 import logo from './assets/mf-logo.jpeg'
-import { IconRight, IconPlus, IconSearch, IconChevron, IconBars } from './icons'
+import { IconRight, IconPlus, IconSearch, IconChevron, IconBars, IconUpload } from './icons'
 import { useLeaveGuard } from './unsaved'
 import { useConfirm } from './confirm'
 
@@ -164,8 +164,15 @@ export function Dashboard({ onNavigate, q = '' }) {
         <div className="jobs-grid">
           <div className="jobs-main">
             <div className="jobs-head">
-              <h1>Jobs</h1>
-              <p className="lede">Every job in the office, in one list.</p>
+              <div>
+                <h1>Jobs</h1>
+                <p className="lede">Every job in the office, in one list.</p>
+              </div>
+              <input ref={intecRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { importIntec(e.target.files); e.target.value = '' }} />
+              <button className="btn btn-line jobs-import" onClick={() => intecRef.current.click()} disabled={importing}
+                      title="Print the job's schedule to PDF in Intec, then pick the PDF here. Several at once is fine.">
+                {importing ? <><span className="spinner" /> Reading the schedule…</> : <><IconUpload size={16} /> Import a job from Intec</>}
+              </button>
             </div>
 
             {!loading && projects.length > 0 && (
@@ -221,12 +228,7 @@ export function Dashboard({ onNavigate, q = '' }) {
             <button className="btn btn-primary btn-lg jobs-new" onClick={() => setShowNew(true)}>
               <IconPlus size={16} /> New job
             </button>
-            <input ref={intecRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { importIntec(e.target.files); e.target.value = '' }} />
-            <button className="btn btn-line btn-lg jobs-import" onClick={() => intecRef.current.click()} disabled={importing}
-                    title="Bring a job over from Intec: print its schedule to PDF in Intec, then pick the PDF here">
-              {importing ? <><span className="spinner" /> Reading the schedule…</> : 'Import a job from Intec'}
-            </button>
-            <p className="jobs-import-hint">Print the job's schedule to PDF in Intec, then pick the PDF. Several at once is fine.</p>
+
             <div className="glance-card">
               <h3><IconBars size={18} /> At a glance</h3>
               <div className="glance-row"><span>Projects</span><strong>{shown.length}</strong></div>
