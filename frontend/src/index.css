@@ -1642,3 +1642,5 @@ button.ds-stat { cursor: pointer; }
 .set-edit-table tr.group-row td { width: auto; }
 .rail-panel .total-row strong { white-space: nowrap; }
 .set-edit-table th.num, .set-edit-table td.num { width: 90px; }
+.jobs-import { width: 100%; height: 42px; border-radius: 7px; font-weight: 600; margin-top: 10px; justify-content: center; }
+.jobs-import-hint { margin: 8px 2px 18px; font-size: 12.5px; color: var(--text3); line-height: 1.4; }

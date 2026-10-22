@@ -22,7 +22,7 @@ const SORTS = {
 }
 
 /* ── The standard set library ─────────────────────────────────────────────── */
-export function SetsView({ onNavigate, autoImport = false }) {
+export function SetsView({ onNavigate }) {
   const [sets, setSets] = useState([])
   const [loading, setLoading] = useState(true)
   const [typed, setTyped] = useState('')
@@ -37,27 +37,13 @@ export function SetsView({ onNavigate, autoImport = false }) {
   const [pageSize, setPageSize] = useState(25)
   const [open, setOpen] = useState({})            // set id -> product list unfolded
   const [importing, setImporting] = useState('')
-  const intecRef = useRef()
   const jsonRef = useRef()
 
   const load = () => apiFetch('/sets').then(s => { setSets(s || []); setLoading(false) })
-  useEffect(() => { load(); if (autoImport) setTimeout(() => intecRef.current?.click(), 300) }, [])
+  useEffect(() => { load() }, [])
   // typing settles before the list is filtered
   useEffect(() => { const t = setTimeout(() => setQ(typed), 260); return () => clearTimeout(t) }, [typed])
 
-  const importIntec = async files => {
-    const pdfs = Array.from(files || []).filter(f => f.name.toLowerCase().endsWith('.pdf'))
-    if (!pdfs.length) return
-    setImporting('intec')
-    let totals = { products_added: 0, sets_added: 0, sets_reused: 0 }, fails = 0
-    for (const f of pdfs) {
-      const form = new FormData(); form.append('file', f)
-      try { const r = await apiFetch('/sets/import-intec', { method: 'POST', body: form }); for (const k of Object.keys(totals)) totals[k] += r[k] || 0 }
-      catch (err) { fails++; showToast(`${f.name}: ${err.message}`, 'error') }
-    }
-    if (pdfs.length > fails) showToast(`${totals.sets_added} new set${totals.sets_added !== 1 ? 's' : ''}, ${totals.products_added} new product${totals.products_added !== 1 ? 's' : ''}${totals.sets_reused ? `, ${totals.sets_reused} already there` : ''}`, 'success')
-    setImporting(''); load()
-  }
   const importJson = async file => {
     if (!file) return
     setImporting('json')
@@ -123,13 +109,9 @@ export function SetsView({ onNavigate, autoImport = false }) {
             <p className="lede">{sets.length} set{sets.length !== 1 ? 's' : ''}. Pre-configured products for doors.</p>
           </div>
           <div className="adm-actions">
-            <input ref={intecRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { importIntec(e.target.files); e.target.value = '' }} />
             <input ref={jsonRef} type="file" accept=".json" style={{ display: 'none' }} onChange={e => { importJson(e.target.files[0]); e.target.value = '' }} />
             <button className="btn btn-line" onClick={() => jsonRef.current.click()} disabled={!!importing}>
               {importing === 'json' ? <><span className="spinner" /> Importing…</> : <><IconFile size={17} /> Import set file</>}
-            </button>
-            <button className="btn btn-line" onClick={() => intecRef.current.click()} disabled={!!importing}>
-              {importing === 'intec' ? <><span className="spinner" /> Reading…</> : <><IconDoc size={17} /> Import Intec schedule</>}
             </button>
             <button className="btn btn-primary" onClick={() => onNavigate('set', { id: 'new' })}><IconPlus size={17} /> New set</button>
           </div>
@@ -140,11 +122,10 @@ export function SetsView({ onNavigate, autoImport = false }) {
         ) : sets.length === 0 ? (
           <div className="empty-state">
             <h2>No standard sets yet</h2>
-            <p>Create a set or import a set file to get started. Old Intec schedule PDFs work too: every set on them is created.</p>
+            <p>Create a set or import a set file to get started.</p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
               <button className="btn btn-primary" onClick={() => onNavigate('set', { id: 'new' })}><IconPlus size={16} /> New set</button>
               <button className="btn btn-line" onClick={() => jsonRef.current.click()}>Import set file</button>
-              <button className="btn btn-line" onClick={() => intecRef.current.click()}>Import Intec schedule</button>
             </div>
           </div>
         ) : (

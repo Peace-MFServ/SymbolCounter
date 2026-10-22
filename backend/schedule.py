@@ -1678,13 +1678,15 @@ def picking_list_download(pid: int, db: Session = Depends(get_db), cu=Depends(au
 
 
 # ── Intec import: old schedules become the product and set library ───────────
+@router.post("/projects/import-intec")
 @router.post("/sets/import-intec")
 async def import_intec_schedule(file: UploadFile = File(...), create_project: bool = True,
                                 db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """
-    Upload an Intec schedule PDF (priced or unpriced). Its products and
-    hardware sets are added to the library, and the job is kept as a
-    door-schedule project so its sets are suggested on future jobs.
+    Upload an Intec schedule PDF (priced or unpriced): the job comes over as
+    a job, with its doors on its sets. Products it names that the product file
+    lacks are added. Its sets stay on that job only; one of the core library
+    sets is used where the products and quantities are exactly the same.
     """
     from intec_import import parse_intec_pdf, import_intec
     if not (file.filename or "").lower().endswith(".pdf"):

@@ -63,7 +63,7 @@ export function Dashboard({ onNavigate, q = '' }) {
   const [collapsed, setCollapsed] = useState({})        // owner key -> hidden
   const { ask, modal: confirmModal } = useConfirm()
 
-  useEffect(() => {
+  const loadJobs = () =>
     apiFetch('/projects')
       .then(p => {
         const list = p || []
@@ -71,11 +71,39 @@ export function Dashboard({ onNavigate, q = '' }) {
         // a long list starts folded away so no one owner fills the page
         const n = {}
         for (const x of list) { const k = ownerKey(x); n[k] = (n[k] || 0) + 1 }
-        setCollapsed(Object.fromEntries(Object.entries(n).filter(([, c]) => c > 10).map(([k]) => [k, true])))
+        setCollapsed(c => ({ ...Object.fromEntries(Object.entries(n).filter(([, c]) => c > 10).map(([k]) => [k, true])), ...c }))
         setLoading(false)
+        return list
       })
       .catch(() => setLoading(false))
-  }, [])
+  useEffect(() => { loadJobs() }, [])
+
+  // An Intec schedule PDF becomes a job: its doors on its sets, which stay on
+  // that job. Back on this list afterwards, with the new job showing.
+  const intecRef = useRef()
+  const [importing, setImporting] = useState(false)
+  const importIntec = async files => {
+    const pdfs = Array.from(files || []).filter(f => f.name.toLowerCase().endsWith('.pdf'))
+    if (!pdfs.length) return
+    setImporting(true)
+    const done = []
+    for (const f of pdfs) {
+      const form = new FormData(); form.append('file', f)
+      try {
+        const r = await apiFetch('/projects/import-intec', { method: 'POST', body: form })
+        done.push(r)
+        const sets = (r.sets_job || 0) + (r.sets_library || 0)
+        showToast(`${r.project_name || f.name} imported: ${r.doors} door${r.doors !== 1 ? 's' : ''} on ${sets} set${sets !== 1 ? 's' : ''}`, 'success')
+      } catch (err) { showToast(`${f.name}: ${err.message}`, 'error') }
+    }
+    setImporting(false)
+    if (done.length) {
+      setSearch(''); setView('owner')
+      setCollapsed(c => ({ ...c, [String(user?.id)]: false }))     // the importer's own jobs, open
+      await loadJobs()
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
 
   const duplicateProject = async p => {
     try {
@@ -193,6 +221,12 @@ export function Dashboard({ onNavigate, q = '' }) {
             <button className="btn btn-primary btn-lg jobs-new" onClick={() => setShowNew(true)}>
               <IconPlus size={16} /> New job
             </button>
+            <input ref={intecRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { importIntec(e.target.files); e.target.value = '' }} />
+            <button className="btn btn-line btn-lg jobs-import" onClick={() => intecRef.current.click()} disabled={importing}
+                    title="Bring a job over from Intec: print its schedule to PDF in Intec, then pick the PDF here">
+              {importing ? <><span className="spinner" /> Reading the schedule…</> : 'Import a job from Intec'}
+            </button>
+            <p className="jobs-import-hint">Print the job's schedule to PDF in Intec, then pick the PDF. Several at once is fine.</p>
             <div className="glance-card">
               <h3><IconBars size={18} /> At a glance</h3>
               <div className="glance-row"><span>Projects</span><strong>{shown.length}</strong></div>

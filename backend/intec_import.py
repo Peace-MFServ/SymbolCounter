@@ -175,7 +175,6 @@ def _norm(s: str) -> str:
 
 def import_intec(db, data: dict, owner_id: int, create_project: bool = True, source_name: str = "") -> dict:
     """Create/refresh products and sets from parsed Intec data; optionally the job as a project."""
-    from schedule import _next_set_code
     # Products: match by SKU or Intec code, case-insensitive
     existing = {}
     for p in db.query(models.Product).all():
@@ -205,58 +204,62 @@ def import_intec(db, data: dict, owner_id: int, create_project: bool = True, sou
             prod_updated += int(changed)
         pid_by_code[code] = p.id
 
-    # Sets: reuse a set with the same name and the same products; otherwise create
-    live = db.query(models.HardwareSet).filter(models.HardwareSet.archived == False).all()   # noqa: E712
-    by_name = {}
-    for s in live:
-        by_name.setdefault(_norm(s.name), []).append(s)
-    used_codes = {s.code for s in db.query(models.HardwareSet).all()}
-    sets_added = sets_reused = 0
+    # The job first: an Intec job comes over as a job, never as library sets.
+    from schedule import _link_set
+    job = data["job"]
+    name = job.get("name") or source_name or "Intec import"
+    proj = db.query(models.Project).filter(models.Project.owner_id == owner_id, models.Project.name == name,
+                                           models.Project.kind == "doors").first()
+    if proj is None:
+        proj = models.Project(name=name, client=job.get("client") or "", site="", description="Imported from Intec",
+                              drawing_firm="", quote_no=job.get("quote_no") or "", rep=job.get("rep") or "",
+                              kind="doors", owner_id=owner_id)
+        db.add(proj); db.flush()
+
+    # Sets: one of the core library sets only when it has exactly the same
+    # products and quantities; otherwise the job's own set, which stays on this
+    # job, never shows in the set library and never takes a library number.
+    library = db.query(models.HardwareSet).filter(models.HardwareSet.archived == False,   # noqa: E712
+                                                  models.HardwareSet.project_id.is_(None)).all()
+    lib_by_items = {}
+    for ls in library:
+        if ls.items:
+            lib_by_items.setdefault(frozenset((it.product_id, it.qty) for it in ls.items), ls)
+    job_sets = {x.code: x for x in db.query(models.HardwareSet).filter(models.HardwareSet.project_id == proj.id).all()}
+    sets_job = sets_library = 0
     set_ids: dict[str, int] = {}
     for s in data["sets"]:
-        want = {(pid_by_code[i["code"]], i["qty"]) for i in s["items"]}
-        match = None
-        for cand in by_name.get(_norm(s["name"]), []):
-            have = {(it.product_id, it.qty) for it in cand.items}
-            if have == want or not have:
-                match = cand; break
-        if match:
-            if not match.items:
-                for n, i in enumerate(s["items"]):
-                    db.add(models.SetItem(set_id=match.id, product_id=pid_by_code[i["code"]], qty=i["qty"], sort_order=n))
-            set_ids[s["code"]] = match.id; sets_reused += 1
+        want = frozenset((pid_by_code[i["code"]], i["qty"]) for i in s["items"])
+        lib = lib_by_items.get(want) if want else None
+        if lib:
+            set_ids[s["code"]] = lib.id; sets_library += 1
+            _link_set(db, proj.id, lib.id)
             continue
-        code = s["code"] if s["code"] not in used_codes else _next_set_code(db)
-        hs = models.HardwareSet(code=code, name=s["name"], description=f"From Intec {data['job'].get('quote_no') or ''} {data['job'].get('name') or ''}".strip(),
-                                fire_rated=bool(re.search(r"\bFR\b", s["name"]) and not re.search(r"\bNFR\b", s["name"])),
-                                created_by_id=owner_id)
-        db.add(hs); db.flush(); used_codes.add(code)
-        for n, i in enumerate(s["items"]):
-            db.add(models.SetItem(set_id=hs.id, product_id=pid_by_code[i["code"]], qty=i["qty"], sort_order=n))
-        by_name.setdefault(_norm(s["name"]), []).append(hs)
-        set_ids[s["code"]] = hs.id; sets_added += 1
+        hs = job_sets.get(s["code"])
+        if hs is None:
+            hs = models.HardwareSet(code=s["code"], name=s["name"], project_id=proj.id, created_by_id=owner_id,
+                                    description=f"From Intec {job.get('quote_no') or ''}".strip(),
+                                    fire_rated=bool(re.search(r"\bFR\b", s["name"]) and not re.search(r"\bNFR\b", s["name"])))
+            db.add(hs); db.flush(); job_sets[s["code"]] = hs
+        if not hs.items:
+            for n, i in enumerate(s["items"]):
+                db.add(models.SetItem(set_id=hs.id, product_id=pid_by_code[i["code"]], qty=i["qty"], sort_order=n))
+        _link_set(db, proj.id, hs.id); db.flush()
+        set_ids[s["code"]] = hs.id; sets_job += 1
 
-    project_id, doors = None, 0
-    if create_project:
-        job = data["job"]
-        name = job.get("name") or source_name or "Intec import"
-        proj = db.query(models.Project).filter(models.Project.owner_id == owner_id, models.Project.name == name).first()
-        if proj is None:
-            proj = models.Project(name=name, client=job.get("client") or "", site="", description="Imported from Intec",
-                                  drawing_firm="", quote_no=job.get("quote_no") or "", rep=job.get("rep") or "",
-                                  kind="doors", owner_id=owner_id)
-            db.add(proj); db.flush()
-        have_refs = {d.ref for d in db.query(models.Door).filter(models.Door.project_id == proj.id).all()}
-        for s in data["sets"]:
-            for ref in s["refs"]:
-                if ref in have_refs:
-                    continue
-                db.add(models.Door(project_id=proj.id, ref=ref, floor="", handed=False, set_id=set_ids[s["code"]],
-                                   source="schedule", note=f"Intec set {s['code']}"))
-                have_refs.add(ref); doors += 1
-        project_id = proj.id
+    # Doors, each on its set
+    doors = 0
+    have_refs = {d.ref for d in db.query(models.Door).filter(models.Door.project_id == proj.id).all()}
+    for s in data["sets"]:
+        for ref in s["refs"]:
+            if ref in have_refs:
+                continue
+            db.add(models.Door(project_id=proj.id, ref=ref, floor="", handed=False, set_id=set_ids[s["code"]],
+                               source="schedule", note=f"Intec set {s['code']}"))
+            have_refs.add(ref); doors += 1
+    project_id = proj.id
     db.commit()
     return {"products_added": prod_added, "products_updated": prod_updated,
-            "sets_added": sets_added, "sets_reused": sets_reused,
+            "sets_job": sets_job, "sets_library": sets_library,
             "project_id": project_id, "project_name": data["job"].get("name", ""), "doors": doors,
             "priced": any(v.get("price") is not None for v in data["products"].values())}

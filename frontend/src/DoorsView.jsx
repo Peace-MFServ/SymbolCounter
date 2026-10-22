@@ -264,8 +264,8 @@ export function DoorsView({ projectId, onNavigate }) {
             {(types.length > 0 || summary.untyped_doors > 0) && summary.sets_available === 0 && (
               <div className="suggest-bar">
                 <div><strong>There are no hardware sets yet, so there is nothing to choose.</strong>
-                  <span className="muted"> Import an old Intec schedule, or build a set by hand.</span></div>
-                <button className="btn btn-sm" onClick={() => onNavigate('sets', { importIntec: true })}>Import Intec schedule</button>
+                  <span className="muted"> Build one on the Sets page.</span></div>
+                <button className="btn btn-sm" onClick={() => onNavigate('sets')}>Go to Sets</button>
               </div>
             )}
             <table className="ledger door-table">
