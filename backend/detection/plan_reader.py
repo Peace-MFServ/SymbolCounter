@@ -97,6 +97,15 @@ def _split_joined(text: str, rect):
     return [(a, ra), (b, rb)]
 
 
+def _extends(k: str, p: str) -> bool:
+    """Shape k is shape p with a little more on the end: a leaf number (D1-645/3
+    beside D1-644) or a letter (SD16A, a door added beside SD16)."""
+    if len(p) >= len(k) or not k.startswith(p):
+        return False
+    rest = k[len(p):]
+    return bool(re.fullmatch(r"([^A-Z#]#)+", rest) or (p.endswith("#") and re.fullmatch(r"[A-Z]{1,2}", rest)))
+
+
 def shape_key(text: str) -> str | None:
     """DG.27 -> 'DG.#', D1-645/3 -> 'D#-#/#', 1234 -> '#4' (all-digit labels keep their length).
     None for things that are never door tags: dates, times, levels, measurements."""
@@ -263,7 +272,7 @@ def _families(labels: list[dict], near: dict, key_ids: set, has_geo: bool) -> li
     parent = {}
     for k in keys:
         for p in keys:
-            if p != k and len(p) < len(k) and k.startswith(p) and re.fullmatch(r"([^A-Z#]#)+", k[len(p):]):
+            if p != k and _extends(k, p):
                 parent[k] = parent.get(p, p)
                 break
     merged = defaultdict(list)
@@ -329,7 +338,7 @@ def family_of(text: str, keys: list[str], size: float = 0.0) -> str | None:
         return None
     for f in keys:
         shape, fs = _split_fam(f)
-        if k == shape or (k.startswith(shape) and re.fullmatch(r"([^A-Z#]#)+", k[len(shape):])):
+        if k == shape or _extends(k, shape):
             return f
     return None
 
@@ -593,12 +602,24 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
         if m:
             groups[(t[:m.start(1)], m.group(2), len(m.group(1)))][int(m.group(1))] = d
     all_refs = {d["ref"].upper() for d in counted}
+    runs = []
     for (head, tail, width), vals in groups.items():
-        if len(vals) < 4:
+        # SD15..SD34 then SD54, SD55: each close run is checked on its own
+        ns = sorted(vals)
+        run = [ns[0]] if ns else []
+        for a, b in zip(ns, ns[1:]):
+            if b - a <= 10:
+                run.append(b)
+            else:
+                runs.append((head, tail, width, vals, run)); run = [b]
+        if run:
+            runs.append((head, tail, width, vals, run))
+    for head, tail, width, vals, run in runs:
+        if len(run) < 4:
             continue
-        lo, hi = min(vals), max(vals)
+        lo, hi = run[0], run[-1]
         span = hi - lo + 1
-        if span > 400 or len(vals) < 0.8 * span:
+        if span > 400 or len(run) < 0.8 * span:
             continue
         near_doc = vals[lo]
         for v in range(lo, hi + 1):
