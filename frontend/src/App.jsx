@@ -12,6 +12,7 @@ import { ScheduleView } from './ScheduleView'
 import { JobView } from './JobView'
 import { CostSummaryView } from './CostSummaryView'
 import { DoorSummaryView } from './DoorSummaryView'
+import { PlanReaderView } from './PlanReaderView'
 import { MatchImagesView } from './MatchImagesView'
 import { MatchDocumentsView } from './MatchDocumentsView'
 import { GridView } from './GridView'
@@ -79,6 +80,8 @@ export default function App() {
       return <CostSummaryView projectId={params.id} onNavigate={navigate} />
     case 'door-summary':
       return <DoorSummaryView projectId={params.id} onNavigate={navigate} />
+    case 'plan-reader':
+      return <PlanReaderView key={params.id} projectId={params.id} setId={params.setId} onNavigate={navigate} />
     case 'doors':
       return <DoorsView projectId={params.id} onNavigate={navigate} />
     case 'schedule':

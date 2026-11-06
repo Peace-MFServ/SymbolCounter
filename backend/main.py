@@ -340,6 +340,8 @@ from schedule import router as schedule_router
 app.include_router(schedule_router)
 from documents import router as documents_router  # noqa: E402
 app.include_router(documents_router)
+from plan_reads import router as plan_reads_router  # noqa: E402
+app.include_router(plan_reads_router)
 
 @app.post("/api/auth/register", response_model=Token, status_code=201)
 def register(payload: UserCreate, db: Session = Depends(get_db)):

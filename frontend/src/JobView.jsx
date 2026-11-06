@@ -140,6 +140,7 @@ export function JobView({ projectId, onNavigate }) {
           <Menu label="Job actions" items={[
             { label: 'Products by set', onClick: () => goNav('grid', { id: projectId }) },
             { label: 'Copy this job', onClick: guard(copyJob) },
+            { label: 'Read doors from floor plans', onClick: () => goNav('plan-reader', { id: projectId }) },
             { label: `Plans and door types${job.plans ? ` (${job.plans})` : ''}`, onClick: () => goNav('doors', { id: projectId }) },
             { label: 'Set library', onClick: () => goNav('sets') },
           ]} />
@@ -189,6 +190,12 @@ export function JobView({ projectId, onNavigate }) {
                 <p className="muted">Stays on this job only.</p>
               </div>
             )}
+            {mine && !job.sets_only && (
+              <div className="side-block">
+                <button className="link-btn strong" onClick={() => goNav('plan-reader', { id: projectId })}>Read doors from floor plans</button>
+                <p className="muted">Upload the architect's plans and the door numbers are read for you.</p>
+              </div>
+            )}
             {mine && job.types_to_decide > 0 && (
               <div className="rail-note">
                 {job.types_to_decide} door type{job.types_to_decide !== 1 ? 's' : ''} from the plans still to decide.{' '}
@@ -207,7 +214,8 @@ export function JobView({ projectId, onNavigate }) {
             ) : (
               <SetPanel js={current} doors={doors} projectId={projectId}
                         onEdit={guard(() => editSet(current))} onCopy={() => copyForJob(current)} onRemove={() => removeSet(current)} onDelete={() => deleteFromLibrary(current.set)}
-                        onChanged={load} onRemoveDoor={removeDoor} readOnly={!mine} setsOnly={job.sets_only} />
+                        onChanged={load} onRemoveDoor={removeDoor} readOnly={!mine} setsOnly={job.sets_only}
+                        onReadPlans={() => goNav('plan-reader', { id: projectId, setId: current.set.id })} />
             )}
           </main>
 
@@ -326,7 +334,7 @@ function DoorChip({ d, readOnly, onRename, onRemove }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(d.ref)
   const done = keep => { setEditing(false); if (keep) onRename(val); else setVal(d.ref) }
-  const title = [d.floor, d.source === 'plan' ? 'from the plan' : '', readOnly ? '' : 'Click to correct'].filter(Boolean).join(' · ')
+  const title = [d.floor, d.source === 'plan' || d.source === 'plans' ? 'from the plans' : '', readOnly ? '' : 'Click to correct'].filter(Boolean).join(' · ')
   if (editing) return (
     <span className="door-chip editing">
       <input autoFocus value={val} onChange={e => setVal(e.target.value)} size={Math.max(3, val.length)}
@@ -344,7 +352,7 @@ function DoorChip({ d, readOnly, onRename, onRemove }) {
   )
 }
 
-function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, onChanged, onRemoveDoor, readOnly = false, setsOnly = false }) {
+function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, onChanged, onRemoveDoor, onReadPlans, readOnly = false, setsOnly = false }) {
   const s = js.set
   const groups = groupItems(s.items)
   const [prefix, setPrefix] = useState('')
@@ -483,6 +491,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
           ) : (
             <button className="link-btn" onClick={() => setShowRange(true)}>Or add a range, e.g. 101 to 125</button>
           )}
+          <button className="link-btn" onClick={onReadPlans}>Or read them from the floor plans</button>
         </div>}
         {doors.length > 0 && !readOnly && (
           <div className="door-list-head">
