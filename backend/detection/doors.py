@@ -143,11 +143,17 @@ def extract_door_tags(pdf_path: str, page_num: int) -> list[dict]:
         words = page.get_text("words")
         legend = _legend_boxes(page)
         out = []
+        printed = set()
         for w in words:
             parsed = parse_tag(w[4])
             if not parsed:
                 continue
             r = fitz.Rect(w[:4])
+            # the same tag printed twice on top of itself (two CAD layers) is one door
+            spot = (w[4], round(r.x0), round(r.y0))
+            if spot in printed:
+                continue
+            printed.add(spot)
             if any(b.contains(r) for b in legend):
                 continue
             # A legend entry has its meaning printed beside it: "ED-2  Door No."

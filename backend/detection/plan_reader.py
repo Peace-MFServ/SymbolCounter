@@ -35,7 +35,8 @@ from detection.doors import floor_from_name
 
 MAX_LABEL = 18               # longer words are sentences, not tags
 NEAR_DOOR = 1.6              # a tag counts as at a door within this many door widths
-GEO_RELIABLE = 0.6           # a family whose tags sit at doors this often is checked for strays
+GEO_RELIABLE = 0.6           # tags sit at drawn doors this often: bare doors are worth flagging
+STRAY_RELIABLE = 0.85        # and this often on the sheet before a tag away from doors is doubted
 
 
 # ── Labels ────────────────────────────────────────────────────────────────────
@@ -67,6 +68,12 @@ def _labels(page, page_no: int, file_no: int) -> list[dict]:
         c = _clean((a.info or {}).get("content") or "")
         if c and len(c) <= MAX_LABEL and re.search(r"\d", c) and " " not in c:
             out.append({"text": c, "rect": fitz.Rect(a.rect), "src": "markup"})
+    # CAD often prints a tag twice on top of itself (two layers): that is one label
+    kept = []
+    for l in out:
+        if not any(k["text"] == l["text"] and abs(k["rect"].x0 - l["rect"].x0) < 1 and abs(k["rect"].y0 - l["rect"].y0) < 1 for k in kept):
+            kept.append(l)
+    out = kept
     for i, l in enumerate(out):
         r = l["rect"]
         l.update(id=f"{file_no}.{page_no}.{i}", file=file_no, page=page_no,
@@ -150,6 +157,75 @@ def _arc_from_bezier(p0, c1, c2, p3):
     return cx, cy, (r0 + r3) / 2, turn
 
 
+def _arcs_from_lines(segs) -> list:
+    """Arcs drawn as a run of short straight lines, end to end, each turning the
+    same way a little: some CAD exports draw every door swing like that."""
+    key = lambda p: (round(p.x * 2), round(p.y * 2))
+    ends = defaultdict(list)
+    for i, (a, b) in enumerate(segs):
+        ends[key(a)].append(i); ends[key(b)].append(i)
+    used, out = set(), []
+    for i in range(len(segs)):
+        if i in used:
+            continue
+        used.add(i)
+        chain = [segs[i][0], segs[i][1]]
+        for side in (1, 0):                          # grow from the far end, then the near end
+            while True:
+                tip = chain[-1] if side else chain[0]
+                nxt = None
+                for j in ends.get(key(tip), ()):
+                    if j in used:
+                        continue
+                    a, b = segs[j]
+                    other = b if key(a) == key(tip) else a
+                    nxt = (j, other); break
+                if nxt is None:
+                    break
+                used.add(nxt[0])
+                if side:
+                    chain.append(nxt[1])
+                else:
+                    chain.insert(0, nxt[1])
+                if len(chain) > 80:
+                    break
+        if len(chain) < 5:
+            continue
+        p0, pm, p1 = chain[0], chain[len(chain) // 2], chain[-1]
+        # the circle through the two ends and the middle
+        ax, ay, bx, by, cx_, cy_ = p0.x, p0.y, pm.x, pm.y, p1.x, p1.y
+        d = 2 * (ax * (by - cy_) + bx * (cy_ - ay) + cx_ * (ay - by))
+        if abs(d) < 1e-6:
+            continue
+        ux = ((ax * ax + ay * ay) * (by - cy_) + (bx * bx + by * by) * (cy_ - ay) + (cx_ * cx_ + cy_ * cy_) * (ay - by)) / d
+        uy = ((ax * ax + ay * ay) * (cx_ - bx) + (bx * bx + by * by) * (ax - cx_) + (cx_ * cx_ + cy_ * cy_) * (bx - ax)) / d
+        r = math.hypot(ax - ux, ay - uy)
+        if r < 3 or any(abs(math.hypot(p.x - ux, p.y - uy) - r) > 0.04 * r for p in chain):
+            continue
+        turn = 0.0
+        for a, b in zip(chain, chain[1:]):
+            t = math.atan2(b.y - uy, b.x - ux) - math.atan2(a.y - uy, a.x - ux)
+            turn += (t + math.pi) % (2 * math.pi) - math.pi
+        out.append((ux, uy, r, abs(turn)))
+    return out
+
+
+_SCALES = {20, 25, 50, 75, 100, 125, 200, 250, 500}
+
+
+def _door_size_at_scale(page) -> float:
+    """A door leaf's width in points at the sheet's printed scale (1:50, 1 : 100), or 0."""
+    try:
+        text = " ".join(page.get_text().split())
+    except Exception:
+        return 0.0
+    found = Counter(int(n) for n in re.findall(r"\b1\s?:\s?(\d{2,3})\b", text) if int(n) in _SCALES)
+    if not found:
+        return 0.0
+    scale = found.most_common(1)[0][0]
+    return 850 / scale * 72 / 25.4
+
+
 def _door_geometry(page) -> tuple[list, list, float]:
     """(door swings as rectangles, highlighted line segments, typical door width in points)."""
     try:
@@ -158,6 +234,7 @@ def _door_geometry(page) -> tuple[list, list, float]:
         return [], [], 0.0
     pieces = []
     coloured = []
+    short = []
     for d in drawings:
         col = d.get("color")
         sat = (max(col) - min(col)) if col else 0
@@ -166,18 +243,39 @@ def _door_geometry(page) -> tuple[list, list, float]:
                 arc = _arc_from_bezier(*it[1:5])
                 if arc:
                     pieces.append(arc)
-            elif it[0] == "l" and sat > 0.35:
-                coloured.append((it[1], it[2]))
-    # pieces of one arc share a centre and radius: add their turns together
-    arcs = defaultdict(float)
+            elif it[0] == "l":
+                if sat > 0.35:
+                    coloured.append((it[1], it[2]))
+                if 0.2 < math.hypot(it[2].x - it[1].x, it[2].y - it[1].y) < 25:
+                    short.append((it[1], it[2]))
+    if len(short) < 200000:
+        pieces += _arcs_from_lines(short)
+    # pieces of one arc share a centre and radius: add their turns together. A
+    # whole circle (a grid bubble, a column) comes to far more than a door's turn.
+    groups = []                                      # [cx, cy, r, turn]
+    cells = defaultdict(list)
     for cx, cy, r, turn in pieces:
         q = max(1.0, r * 0.06)
-        arcs[(round(cx / q), round(cy / q), round(r / q), q)] += turn
+        qc = max(0.3, r * 0.025)                     # pieces of one circle share its centre closely
+        key = (round(cx / 8), round(cy / 8))
+        hit = None
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for g in cells.get((key[0] + dx, key[1] + dy), ()):
+                    if abs(g[0] - cx) <= qc and abs(g[1] - cy) <= qc and abs(g[2] - r) <= q:
+                        hit = g; break
+                if hit: break
+            if hit: break
+        if hit:
+            hit[3] += turn
+        else:
+            g = [cx, cy, r, turn]
+            groups.append(g); cells[key].append(g)
     swings = []
-    for (kx, ky, kr, q), turn in arcs.items():
+    for cx, cy, r, turn in groups:
         deg = math.degrees(turn)
         if 70 <= deg <= 110:                          # a door opening through about a right angle
-            swings.append((kx * q, ky * q, kr * q))
+            swings.append((cx, cy, r))
     if len(swings) < 3:
         door_w = 0.0
     else:
@@ -187,6 +285,13 @@ def _door_geometry(page) -> tuple[list, list, float]:
         if not bins:
             return [], [], 0.0
         mode = bins.most_common(1)[0][0]
+        # where the sheet gives its scale, a door leaf (about 850 mm) has a known
+        # size on paper: take the commonest swing near it, not the chairs and bins
+        want = _door_size_at_scale(page)
+        if want:
+            near = {b: n for b, n in bins.items() if 0.55 * want <= 1.25 ** b <= 1.6 * want and n >= 2}
+            if near:
+                mode = max(near, key=lambda b: (near[b], -abs(1.25 ** b - want)))
         door_w = 1.25 ** mode
         swings = [s for s in swings if 0.45 * door_w <= s[2] <= 2.2 * door_w]
     rects = [fitz.Rect(cx - r, cy - r, cx + r, cy + r) for cx, cy, r in swings]
@@ -572,7 +677,7 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
         if len(digits) == len(usual) and digits != usual and lengths[f][usual] >= 3 * lengths[f][digits]:
             door["status"] = "amber"; door["reasons"].append("Its number has a different number of digits from the rest")
         rate = sheet_rate.get((f, l["file"], l["page"]), fam_rate.get(f))
-        if has_geo and rate is not None and rate >= GEO_RELIABLE and not near.get(l["id"]):
+        if has_geo and rate is not None and rate >= STRAY_RELIABLE and not near.get(l["id"]):
             door["status"] = "amber"; door["reasons"].append("Not next to a door on the drawing: may be a room or other label")
         doors.append(door)
 
