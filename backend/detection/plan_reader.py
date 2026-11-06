@@ -604,6 +604,9 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
     doors, items = [], []
     fam_rate = {f["key"]: f["at_doors"] for f in fams}
     page_size = {(p["file"], p["page"]): (p["width"], p["height"]) for p in pages}
+    multi = Counter(p["file"] for p in pages)
+    sheet_name = {(p["file"], p["page"]): p["name"].rsplit(".", 1)[0] + (f", page {p['page']}" if multi[p["file"]] > 1 else "")
+                  for p in pages}
     chosen = [_split_fam(c)[0] for c in chosen]
     members = set()
     for f in fams:
@@ -669,7 +672,13 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
             doors.append(door); continue
         if text in seen:
             first = seen[text]
-            door["status"], door["reasons"] = "amber", [f"{l['text']} is printed twice: also on sheet {first['page']}" if first["page"] != l["page"] else f"{l['text']} is printed twice on this sheet"]
+            other = (first["file"], first["page"])
+            where = sheet_name.get(other, f"sheet {first['page']}")
+            if other != sheet and first["floor"] and first["floor"] == door["floor"]:
+                # plans of one floor in parts overlap at the edges: the door is already counted
+                door["status"], door["reasons"] = "out", [f"Also on {where}: the plans overlap here, so it is counted once"]
+                doors.append(door); continue
+            door["status"], door["reasons"] = "amber", [f"{l['text']} is printed twice: also on {where}" if other != sheet else f"{l['text']} is printed twice on this sheet"]
         else:
             seen[text] = door
         usual = lengths[f].most_common(1)[0][0]
@@ -756,7 +765,8 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
             at_sw = sum(1 for d in here if any(_dist_rect(fitz.Rect(d["x"], d["y"], d["x"] + d["w"], d["y"] + d["h"]), s) <= reach0 * 0.6 for s in sr))
             if len(here) < 5 or at_sw < GEO_RELIABLE * len(here):
                 continue
-            tags = [fitz.Rect(d["x"], d["y"], d["x"] + d["w"], d["y"] + d["h"]) for d in counted
+            # every tag printed here marks its door, counted on this sheet or another
+            tags = [fitz.Rect(d["x"], d["y"], d["x"] + d["w"], d["y"] + d["h"]) for d in doors
                     if (d["file"], d["page"]) == sheet]
             reach = (p.get("door_width") or 20) * NEAR_DOOR
             bare = [s for s in sw if not any(_dist_rect(t, s) <= reach for t in tags)]
