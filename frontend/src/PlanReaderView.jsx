@@ -33,6 +33,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   const [refs, setRefs] = useState({})          // id -> corrected reference
   const [floors, setFloors] = useState({})      // "file.page" -> floor name
   const [target, setTarget] = useState(setId ? String(setId) : '')
+  const [list, setList] = useState(null)        // a door list read from a spreadsheet
   const fileRef = useRef()
   const { ask, modal: confirmModal } = useConfirm()
 
@@ -58,8 +59,24 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   }
 
   const upload = async files => {
-    const pdfs = [...(files || [])].filter(f => /\.pdf$/i.test(f.name))
-    if (!pdfs.length) { showToast('Choose the floor plans as PDF files', 'error'); return }
+    const all = [...(files || [])]
+    if (all.some(f => /\.xls$/i.test(f.name))) { showToast('That is an old Excel file (.xls). Open it in Excel and save it as .xlsx, then upload that.', 'error'); return }
+    const sheetFile = all.find(f => /\.(xlsx|xlsm|csv)$/i.test(f.name))
+    if (sheetFile) {
+      const fd = new FormData()
+      fd.append('file', sheetFile)
+      setBusy('upload')
+      try {
+        const res = await apiFetch(`/projects/${projectId}/door-list`, { method: 'POST', body: fd })
+        if (res.problem) { showToast(res.problem, 'error'); return }
+        setList(res)
+        if (all.length > 1) showToast(`Read ${sheetFile.name}. Upload the other files on their own.`, 'info')
+      } catch (err) { showToast(err.message, 'error') }
+      finally { setBusy('') }
+      return
+    }
+    const pdfs = all.filter(f => /\.pdf$/i.test(f.name))
+    if (!pdfs.length) { showToast('Choose the floor plans as PDF, or the door schedule as Excel (.xlsx) or .csv', 'error'); return }
     const fd = new FormData()
     pdfs.forEach(f => fd.append('files', f))
     setBusy('upload')
@@ -161,8 +178,11 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   const crumbs = [
     { label: 'Jobs', onClick: () => onNavigate('dashboard') },
     { label: job?.name || '…', onClick: () => onNavigate('job', { id: projectId }) },
-    { label: 'Read doors from plans' },
+    { label: 'Read doors' },
   ]
+
+  if (list) return <DoorListReview data={list} projectId={projectId} job={job} target={target} setTarget={setTarget}
+                                   crumbs={crumbs} onNavigate={onNavigate} onAnother={() => setList(null)} />
 
   // ── upload ────────────────────────────────────────────────────────────────
   if (!r) {
@@ -178,20 +198,20 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
         <div className="page-wrap pr-start" {...drop}>
           <div className="page-header">
             <div>
-              <h1>Read doors from floor plans</h1>
-              <p className="lede">Upload the architect's floor plans as exported from CAD. The door tags are read off every sheet, whatever style the architect numbers them in. You look over the few that are not certain, then add them to the job.</p>
+              <h1>Read doors from plans or a schedule</h1>
+              <p className="lede">Upload the architect's floor plans as exported from CAD, or their door schedule as a spreadsheet. The door numbers are read whatever style the architect uses. You look over the few that are not certain, then add them to the job.</p>
             </div>
           </div>
-          <input ref={fileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { upload(e.target.files); e.target.value = '' }} />
+          <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xlsm,.csv" multiple style={{ display: 'none' }} onChange={e => { upload(e.target.files); e.target.value = '' }} />
           <div className={`empty-state drop-zone pr-drop${drag ? ' over' : ''}`} onClick={() => busy || fileRef.current.click()}>
             {busy === 'upload' ? (
-              <><span className="spinner spinner-lg" /><h2 style={{ marginTop: 16 }}>Reading the plans</h2><p>Usually a second or two a sheet.</p></>
+              <><span className="spinner spinner-lg" /><h2 style={{ marginTop: 16 }}>Reading</h2><p>Usually a second or two a sheet.</p></>
             ) : (
               <>
                 <IconUpload size={28} />
-                <h2>Drop the floor plans here</h2>
-                <p>PDF, one or more files, every floor at once. Plans that are scans or pictures cannot be read; ask for the CAD export.</p>
-                <button className="btn btn-primary" onClick={e => { e.stopPropagation(); fileRef.current.click() }}>Choose plans</button>
+                <h2>Drop the floor plans or the door schedule here</h2>
+                <p>Floor plans as PDF, every floor at once. Or the door schedule as Excel (.xlsx) or .csv. Plans that are scans or pictures cannot be read; ask for the CAD export or the spreadsheet.</p>
+                <button className="btn btn-primary" onClick={e => { e.stopPropagation(); fileRef.current.click() }}>Choose files</button>
               </>
             )}
           </div>
@@ -224,8 +244,8 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
       <Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={
         <>
           <button className="btn btn-ghost back-jobs" onClick={() => onNavigate('job', { id: projectId })}><IconLeft size={16} /> Back to job</button>
-          <input ref={fileRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { upload(e.target.files); e.target.value = '' }} />
-          <button className="btn" onClick={() => fileRef.current.click()} disabled={!!busy}>{busy === 'upload' ? <span className="spinner" /> : 'Read other plans'}</button>
+          <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xlsm,.csv" multiple style={{ display: 'none' }} onChange={e => { upload(e.target.files); e.target.value = '' }} />
+          <button className="btn" onClick={() => fileRef.current.click()} disabled={!!busy}>{busy === 'upload' ? <span className="spinner" /> : 'Read other files'}</button>
         </>
       } />
       {confirmModal}
@@ -455,5 +475,144 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
         </div>
       </div>
     </div>
+  )
+}
+
+/* A door list from the architect's spreadsheet: every row as read, the doubtful
+   ones to look at, each door's number and floor correctable, then onto the job. */
+function DoorListReview({ data, projectId, job, target, setTarget, crumbs, onNavigate, onAnother }) {
+  const [pick, setPick] = useState({})      // id -> true (add) | false (leave out)
+  const [edit, setEdit] = useState({})      // id -> { ref, floor }
+  const [tab, setTab] = useState(() => data.doors.some(d => d.status === 'amber' && !d.on_job) ? 'check' : 'all')
+  const [q, setQ] = useState('')
+  const [busy, setBusy] = useState(false)
+  const { ask, modal: confirmModal } = useConfirm()
+  const doors = data.doors
+  const val = (d, k) => (edit[d.id]?.[k] ?? d[k] ?? '')
+  const isIn = d => !d.on_job && (pick[d.id] ?? (d.status === 'green' ? true : undefined)) === true
+  const toCheck = doors.filter(d => d.status === 'amber' && !d.on_job)
+  const open = toCheck.filter(d => pick[d.id] === undefined)
+  const adding = useMemo(() => {
+    const seen = new Set(), out = []
+    for (const d of doors) {
+      if (!isIn(d)) continue
+      const ref = val(d, 'ref').trim()
+      if (!ref || seen.has(ref.toUpperCase())) continue
+      seen.add(ref.toUpperCase())
+      out.push({ ref, floor: val(d, 'floor').trim(),
+                 note: [d.room && `Room ${d.room}`, d.fire && `Fire ${d.fire}`, d.type, d.description].filter(Boolean).join(' · ') })
+    }
+    return out
+  }, [doors, pick, edit])
+  const onJob = doors.filter(d => d.on_job).length
+  const shown = (tab === 'check' ? toCheck : doors)
+    .filter(d => !q.trim() || `${val(d, 'ref')} ${val(d, 'floor')} ${d.room} ${d.fire}`.toLowerCase().includes(q.trim().toLowerCase()))
+  const set = (d, k, v) => setEdit(e => ({ ...e, [d.id]: { ...e[d.id], [k]: v } }))
+  const cols = data.columns || {}
+  const from = [
+    `door numbers from "${cols.door}"`,
+    cols.floor ? `floor from "${cols.floor}"` : doors.some(d => d.floor) ? 'floor from the headings in the sheet' : 'no floor in the sheet',
+    cols.room && `room from "${cols.room}"`,
+    cols.fire && `fire rating from "${cols.fire}"`,
+  ].filter(Boolean).join(', ')
+
+  const apply = async () => {
+    if (!adding.length) return
+    if (open.length && !await ask({
+      title: `${open.length} still to look at`,
+      body: `${open.length === 1 ? 'It is' : 'They are'} left off for now. The other ${adding.length} go on the job.`,
+      confirm: `Add ${adding.length} door${adding.length !== 1 ? 's' : ''}`,
+    })) return
+    setBusy(true)
+    try {
+      const res = await apiFetch(`/projects/${projectId}/door-list/apply`, { method: 'POST',
+        body: JSON.stringify({ doors: adding, set_id: target ? Number(target) : null }) })
+      showToast(`${res.added} door${res.added !== 1 ? 's' : ''} added to ${res.project}${res.skipped.length ? `, ${res.skipped.length} already on it` : ''}`, 'success')
+      onNavigate('door-summary', { id: projectId })
+    } catch (err) { showToast(err.message, 'error') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <>
+      <Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={
+        <>
+          <button className="btn btn-ghost back-jobs" onClick={() => onNavigate('job', { id: projectId })}><IconLeft size={16} /> Back to job</button>
+          <button className="btn" onClick={onAnother}>Read other files</button>
+        </>
+      } />
+      {confirmModal}
+      <div className="page-wrap wide">
+        <div className="pr-head">
+          <div className="pv-stats">
+            <div className="pv-stat"><div className="num">{adding.length}</div><div className="lbl">Doors to add</div></div>
+            <div className={`pv-stat${open.length ? ' pr-stat-amber' : ''}`}><div className="num">{open.length}<span className="of">/{toCheck.length}</span></div><div className="lbl">Still to look at</div></div>
+            {onJob > 0 && <div className="pv-stat"><div className="num">{onJob}</div><div className="lbl">Already on job</div></div>}
+          </div>
+          <div className="pr-style card-panel">
+            <div className="pr-style-head"><h2 className="card-title">{data.name}</h2></div>
+            <p className="muted dl-from">Sheet "{data.sheet}": {from}.{data.sheets?.length > 1 ? ` The other sheets (${data.sheets.filter(t => t !== data.sheet).join(', ')}) had no door list.` : ''}</p>
+          </div>
+        </div>
+
+        <div className="dl-grid">
+          <section className="card-panel dl-table-wrap">
+            <div className="dl-bar">
+              <div className="pr-tabs dl-tabs">
+                <button className={tab === 'check' ? 'on' : ''} onClick={() => setTab('check')}>To look at <span>{open.length}</span></button>
+                <button className={tab === 'all' ? 'on' : ''} onClick={() => setTab('all')}>All rows <span>{doors.length}</span></button>
+              </div>
+              <label className="adm-search dl-search"><IconSearch size={16} /><input placeholder="Find a door, floor or room" value={q} onChange={e => setQ(e.target.value)} /></label>
+            </div>
+            {tab === 'check' && toCheck.length === 0 && <p className="muted pr-empty"><IconCheck size={16} /> Nothing to look at. Every row read cleanly.</p>}
+            {shown.length > 0 && (
+              <table className="ledger dl-table">
+                <thead><tr><th className="dl-tick">Add</th><th>Door</th><th>Floor</th><th>Room</th><th>Fire rating</th><th>Row</th><th></th></tr></thead>
+                <tbody>
+                  {shown.slice(0, 1500).map(d => {
+                    const inn = isIn(d), undecided = d.status === 'amber' && !d.on_job && pick[d.id] === undefined
+                    return (
+                      <tr key={d.id} className={`${d.on_job ? 'dl-job' : !inn ? 'dl-out' : ''}${undecided ? ' dl-open' : ''}`}>
+                        <td className="dl-tick"><input type="checkbox" checked={inn} disabled={d.on_job}
+                                                       onChange={e => setPick(p => ({ ...p, [d.id]: e.target.checked }))} aria-label={`Add ${d.ref}`} /></td>
+                        <td><input className="form-control dl-in dl-ref" value={val(d, 'ref')} onChange={e => set(d, 'ref', e.target.value)} disabled={d.on_job} /></td>
+                        <td><input className="form-control dl-in" value={val(d, 'floor')} placeholder="Floor" onChange={e => set(d, 'floor', e.target.value)} disabled={d.on_job} /></td>
+                        <td className="dl-room">{d.room}</td>
+                        <td>{d.fire}</td>
+                        <td className="muted dl-row">{d.row}</td>
+                        <td className="dl-why">
+                          {d.on_job ? <span className="muted">Already on the job</span>
+                            : d.status === 'amber' ? <>
+                                <span className="dl-reason"><IconWarn size={13} /> {d.reasons.join('. ')}</span>
+                                {undecided && <span className="dl-acts">
+                                  <button className="btn btn-sm" onClick={() => setPick(p => ({ ...p, [d.id]: true }))}>Keep</button>
+                                  <button className="btn btn-sm" onClick={() => setPick(p => ({ ...p, [d.id]: false }))}>Not a door</button>
+                                </span>}
+                              </> : null}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </section>
+          <aside className="pr-side card-panel dl-side">
+            <div className="pr-foot">
+              <label>Set for these doors
+                <select className="form-control" value={target} onChange={e => setTarget(e.target.value)}>
+                  <option value="">Choose later</option>
+                  {(job?.sets || []).map(js => <option key={js.set.id} value={js.set.id}>{js.set.code} · {js.set.name}</option>)}
+                </select>
+              </label>
+              <p className="muted dl-note">Room and fire rating go into each door's note.</p>
+              <button className="btn btn-primary wide" onClick={apply} disabled={!adding.length || busy}>
+                {busy ? <span className="spinner" /> : `Add ${adding.length} door${adding.length !== 1 ? 's' : ''} to the job`}
+              </button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </>
   )
 }

@@ -1748,3 +1748,32 @@ button.ds-stat { cursor: pointer; }
 .add-range-row .link-btn:hover { text-decoration: underline; }
 .pr-start .page-header { max-width: 760px; margin-left: auto; margin-right: auto; }
 .pr-start .lede { max-width: none; }
+
+/* Door list from a spreadsheet */
+.dl-from { margin: 0; font-size: 13.5px; line-height: 1.5; }
+.dl-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.dl-table-wrap { margin: 0; padding: 0 0 6px; min-width: 0; overflow-x: auto; }
+.dl-bar { display: flex; align-items: center; gap: 16px; padding: 0 14px 0 0; border-bottom: 1px solid var(--card-border); flex-wrap: wrap; }
+.dl-tabs { border-bottom: 0; flex: 0 0 auto; }
+.dl-tabs button { flex: 0 0 auto; padding-left: 18px; padding-right: 18px; }
+.dl-search.adm-search { width: 300px; height: 38px; margin-left: auto; }
+.dl-table.ledger { border: 0; box-shadow: none; border-radius: 0; font-size: 13.5px; }
+.dl-table th { white-space: nowrap; }
+.dl-table td { vertical-align: middle; padding-top: 6px; padding-bottom: 6px; }
+.dl-tick { width: 44px; text-align: center; }
+.dl-tick input { width: 16px; height: 16px; accent-color: var(--accent); }
+.dl-in.form-control { height: 32px; padding: 3px 9px; font-size: 13.5px; width: 150px; }
+.dl-ref.form-control { font-weight: 700; width: 120px; }
+.dl-room { max-width: 220px; }
+.dl-row { width: 50px; font-variant-numeric: tabular-nums; }
+.dl-why { min-width: 220px; }
+.dl-reason { display: block; font-size: 12.5px; color: var(--text2); }
+.dl-reason svg { color: var(--orange); vertical-align: -2px; }
+.dl-acts { display: flex; gap: 6px; margin-top: 6px; }
+.dl-acts .btn-sm { padding: 3px 10px; font-size: 12px; }
+.dl-table tr.dl-open td:first-child { box-shadow: inset 3px 0 0 var(--orange); }
+.dl-table tr.dl-out td, .dl-table tr.dl-job td { color: var(--text3); }
+.dl-table tr.dl-out .dl-ref, .dl-table tr.dl-job .dl-ref { text-decoration: line-through; color: var(--text3); }
+.dl-side { max-height: none; }
+.dl-note { font-size: 12.5px; margin: 0; }
+@media (max-width: 1100px) { .dl-grid { grid-template-columns: 1fr; } }

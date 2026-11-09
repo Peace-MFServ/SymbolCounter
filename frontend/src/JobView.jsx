@@ -140,7 +140,7 @@ export function JobView({ projectId, onNavigate }) {
           <Menu label="Job actions" items={[
             { label: 'Products by set', onClick: () => goNav('grid', { id: projectId }) },
             { label: 'Copy this job', onClick: guard(copyJob) },
-            { label: 'Read doors from floor plans', onClick: () => goNav('plan-reader', { id: projectId }) },
+            { label: 'Read doors from plans or Excel', onClick: () => goNav('plan-reader', { id: projectId }) },
             { label: `Plans and door types${job.plans ? ` (${job.plans})` : ''}`, onClick: () => goNav('doors', { id: projectId }) },
             { label: 'Set library', onClick: () => goNav('sets') },
           ]} />
@@ -192,8 +192,8 @@ export function JobView({ projectId, onNavigate }) {
             )}
             {mine && !job.sets_only && (
               <div className="side-block">
-                <button className="link-btn strong" onClick={() => goNav('plan-reader', { id: projectId })}>Read doors from floor plans</button>
-                <p className="muted">Upload the architect's plans and the door numbers are read for you.</p>
+                <button className="link-btn strong" onClick={() => goNav('plan-reader', { id: projectId })}>Read doors from plans or Excel</button>
+                <p className="muted">Upload the architect's plans or door schedule and the door numbers are read for you.</p>
               </div>
             )}
             {mine && job.types_to_decide > 0 && (
@@ -491,7 +491,7 @@ function SetPanel({ js, doors, projectId, onEdit, onCopy, onRemove, onDelete, on
           ) : (
             <button className="link-btn" onClick={() => setShowRange(true)}>Or add a range, e.g. 101 to 125</button>
           )}
-          <button className="link-btn" onClick={onReadPlans}>Or read them from the floor plans</button>
+          <button className="link-btn" onClick={onReadPlans}>Or read them from the plans or a schedule</button>
         </div>}
         {doors.length > 0 && !readOnly && (
           <div className="door-list-head">

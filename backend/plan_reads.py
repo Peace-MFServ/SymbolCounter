@@ -148,6 +148,7 @@ def sheet_image(pid: int, rid: str, file: int, page: int, db: Session = Depends(
 class DoorIn(BaseModel):
     ref: str
     floor: str = ""
+    note: str = ""
 
 
 class ApplyIn(BaseModel):
@@ -158,9 +159,14 @@ class ApplyIn(BaseModel):
 @router.post("/projects/{pid}/plan-reads/{rid}/apply")
 def add_doors(pid: int, rid: str, payload: ApplyIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """The doors a person has looked over go onto the job. References already on it are left alone."""
+    _dir(pid, rid)
+    return _add_doors(pid, payload, db, cu, source="plans", note="Read from the floor plans")
+
+
+def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str, note: str) -> dict:
+    """The doors a person has looked over go onto the job. References already on it are left alone."""
     from schedule import _edit_project, _link_set, _set_or_404
     p = _edit_project(pid, db, cu)
-    _dir(pid, rid)
     if payload.set_id:
         _set_or_404(payload.set_id, db)
     have = {(x or "").upper() for (x,) in db.query(models.Door.ref).filter(models.Door.project_id == pid).all()}
@@ -172,9 +178,36 @@ def add_doors(pid: int, rid: str, payload: ApplyIn, db: Session = Depends(get_db
         if ref.upper() in have:
             skipped.append(ref); continue
         db.add(models.Door(project_id=pid, ref=ref, floor=dr.floor.strip()[:60], set_id=payload.set_id,
-                           source="plans", note="Read from the floor plans"))
+                           source=source, note=(dr.note.strip() or note)[:500]))
         have.add(ref.upper()); added += 1
     if payload.set_id and added:
         _link_set(db, pid, payload.set_id)
     db.commit()
     return {"added": added, "skipped": skipped, "project": p.name}
+
+
+# ── A door list from the architect's spreadsheet ─────────────────────────────
+SHEET_TYPES = (".xlsx", ".xlsm", ".csv")
+
+
+@router.post("/projects/{pid}/door-list")
+async def read_door_list_file(pid: int, file: UploadFile = File(...),
+                              db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """An architect's door schedule as a spreadsheet: the doors in it, to look over before they are added."""
+    from schedule import _edit_project
+    from detection.door_list import read_door_list
+    _edit_project(pid, db, cu)
+    name = Path(file.filename or "schedule.xlsx").name
+    if not name.lower().endswith(SHEET_TYPES):
+        raise HTTPException(400, "Upload the door schedule as an Excel file (.xlsx) or a .csv")
+    data = await file.read()
+    if len(data) > 25 * 1024 * 1024:
+        raise HTTPException(400, "That file is too big")
+    r = read_door_list(name, data)
+    r["name"] = name
+    return _with_job(db, pid, r)
+
+
+@router.post("/projects/{pid}/door-list/apply")
+def add_listed_doors(pid: int, payload: ApplyIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    return _add_doors(pid, payload, db, cu, source="schedule", note="From the architect's door schedule")
