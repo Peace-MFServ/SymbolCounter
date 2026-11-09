@@ -123,6 +123,26 @@ export function DoorSummaryView({ projectId, onNavigate }) {
   const pickerSet = picker ? (setsOnly ? picker.row : setById[picker.row.set_id]) : null
 
   const setOptions = sets.map(s => ({ value: String(s.id), label: `${s.code}  ${s.name}` }))
+  // a door can be given a library set the job does not have yet: it joins the job
+  const doorSetOptions = [
+    ...sets.map(s => ({ value: String(s.id), label: `${s.code}  ${s.name}`, group: 'On this job' })),
+    ...(data.library || []).map(s => ({ value: String(s.id), label: `${s.code}  ${s.name}`, group: 'Set library' })),
+  ]
+  const setForShown = async sid => {
+    if (!sid) return
+    const target = rows.filter(d => String(d.set_id || '') !== sid)
+    if (!target.length) { showToast('Every door shown already has that set', 'info'); return }
+    const name = doorSetOptions.find(o => o.value === sid)?.label || 'that set'
+    const filtered = q.trim() || setF
+    if (!await ask({ title: `Give ${target.length} door${target.length !== 1 ? 's' : ''} ${name.split('  ')[0]}?`,
+                     body: filtered ? `Every door shown with this search and filter: ${target.slice(0, 6).map(d => d.ref).join(', ')}${target.length > 6 ? ' …' : ''}.`
+                                    : `Every door on the job${target.length < rows.length ? ' that has another set or none' : ''}.`,
+                     confirm: `Give ${target.length} door${target.length !== 1 ? 's' : ''} this set` })) return
+    try {
+      const r = await apiFetch(`/projects/${projectId}/doors/assign-set`, { method: 'POST', body: JSON.stringify({ door_ids: target.map(d => d.id), set_id: Number(sid) }) })
+      showToast(`${r.doors} door${r.doors !== 1 ? 's' : ''} now have ${name.split('  ')[0]}`, 'success'); await load()
+    } catch (err) { showToast(err.message, 'error') }
+  }
   const shown = more ? rows : rows.slice(0, SHOWN)
   return (
     <>
@@ -166,6 +186,13 @@ export function DoorSummaryView({ projectId, onNavigate }) {
                   options={[...(setsOnly ? [] : [{ value: 'none', label: 'Doors without a set' }]), ...setOptions]} />
           <span className="ds-count">{rows.length} {setsOnly ? `set${rows.length !== 1 ? 's' : ''}` : `door${rows.length !== 1 ? 's' : ''}`}</span>
         </div>
+        {!setsOnly && !ro && rows.length > 1 && (
+          <div className="ds-bulk">
+            <span>Give {q.trim() || setF ? `the ${rows.length} doors shown` : `all ${rows.length} doors`} one set</span>
+            <Picker small value="" all="Choose a set..." options={doorSetOptions} onChange={setForShown} />
+            <span className="muted">Search first to narrow it down, e.g. a floor or "D-G".</span>
+          </div>
+        )}
 
         <div className="adm-card">
           <div className="adm-scroll">
@@ -206,7 +233,7 @@ export function DoorSummaryView({ projectId, onNavigate }) {
                             <td>
                               {ro ? (s ? <span className="ds-set">{s.code} <span className="muted">{s.name}</span></span> : <span className="ds-noset">No set</span>) : (
                                 <div className={`ds-setpick${s ? '' : ' none'}`}>
-                                  <Picker small value={s ? String(s.id) : ''} all="No set" options={setOptions}
+                                  <Picker small value={s ? String(s.id) : ''} all="No set" options={doorSetOptions}
                                           onChange={v => saveDoor(row, { set_id: v ? Number(v) : null })} />
                                 </div>
                               )}

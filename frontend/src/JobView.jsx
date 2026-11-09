@@ -144,7 +144,7 @@ export function JobView({ projectId, onNavigate }) {
             { label: `Plans and door types${job.plans ? ` (${job.plans})` : ''}`, onClick: () => goNav('doors', { id: projectId }) },
             { label: 'Set library', onClick: () => goNav('sets') },
           ]} />
-          <button className="btn" onClick={() => goNav('door-summary', { id: projectId })} disabled={!job.sets.length}>{job.sets_only ? 'Set summary' : 'Door summary'}</button>
+          <button className="btn" onClick={() => goNav('door-summary', { id: projectId })} disabled={!job.sets.length && !job.doors_total}>{job.sets_only ? 'Set summary' : 'Door summary'}</button>
           <button className="btn" onClick={() => goNav('cost', { id: projectId })} disabled={!job.sets.length}>Cost summary</button>
           <button className="btn btn-primary" onClick={() => goNav('schedule', { id: projectId })} disabled={!job.sets.length}><IconFile size={16} /> Produce schedule</button>
         </>

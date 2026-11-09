@@ -1588,8 +1588,8 @@ def update_door(did: int, payload: DoorIn, db: Session = Depends(get_db), cu=Dep
     d = _edit_door(did, db, cu)
     if payload.door_type_id is not None:
         _edit_door_type(payload.door_type_id, db, cu)
-    if payload.set_id is not None and not db.query(models.HardwareSet).get(payload.set_id):
-        raise HTTPException(404, "Set not found")
+    if payload.set_id is not None:
+        _usable_set(db, d.project_id, payload.set_id)
     ref = " ".join(payload.ref.split()) or d.ref
     if ref.lower() != d.ref.lower() and db.query(models.Door).filter(
             models.Door.project_id == d.project_id, models.Door.id != d.id,
@@ -1597,8 +1597,39 @@ def update_door(did: int, payload: DoorIn, db: Session = Depends(get_db), cu=Dep
         raise HTTPException(409, f"Door already exists on this job: {ref}.")
     d.ref = ref; d.floor = payload.floor.strip(); d.handed = payload.handed
     d.door_type_id = payload.door_type_id; d.set_id = payload.set_id; d.note = payload.note
+    if payload.set_id:
+        _link_set(db, d.project_id, payload.set_id)      # a library set picked for a door joins the job
     db.commit(); db.refresh(d)
     return _door_single_out(db, d)
+
+
+def _usable_set(db: Session, pid: int, sid: int) -> models.HardwareSet:
+    """A library set, or this job's own: never another job's set."""
+    x = db.query(models.HardwareSet).get(sid)
+    if not x or (x.project_id is not None and x.project_id != pid):
+        raise HTTPException(404, "Set not found")
+    return x
+
+
+class AssignSetIn(BaseModel):
+    door_ids: list[int] = []
+    set_id: Optional[int] = None
+
+
+@router.post("/projects/{pid}/doors/assign-set")
+def assign_set_to_doors(pid: int, payload: AssignSetIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Many doors given one set at once (or none). A library set joins the job."""
+    _edit_project(pid, db, cu)
+    if payload.set_id:
+        _usable_set(db, pid, payload.set_id)
+    ids = set(payload.door_ids[:5000])
+    doors = db.query(models.Door).filter(models.Door.project_id == pid, models.Door.id.in_(ids)).all() if ids else []
+    for d in doors:
+        d.set_id = payload.set_id
+    if payload.set_id and doors:
+        _link_set(db, pid, payload.set_id)
+    db.commit()
+    return {"doors": len(doors)}
 
 
 @router.delete("/doors/{did}", status_code=204)
@@ -2428,6 +2459,11 @@ def door_summary(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cu
                      "value_per_door": round(total, 2) if items and priced else None,
                      "value": round(total * n, 2) if items and priced else None})
     known = {x["id"] for x in sets}
+    # the library, so a door can be given a set the job does not have yet
+    library = [{"id": x.id, "code": x.code, "name": x.name}
+               for x in db.query(models.HardwareSet).filter(models.HardwareSet.project_id.is_(None)).all()
+               if not x.archived and x.id not in known]
+    library.sort(key=lambda x: _ref_key(x["code"]))
     doors = []
     for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
         if d.door_type and d.door_type.status == "excluded" and not d.set_id:
@@ -2440,7 +2476,7 @@ def door_summary(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cu
     with_set = [x for x in sets if x["doors"]]
     priced = all(x["value"] is not None for x in with_set)
     return {"project_id": pid, "name": p.name, "sets_only": bool(p.sets_only), "can_edit": not p.owner_id or p.owner_id == cu.id,
-            "sets": sets, "doors": doors,
+            "sets": sets, "doors": doors, "library": library,
             "totals": {"doors": sum(1 for d in doors if d["set_id"]), "no_set": sum(1 for d in doors if not d["set_id"]),
                        "sets": len(with_set), "value": round(sum(x["value"] for x in with_set), 2) if with_set and priced else None}}
 

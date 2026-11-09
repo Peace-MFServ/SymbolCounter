@@ -377,7 +377,12 @@ export function Picker({ value, onChange, options, all, small = false }) {
     <div className={`picker${small ? ' small' : ''}`}>
       <select value={value} onChange={e => onChange(e.target.value)}>
         {all && <option value="">{all}</option>}
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {options.filter(o => !o.group).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {[...new Set(options.filter(o => o.group).map(o => o.group))].map(g => (
+          <optgroup key={g} label={g}>
+            {options.filter(o => o.group === g).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </optgroup>
+        ))}
       </select>
       <IconChevron size={16} />
     </div>
