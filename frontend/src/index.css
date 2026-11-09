@@ -1791,3 +1791,4 @@ button.ds-stat { cursor: pointer; }
 .ds-tick input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; vertical-align: middle; }
 .ds-grid tr.ds-row.ticked td { background: #F1F6FC; }
 .ds-bulk.on { position: sticky; top: 8px; z-index: 5; box-shadow: 0 4px 16px rgba(15, 23, 42, .10); }
+.ds-bulk .picker select { max-width: none; min-width: 0; font-weight: 600; }
