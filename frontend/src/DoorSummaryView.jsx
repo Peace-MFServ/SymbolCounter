@@ -11,6 +11,20 @@ import { useConfirm } from './confirm'
 import { IconSearch, IconLeft, IconFile, IconRight, IconEdit } from './icons'
 
 const SHOWN = 150
+const ORDINALS = ['ground', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth']
+// floors in building order: basement, ground, first ... roof, then anything else
+const floorRank = f => {
+  const t = (f || '').toLowerCase()
+  if (/basement/.test(t)) return -2
+  if (/lower ground/.test(t)) return -1
+  if (/upper ground/.test(t)) return 0.5
+  const n = t.match(/(?:level|floor|storey|l)\s*(-?\d+)/)
+  if (n) return Number(n[1])
+  const i = ORDINALS.findIndex(w => t.startsWith(w))
+  if (i >= 0) return i
+  if (/roof/.test(t)) return 90
+  return 99
+}
 const refKey = r => (r || '').split(/(\d+)/).map(t => (/^\d+$/.test(t) ? t.padStart(8, '0') : t.toLowerCase())).join('')
 
 /* Every door on the job before the schedule goes out: its set, what goes on
@@ -24,6 +38,8 @@ export function DoorSummaryView({ projectId, onNavigate }) {
   const [more, setMore] = useState(false)
   const [picker, setPicker] = useState(null)      // { mode: 'replace' | 'add', row, item }
   const [scopeAsk, setScopeAsk] = useState(null)
+  const [ticked, setTicked] = useState(() => new Set())   // doors ticked to be given one set together
+  const lastTick = useRef(null)
   const products = useJobProducts(projectId)
   const { ask, modal: confirmModal } = useConfirm()
   const load = () => apiFetch(`/projects/${projectId}/door-summary`).then(setData).catch(err => showToast(err.message, 'error'))
@@ -128,22 +144,51 @@ export function DoorSummaryView({ projectId, onNavigate }) {
     ...sets.map(s => ({ value: String(s.id), label: `${s.code}  ${s.name}`, group: 'On this job' })),
     ...(data.library || []).map(s => ({ value: String(s.id), label: `${s.code}  ${s.name}`, group: 'Set library' })),
   ]
-  const setForShown = async sid => {
-    if (!sid) return
-    const target = rows.filter(d => String(d.set_id || '') !== sid)
-    if (!target.length) { showToast('Every door shown already has that set', 'info'); return }
-    const name = doorSetOptions.find(o => o.value === sid)?.label || 'that set'
-    const filtered = q.trim() || setF
-    if (!await ask({ title: `Give ${target.length} door${target.length !== 1 ? 's' : ''} ${name.split('  ')[0]}?`,
-                     body: filtered ? `Every door shown with this search and filter: ${target.slice(0, 6).map(d => d.ref).join(', ')}${target.length > 6 ? ' …' : ''}.`
-                                    : `Every door on the job${target.length < rows.length ? ' that has another set or none' : ''}.`,
-                     confirm: `Give ${target.length} door${target.length !== 1 ? 's' : ''} this set` })) return
+  // ── ticking doors, and giving them one set together ─────────────────────
+  const tickedRows = (data.doors || []).filter(d => ticked.has(d.id))
+  const tick = (row, e) => {
+    const on = !ticked.has(row.id)
+    const next = new Set(ticked)
+    // shift-click ticks every door between the last one ticked and this one
+    const from = lastTick.current != null ? rows.findIndex(r => r.id === lastTick.current) : -1
+    const to = rows.findIndex(r => r.id === row.id)
+    const run = e?.shiftKey && from >= 0 && to >= 0 ? rows.slice(Math.min(from, to), Math.max(from, to) + 1) : [row]
+    for (const r of run) on ? next.add(r.id) : next.delete(r.id)
+    lastTick.current = row.id
+    setTicked(next)
+  }
+  const allShownTicked = rows.length > 0 && rows.every(r => ticked.has(r.id))
+  const tickAllShown = () => {
+    const next = new Set(ticked)
+    for (const r of rows) allShownTicked ? next.delete(r.id) : next.add(r.id)
+    setTicked(next)
+  }
+  // (plain, not a hook: this runs after the page has its data)
+  const floorCount = {}
+  for (const d of data.doors || []) if (d.floor) floorCount[d.floor] = (floorCount[d.floor] || 0) + 1
+  const floors = Object.entries(floorCount).sort((a, b) => floorRank(a[0]) - floorRank(b[0]) || a[0].localeCompare(b[0], undefined, { numeric: true }))
+  const tickFloor = fl => {
+    const on = (data.doors || []).filter(d => d.floor === fl)
+    const all = on.every(d => ticked.has(d.id))
+    const next = new Set(ticked)
+    for (const d of on) all ? next.delete(d.id) : next.add(d.id)
+    setTicked(next)
+  }
+  const giveSet = async (target, sid, what) => {
+    if (sid === undefined || sid === null) return
+    const name = sid ? (doorSetOptions.find(o => o.value === sid)?.label || 'that set').split('  ')[0] : 'no set'
+    if (!target.length) return
+    if (!await ask({ title: `Give ${target.length} door${target.length !== 1 ? 's' : ''} ${name}?`,
+                     body: `${what}: ${target.slice(0, 8).map(d => d.ref).join(', ')}${target.length > 8 ? ' …' : ''}.`,
+                     confirm: `Give ${target.length} door${target.length !== 1 ? 's' : ''} ${sid ? 'this set' : 'no set'}` })) return
     try {
-      const r = await apiFetch(`/projects/${projectId}/doors/assign-set`, { method: 'POST', body: JSON.stringify({ door_ids: target.map(d => d.id), set_id: Number(sid) }) })
-      showToast(`${r.doors} door${r.doors !== 1 ? 's' : ''} now have ${name.split('  ')[0]}`, 'success'); await load()
+      const r = await apiFetch(`/projects/${projectId}/doors/assign-set`, { method: 'POST', body: JSON.stringify({ door_ids: target.map(d => d.id), set_id: sid ? Number(sid) : null }) })
+      showToast(`${r.doors} door${r.doors !== 1 ? 's' : ''} now ${sid ? `have ${name}` : 'have no set'}`, 'success')
+      setTicked(new Set()); await load()
     } catch (err) { showToast(err.message, 'error') }
   }
   const shown = more ? rows : rows.slice(0, SHOWN)
+  const tickable = !setsOnly && !ro
   return (
     <>
       <Topbar crumbs={crumbs} onNavigate={onNavigate} />
@@ -186,11 +231,24 @@ export function DoorSummaryView({ projectId, onNavigate }) {
                   options={[...(setsOnly ? [] : [{ value: 'none', label: 'Doors without a set' }]), ...setOptions]} />
           <span className="ds-count">{rows.length} {setsOnly ? `set${rows.length !== 1 ? 's' : ''}` : `door${rows.length !== 1 ? 's' : ''}`}</span>
         </div>
-        {!setsOnly && !ro && rows.length > 1 && (
-          <div className="ds-bulk">
-            <span>Give {q.trim() || setF ? `the ${rows.length} doors shown` : `all ${rows.length} doors`} one set</span>
-            <Picker small value="" all="Choose a set..." options={doorSetOptions} onChange={setForShown} />
-            <span className="muted">Search first to narrow it down, e.g. a floor or "D-G".</span>
+        {!setsOnly && !ro && (data.doors || []).length > 1 && (
+          <div className={`ds-bulk${ticked.size ? ' on' : ''}`}>
+            {ticked.size ? (
+              <>
+                <strong>{ticked.size} door{ticked.size !== 1 ? 's' : ''} ticked</strong>
+                <span>Give {ticked.size === 1 ? 'it' : 'them'}</span>
+                <Picker small value="" all="Choose a set..." options={[...doorSetOptions, { value: '0', label: 'No set', group: 'Clear' }]}
+                        onChange={v => giveSet(tickedRows, v === '0' ? 0 : v, 'The doors ticked')} />
+                <button className="link-btn inline" onClick={() => setTicked(new Set())}>Untick all</button>
+              </>
+            ) : (
+              <>
+                <span>Tick doors to give them one set together{floors.length > 1 ? ', or tick a whole floor:' : '. Shift-click ticks a run of doors.'}</span>
+                {floors.length > 1 && floors.map(([fl, n]) => (
+                  <button key={fl} className="chip-btn ds-floor" onClick={() => tickFloor(fl)}>{fl} <span>{n}</span></button>
+                ))}
+              </>
+            )}
           </div>
         )}
 
@@ -198,13 +256,16 @@ export function DoorSummaryView({ projectId, onNavigate }) {
           <div className="adm-scroll">
             <table className="ds-grid">
               <colgroup>
+                {tickable && <col style={{ width: 40 }} />}
                 <col style={{ width: 44 }} />
                 {setsOnly
                   ? <><col style={{ width: 120 }} /><col /><col style={{ width: 110 }} /><col style={{ width: '24%' }} /><col style={{ width: 120 }} /><col style={{ width: 130 }} /></>
-                  : <><col style={{ width: 150 }} /><col style={{ width: 140 }} /><col style={{ width: '28%' }} /><col /><col style={{ width: 130 }} /></>}
+                  : <><col style={{ width: 150 }} /><col style={{ width: 170 }} /><col style={{ width: '28%' }} /><col /><col style={{ width: 130 }} /></>}
               </colgroup>
               <thead>
                 <tr>
+                  {tickable && <th className="ds-tick"><input type="checkbox" checked={allShownTicked} onChange={tickAllShown}
+                                                            title={allShownTicked ? 'Untick the doors shown' : 'Tick every door shown'} aria-label="Tick every door shown" /></th>}
                   <th />
                   {setsOnly
                     ? <><th>Set</th><th>Name</th><th className="num">Qty</th><th>Products</th><th className="num">Per set</th><th className="num">Total</th></>
@@ -218,7 +279,9 @@ export function DoorSummaryView({ projectId, onNavigate }) {
                   const toggle = e => { if (!e.target.closest('input, select, button, .inline-edit')) setOpen(isOpen ? null : row.id) }
                   return (
                     <React.Fragment key={row.id}>
-                      <tr className={`ds-row${isOpen ? ' open' : ''}`} onClick={toggle}>
+                      <tr className={`ds-row${isOpen ? ' open' : ''}${ticked.has(row.id) ? ' ticked' : ''}`} onClick={toggle}>
+                        {tickable && <td className="ds-tick"><input type="checkbox" checked={ticked.has(row.id)} onChange={() => {}}
+                                                                     onClick={e => { e.stopPropagation(); tick(row, e) }} aria-label={`Tick ${row.ref}`} /></td>}
                         <td className="ds-chev"><button aria-label={isOpen ? 'Close' : 'Open'} onClick={() => setOpen(isOpen ? null : row.id)}><IconRight size={16} /></button></td>
                         {setsOnly ? (
                           <>
@@ -245,7 +308,7 @@ export function DoorSummaryView({ projectId, onNavigate }) {
                         {setsOnly && <td className="num ds-money">{s.value != null ? money(s.value) : <span className="muted">—</span>}</td>}
                       </tr>
                       {isOpen && (
-                        <tr className="ds-detail-row"><td colSpan={setsOnly ? 7 : 6}>
+                        <tr className="ds-detail-row"><td colSpan={(setsOnly ? 7 : 6) + (tickable ? 1 : 0)}>
                           {s ? <SetDetail row={row} s={s} setsOnly={setsOnly} ro={ro} doorsOn={doorsOf[s.id] || []}
                                           onQty={(item, n) => change(row, { kind: 'qty', product_id: item.product_id, qty: n, sku: item.sku }, `Change ${item.sku} to ${n} on ${row.ref || row.code}?`)}
                                           onPrice={setPrice} onRemove={item => remove(row, item)}
