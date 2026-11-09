@@ -75,9 +75,11 @@ def _labels(page, page_no: int, file_no: int) -> list[dict]:
                     out.append({"text": f"{m.group(1)}{n_}", "rect": fitz.Rect(rect), "src": "text"})
                 continue
         if 1 <= len(text) <= MAX_LABEL * 2 + 1 and re.search(r"\d", text):
-            for part, pr in _split_joined(text, rect):
+            parts = _split_joined(text, rect)
+            for part, pr in parts:
                 if len(part) <= MAX_LABEL:
-                    out.append({"text": part, "rect": pr, "src": "text"})
+                    # the box of two touching tags is taller than one tag: its size says little
+                    out.append({"text": part, "rect": pr, "src": "text", "joined": len(parts) > 1})
     for a in page.annots() or []:
         c = _clean((a.info or {}).get("content") or "")
         if c and len(c) <= MAX_LABEL and re.search(r"\d", c) and " " not in c:
@@ -124,7 +126,8 @@ def _extends(k: str, p: str) -> bool:
     if len(p) >= len(k) or not k.startswith(p):
         return False
     rest = k[len(p):]
-    return bool(re.fullmatch(r"([^A-Z#]#)+", rest) or (p.endswith("#") and re.fullmatch(r"[A-Z]{1,2}", rest)))
+    # not I, L, O or Q: those are a 1 or a 0 printed wrong (W-04I), not a door added (SD16A)
+    return bool(re.fullmatch(r"([^A-Z#]#)+", rest) or (p.endswith("#") and re.fullmatch(r"[A-HJKMNPR-Z]{1,2}", rest)))
 
 
 def shape_key(text: str) -> str | None:
@@ -420,6 +423,10 @@ def _families(labels: list[dict], near: dict, key_ids: set, has_geo: bool) -> li
                     best = (val, g, gr)
             if best and best[2]:
                 ls += best[1]
+                # tags split out of a touching pair keep the size of the pair's box
+                gs = sorted(l["size"] for l in best[1])
+                mid = gs[len(gs) // 2]
+                ls += [l for l in sl if l.get("joined") and l not in best[1] and 0.6 * mid <= l["size"] <= 1.8 * mid]
         k = k0
         real = [l for l in ls if l["id"] not in key_ids]
         if numeric:
@@ -762,8 +769,37 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
                           "family": None, "src": l["src"], "status": "amber",
                           "reasons": [f"Printed as {l['text']}: looks like a door tag with a slip. Read as {fixed}"]})
 
+    # the safety net: a label in another style right at a drawn door, on a sheet where
+    # the door tags do sit at doors, may be a door tag the chosen style left out
+    counted_ids = {d["id"] for d in doors}
+    tagged_at = {}
+    for (f_, fi, pg), rt in sheet_rate.items():
+        tagged_at[(fi, pg)] = max(tagged_at.get((fi, pg), 0), rt)
+    others = defaultdict(list)
+    for l in labels:
+        sh = (l["file"], l["page"])
+        if l["id"] in counted_ids or l["id"] in key_ids or not near.get(l["id"]) or tagged_at.get(sh, 0) < GEO_RELIABLE:
+            continue
+        if not re.fullmatch(r"[A-Z]{1,4}[-./_]?\d{1,4}[A-Z]?", l["text"].upper()) or family_of(l["text"], chosen):
+            continue
+        if sh in same_as:
+            continue
+        others[sh].append(l)
+    other_note = {}
+    for sh, ls in others.items():
+        mine_here = sum(1 for d in doors if (d["file"], d["page"]) == sh)
+        # a few are worth a look; many are a whole other kind of label (windows, rooms)
+        if len(ls) <= max(3, 0.15 * mine_here):
+            for l in ls:
+                doors.append({"id": l["id"], "ref": l["text"], "file": l["file"], "page": l["page"], "floor": l.get("floor", ""),
+                              "x": l["rect"].x0, "y": l["rect"].y0, "w": l["rect"].width, "h": l["rect"].height,
+                              "family": None, "src": l["src"], "status": "amber", "other_style": True,
+                              "reasons": [f"{l['text']} sits at a door but is not in the door tag style. A door tag in another style?"]})
+        else:
+            other_note[sh] = (len(ls), sorted({l["text"] for l in ls})[:3])
+
     # gaps in dense numbering, across every sheet
-    counted = [d for d in doors if d["status"] != "out"]
+    counted = [d for d in doors if d["status"] != "out" and not d.get("other_style")]
     groups = defaultdict(dict)
     for d in counted:
         t = d["ref"].upper()
@@ -840,6 +876,10 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
         n = untagged_note.get(f"{p['file']}.{p['page']}")
         if n:
             p["note"] = f"{n} other doors on this sheet have no tag in this style, so only the tagged doors are counted."
+        o_ = other_note.get((p["file"], p["page"]))
+        if o_:
+            p["note"] = ((p.get("note") or "") + f" {o_[0]} labels in other styles sit at doors ({', '.join(o_[1])}). "
+                         "If those are door tags, add their style above.").strip()
 
     green = sum(1 for d in doors if d["status"] == "green")
     amber = sum(1 for d in doors if d["status"] == "amber") + len(items)
