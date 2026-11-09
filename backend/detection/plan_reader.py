@@ -41,7 +41,9 @@ STRAY_RELIABLE = 0.85        # and this often on the sheet before a tag away fro
 
 # ── Labels ────────────────────────────────────────────────────────────────────
 def _clean(t: str) -> str:
-    return (t or "").strip().strip(",;:()[]{}").strip()
+    t = (t or "").strip().strip(",;:()[]{}").strip()
+    # a dash left hanging on the end ("D28- 2200mm x 980mm") is not part of the tag
+    return re.sub(r"(?<=\d)[-\u2013\u2014]+$", "", t)
 
 
 def _labels(page, page_no: int, file_no: int) -> list[dict]:
@@ -60,6 +62,18 @@ def _labels(page, page_no: int, file_no: int) -> list[dict]:
             gap = n[0] - w[2]
             if abs(n[1] - w[1]) < (w[3] - w[1]) * 0.3 and 0 <= gap < (w[3] - w[1]) * 0.35 and re.match(r"\d", _clean(n[4])):
                 text, rect = text + _clean(n[4]), rect | fitz.Rect(n[:4]); used.add(i + 1)
+        # a list of doors in one callout: "BD1,2 & 3", "D4, 5 and 6"
+        m = re.fullmatch(r"([A-Za-z]{1,4}[-./]?)(\d{1,4})((?:,\d{1,4})*),?", text)
+        if m:
+            nums = [m.group(2)] + [x for x in m.group(3).split(",") if x]
+            j = i + 1
+            while j + 1 < len(words) and abs(words[j][1] - w[1]) < (w[3] - w[1]) * 0.5 and words[j][0] - rect.x1 < (w[3] - w[1]) * 2 \
+                    and _clean(words[j][4]).lower() in ("&", "and", ",") and re.fullmatch(r"\d{1,4}", _clean(words[j + 1][4])):
+                nums.append(_clean(words[j + 1][4])); rect = rect | fitz.Rect(words[j + 1][:4]); used |= {j, j + 1}; j += 2
+            if len(nums) > 1:
+                for n_ in nums:
+                    out.append({"text": f"{m.group(1)}{n_}", "rect": fitz.Rect(rect), "src": "text"})
+                continue
         if 1 <= len(text) <= MAX_LABEL * 2 + 1 and re.search(r"\d", text):
             for part, pr in _split_joined(text, rect):
                 if len(part) <= MAX_LABEL:
@@ -413,7 +427,7 @@ def _families(labels: list[dict], near: dict, key_ids: set, has_geo: bool) -> li
             real = [l for l in real if l["text"].isdigit() and int(l["text"]) in keep]
         texts = [l["text"].upper() for l in real]
         n = len(set(texts))
-        if n < 3:
+        if n < 2:
             continue
         uniq = n / max(1, len(texts))
         seq = _sequence_score(texts)
@@ -570,7 +584,48 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
     has_geo = geo_pages > 0
     fams = _families(labels, near, key_ids, has_geo)
     chosen = keys if keys else _auto_choose(fams, pages)
+    if not keys:
+        chosen += _companions(fams, chosen, {l["id"]: l for l in labels})
     return _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems)
+
+
+def _lead(key: str) -> str:
+    m = re.match(r"[A-Z]+", key)
+    return m.group(0) if m else ""
+
+
+def _companions(fams: list[dict], chosen: list[str], by_id: dict) -> list[str]:
+    """Other door tag styles printed alongside the chosen one: ED9 and BD1 beside
+    D20, FD12 beside D3. Both end in D (door), are printed the same size on the
+    same sheet, and have the same plain shape of letters and a number."""
+    extra = []
+    for c in chosen:
+        top = next((f for f in fams if f["key"] == c), None)
+        lead = _lead(c)
+        # D for door: D, ED, BD, FD, SD, AD are door tags whatever the architect
+        if not top or not lead.endswith("D") or not re.fullmatch(r"[A-Z]{1,3}[-./]?#", c):
+            continue
+        sizes = defaultdict(list)
+        for i in top["members"]:
+            l = by_id.get(i)
+            if l:
+                sizes[(l["file"], l["page"])].append(l["size"])
+        for f in fams:
+            k = f["key"]
+            if k in chosen or k in extra or not re.fullmatch(r"[A-Z]{1,3}[-./]?#", k):
+                continue
+            fl = _lead(k)
+            if fl == lead or not fl.endswith(lead[-1]) or len(fl) > len(lead) + 1:
+                continue
+            ok = 0
+            for i in f["members"]:
+                l = by_id.get(i)
+                ss = sizes.get((l["file"], l["page"])) if l else None
+                if ss and abs(l["size"] - sorted(ss)[len(ss) // 2]) <= 0.05 * l["size"]:
+                    ok += 1
+            if ok >= 2 and ok >= 0.8 * len(f["members"]):
+                extra.append(k)
+    return extra
 
 
 def _sheet_of(label_id: str) -> tuple[int, int]:
