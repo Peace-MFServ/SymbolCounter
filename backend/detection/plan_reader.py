@@ -90,6 +90,13 @@ def _labels(page, page_no: int, file_no: int) -> list[dict]:
         if not any(k["text"] == l["text"] and abs(k["rect"].x0 - l["rect"].x0) < 1 and abs(k["rect"].y0 - l["rect"].y0) < 1 for k in kept):
             kept.append(l)
     out = kept
+    # how many other words share the label's line close by: a tag stands alone, a
+    # postcode or a reference in a note ("Belfast BT7 2JD") sits in a run of words
+    for l in out:
+        r = l["rect"]
+        h = max(1.0, min(r.width, r.height))
+        l["in_line"] = sum(1 for w in words if abs((w[1] + w[3]) / 2 - (r.y0 + r.y1) / 2) < h * 0.4
+                           and 0 < min(abs(w[0] - r.x1), abs(r.x0 - w[2])) < h * 4 and fitz.Rect(w[:4]) != r)
     for i, l in enumerate(out):
         r = l["rect"]
         l.update(id=f"{file_no}.{page_no}.{i}", file=file_no, page=page_no,
@@ -782,6 +789,8 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
             continue
         if not re.fullmatch(r"[A-Z]{1,4}[-./_]?\d{1,4}[A-Z]?", l["text"].upper()) or family_of(l["text"], chosen):
             continue
+        if l.get("in_line", 0) >= 2:
+            continue                          # part of a line of words: an address, a note
         if sh in same_as:
             continue
         others[sh].append(l)
