@@ -35,7 +35,15 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   const [target, setTarget] = useState(setId ? String(setId) : '')
   const [list, setList] = useState(null)        // a door list read from a spreadsheet
   const fileRef = useRef()
+  const splitRef = useRef()
+  const [splitH, setSplitH] = useState(0)
   const { ask, modal: confirmModal } = useConfirm()
+  useLayoutEffect(() => {
+    const fit = () => { if (splitRef.current) setSplitH(Math.max(420, window.innerHeight - splitRef.current.getBoundingClientRect().top - 14)) }
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [r, list])
 
   useEffect(() => {
     apiFetch(`/projects/${projectId}/job`).then(setJob).catch(err => showToast(err.message, 'error'))
@@ -53,6 +61,8 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
 
   const opened = (data, names) => {
     setR(data); setRid(data.id)
+    const doubtful = data.doors.some(d => d.status === 'amber' && !d.on_job) || data.checks.length > 0
+    setTab(t => (rid === data.id ? t : doubtful ? 'check' : 'all'))
     const first = data.pages.find(p => p.readable) || data.pages[0]
     setSheet(cur => cur && data.pages.some(p => sheetKey(p) === cur) ? cur : first ? sheetKey(first) : null)
     store.set(`planread-last:${projectId}`, { rid: data.id, names: names || data.names, at: Date.now() })
@@ -229,6 +239,19 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
 
   // ── look over ─────────────────────────────────────────────────────────────
   const page = pageOf[sheet]
+  // a sheet goes by its floor; two sheets of one floor (Part 2, Part 3) add what differs in their file names
+  const sheetLabel = p => {
+    const fl = floorOf(p), bare = p.name.replace(/\.pdf$/i, '')
+    if (!fl) return bare.length > 30 ? bare.slice(0, 29) + '…' : bare
+    const same = pages.filter(x => floorOf(x) === fl && x.file !== p.file)
+    if (!same.length) return fl
+    const words = bare.split(/[\s_]+/)
+    const others = new Set(same.flatMap(x => x.name.replace(/\.pdf$/i, '').split(/[\s_]+/)))
+    // the last word that is this file's alone, with the word before it: "Part 2"
+    const i = words.map((w, j) => (!others.has(w) && w !== '-' ? j : -1)).filter(j => j >= 0).pop()
+    const own = i === undefined ? '' : `${i > 0 && /^[A-Za-z]+$/.test(words[i - 1]) ? words[i - 1] + ' ' : ''}${words[i]}`
+    return `${fl} · ${(own || bare).slice(0, 18)}`
+  }
   const onSheet = items.filter(x => sheetKey(x) === sheet)
   const fams = r.families.slice(0, 6)
   const chosen = new Set(r.chosen)
@@ -249,46 +272,16 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
         </>
       } />
       {confirmModal}
-      <div className="page-wrap wide">
-        <div className="pr-head">
-          <div className="pv-stats">
-            <div className="pv-stat"><div className="num">{adding.length}</div><div className="lbl">Doors to add</div></div>
-            <div className={`pv-stat${open.length ? ' pr-stat-amber' : ''}`}><div className="num">{open.length}<span className="of">/{toCheck.length}</span></div><div className="lbl">Still to look at</div></div>
-            <div className="pv-stat"><div className="num">{pages.length}</div><div className="lbl">Sheets</div></div>
-            {onJob > 0 && <div className="pv-stat"><div className="num">{onJob}</div><div className="lbl">Already on job</div></div>}
-          </div>
-          <div className="pr-style card-panel">
-            <div className="pr-style-head">
-              <h2 className="card-title">Door tag style</h2>
-              <span className="muted">Wrong style? Pick another, or click a door tag on the plan.</span>
-            </div>
-            <div className="pr-chips">
-              {fams.map(f => (
-                <button key={f.key} className={`chip-btn${chosen.has(f.key) ? ' on' : ''}`} disabled={!!busy}
-                        title={`${f.count} different tags like ${f.example}${f.at_doors != null ? `, ${Math.round(f.at_doors * 100)}% beside a door` : ''}`}
-                        onClick={() => chooseStyles(chosen.has(f.key) ? r.chosen.filter(k => k !== f.key) : [...r.chosen, f.key])}>
-                  Like {f.example} <span className="pr-chip-n">{f.count}</span>
-                </button>
-              ))}
-              {extra.map(k => <span key={k} className="chip-btn on">Picked on the plan</span>)}
-              <button className={`btn btn-sm ${picking ? 'btn-primary' : 'btn-soft'}`} onClick={() => setPicking(p => !p)} disabled={!!busy}>
-                {picking ? 'Click a tag on the plan' : 'Point at a tag'}
-              </button>
-              {busy === 'style' && <span className="spinner" />}
-            </div>
-          </div>
-        </div>
-
-        {r.problems.map(p => <div key={p.file} className="suggest-bar readonly-bar"><div><strong>{p.name}</strong><span className="muted"> {p.problem}</span></div></div>)}
-
-        <div className="pr-grid">
-          <section className="pr-plan card-panel">
+      <div className="pr-split" ref={splitRef} style={splitH ? { height: splitH } : undefined}>
+        {/* Left half: the plan */}
+        <section className="pr-pane pr-left">
+          <div className="pr-pane-head">
             <div className="pr-sheets">
               {pages.map(p => {
                 const k = sheetKey(p), c = bySheet[k] || { green: 0, amber: 0 }
                 return (
                   <button key={k} className={`pr-sheet-tab${k === sheet ? ' on' : ''}${!p.readable ? ' bad' : ''}`} onClick={() => { setSheet(k); setFocus(null) }}>
-                    <span className="pr-sheet-name">{floorOf(p) || p.name.replace(/\.pdf$/i, '')}{pages.filter(x => x.file === p.file).length > 1 ? ` · p${p.page}` : ''}</span>
+                    <span className="pr-sheet-name" title={p.name}>{sheetLabel(p)}{pages.filter(x => x.file === p.file).length > 1 ? ` · p${p.page}` : ''}</span>
                     <span className="pr-sheet-n">{p.readable ? <>{c.green}{c.amber > 0 && <em> · {c.amber} to check</em>}</> : 'cannot be read'}</span>
                   </button>
                 )
@@ -298,51 +291,83 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
               <div className="pr-sheet-bar">
                 <label>Floor <input className="form-control" value={floorOf(page)} placeholder="e.g. Ground"
                                     onChange={e => setFloors(f => ({ ...f, [sheet]: e.target.value }))} /></label>
-                <span className="muted pr-sheet-file">{page.name}{page.note ? ` · ${page.note}` : ''}</span>
+                <span className="muted pr-sheet-file" title={page.name}>{page.name}</span>
               </div>
             )}
+            {page?.note && <div className="pr-sheet-note">{page.note}</div>}
             {page && !page.readable && <div className="rail-note">{page.problem}</div>}
-            {page && <Sheet key={sheet} projectId={projectId} rid={rid} page={page} items={onSheet} focus={focus}
-                            stateOf={x => markState(x, choice, counts)} onPick={x => { setFocus(x.id); setTab(x.status === 'amber' ? 'check' : 'all') }}
-                            labels={picking ? labels : null} onLabel={l => chooseStyles([l.key])} />}
-            <div className="pr-legend">
-              <span><i className="m green" /> Read, going on the job</span>
-              <span><i className="m amber" /> To look at</span>
-              <span><i className="m gap" /> Number missing</span>
-              <span><i className="m out" /> Left out</span>
-            </div>
-          </section>
+          </div>
+          {page && <Sheet key={sheet} projectId={projectId} rid={rid} page={page} items={onSheet} focus={focus}
+                          stateOf={x => markState(x, choice, counts)} onPick={x => { setFocus(x.id); setTab(x.status === 'amber' ? 'check' : 'all') }}
+                          labels={picking ? labels : null} onLabel={l => chooseStyles([l.key])} />}
+          <div className="pr-legend">
+            <span><i className="m green" /> Read, going on the job</span>
+            <span><i className="m amber" /> To look at</span>
+            <span><i className="m gap" /> Number missing</span>
+            <span><i className="m out" /> Left out</span>
+            <span className="pr-legend-tip">Ctrl + scroll to zoom, drag to move</span>
+          </div>
+        </section>
 
-          <aside className="pr-side card-panel">
-            <div className="pr-tabs">
-              <button className={tab === 'check' ? 'on' : ''} onClick={() => setTab('check')}>To look at <span>{open.length}</span></button>
-              <button className={tab === 'all' ? 'on' : ''} onClick={() => setTab('all')}>All doors <span>{items.filter(x => x.kind === 'door' && x.status !== 'amber').length}</span></button>
+        {/* Right half: the doors read off it */}
+        <section className="pr-pane pr-right">
+          <div className="pr-pane-head">
+            <div className="pr-counts">
+              <div><strong>{adding.length}</strong><span>Doors to add</span></div>
+              <div className={open.length ? 'amber' : ''}><strong>{open.length}<em>/{toCheck.length}</em></strong><span>Still to look at</span></div>
+              <div><strong>{pages.length}</strong><span>Sheet{pages.length !== 1 ? 's' : ''}</span></div>
+              {onJob > 0 && <div><strong>{onJob}</strong><span>Already on job</span></div>}
             </div>
-            {tab === 'all' && <label className="adm-search pr-search"><IconSearch size={16} /><input placeholder="Find a door or floor" value={q} onChange={e => setQ(e.target.value)} /></label>}
-            <div className="pr-list">
-              {tab === 'check' && toCheck.length === 0 && <p className="muted pr-empty"><IconCheck size={16} /> Nothing to look at. Every door was read cleanly.</p>}
-              {listed.slice(0, 400).map((x, i) => (
-                <React.Fragment key={x.id}>
+            <div className="pr-style">
+              <span className="pr-style-label" title="Wrong style? Pick another, or point at a door tag on the plan.">Door tag style</span>
+              <div className="pr-chips">
+                {fams.map(f => (
+                  <button key={f.key} className={`chip-btn${chosen.has(f.key) ? ' on' : ''}`} disabled={!!busy}
+                          title={`${f.count} different tags like ${f.example}${f.at_doors != null ? `, ${Math.round(f.at_doors * 100)}% beside a door` : ''}`}
+                          onClick={() => chooseStyles(chosen.has(f.key) ? r.chosen.filter(k => k !== f.key) : [...r.chosen, f.key])}>
+                    Like {f.example} <span className="pr-chip-n">{f.count}</span>
+                  </button>
+                ))}
+                {extra.map(k => <span key={k} className="chip-btn on">Picked on the plan</span>)}
+                <button className={`btn btn-sm ${picking ? 'btn-primary' : 'btn-soft'}`} onClick={() => setPicking(p => !p)} disabled={!!busy}>
+                  {picking ? 'Click a tag on the plan' : 'Point at a tag'}
+                </button>
+                {busy === 'style' && <span className="spinner" />}
+              </div>
+            </div>
+            {r.problems.map(p => <div key={p.file} className="pr-sheet-note"><strong>{p.name}</strong> {p.problem}</div>)}
+            <div className="pr-listbar">
+              <div className="pr-tabs">
+                <button className={tab === 'check' ? 'on' : ''} onClick={() => setTab('check')}>To look at <span>{open.length}</span></button>
+                <button className={tab === 'all' ? 'on' : ''} onClick={() => setTab('all')}>All doors <span>{items.filter(x => x.kind === 'door' && x.status !== 'amber').length}</span></button>
+              </div>
+              <label className="adm-search pr-search"><IconSearch size={16} /><input placeholder="Find a door or floor" value={q} onChange={e => setQ(e.target.value)} /></label>
+            </div>
+          </div>
+          <div className={`pr-list${tab === 'all' ? ' two' : ''}`}>
+            {tab === 'check' && toCheck.length === 0 && <p className="muted pr-empty"><IconCheck size={16} /> Nothing to look at. Every door was read cleanly.</p>}
+            {listed.length > 0 && tab === 'check' && <div className="pr-row pr-row-head"><span /><span>Door</span><span>Floor</span><span>Note</span><span /></div>}
+            {listed.slice(0, 600).map((x, i) => (
+              <React.Fragment key={x.id}>
                 {i === firstOut && <div className="pr-list-head">Left out ({listed.length - firstOut})</div>}
-                <Row key={x.id} x={x} focus={focus === x.id} choice={choice[x.id]} ref_={refs[x.id] ?? x.ref ?? ''}
+                <Row x={x} focus={focus === x.id} choice={choice[x.id]} ref_={refs[x.id] ?? x.ref ?? ''}
                      floor={floorOf(x)} onShow={() => show(x)} onChoose={c => decide(x, c)}
                      onRef={v => setRefs(m => ({ ...m, [x.id]: v }))} />
-                </React.Fragment>
-              ))}
-            </div>
-            <div className="pr-foot">
-              <label>Set for these doors
-                <select className="form-control" value={target} onChange={e => setTarget(e.target.value)}>
-                  <option value="">Choose later</option>
-                  {sets.map(js => <option key={js.set.id} value={js.set.id}>{js.set.code} · {js.set.name}</option>)}
-                </select>
-              </label>
-              <button className="btn btn-primary wide" onClick={apply} disabled={!adding.length || !!busy}>
-                {busy === 'apply' ? <span className="spinner" /> : `Add ${adding.length} door${adding.length !== 1 ? 's' : ''} to the job`}
-              </button>
-            </div>
-          </aside>
-        </div>
+              </React.Fragment>
+            ))}
+          </div>
+          <div className="pr-foot">
+            <label>Set for these doors
+              <select className="form-control" value={target} onChange={e => setTarget(e.target.value)}>
+                <option value="">Choose later</option>
+                {sets.map(js => <option key={js.set.id} value={js.set.id}>{js.set.code} · {js.set.name}</option>)}
+              </select>
+            </label>
+            <button className="btn btn-primary" onClick={apply} disabled={!adding.length || !!busy}>
+              {busy === 'apply' ? <span className="spinner" /> : `Add ${adding.length} door${adding.length !== 1 ? 's' : ''} to the job`}
+            </button>
+          </div>
+        </section>
       </div>
     </>
   )
@@ -360,33 +385,35 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef }) {
   useEffect(() => { if (focus) el.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [focus])
   const amber = x.status === 'amber'
   const why = x.on_job ? 'Already on the job' : (x.reasons || []).join('. ')
-  const title = x.kind === 'untagged' ? 'Door with no tag' : x.kind === 'gap' ? null : x.printed ? `Printed ${x.printed}` : null
   const keepLabel = x.kind === 'gap' ? 'Add it' : x.kind === 'untagged' ? 'Add' : x.status === 'out' ? 'Count it' : 'Keep'
   const dropLabel = x.kind === 'gap' ? 'No door' : 'Not a door'
   const state = x.on_job ? 'job' : amber ? (choice || 'open') : x.status === 'out' ? (choice === 'keep' ? 'keep' : 'drop') : (choice === 'drop' ? 'drop' : 'keep')
+  const numbered = x.kind !== 'untagged'
   return (
-    <div ref={el} className={`pr-row ${state}${focus ? ' focus' : ''}`} onClick={onShow}>
-      <div className="pr-row-top">
-        {x.kind === 'gap' || x.kind === 'untagged' || !amber
-          ? <span className="pr-ref">{x.kind === 'untagged' ? (title) : x.ref}</span>
-          : <input className="form-control pr-ref-in" value={ref_} onClick={e => e.stopPropagation()} onChange={e => onRef(e.target.value)} aria-label="Door reference" />}
-        {title && x.kind !== 'untagged' && <span className="pr-printed">{title}</span>}
-        <span className="pr-floor">{floor}</span>
-        {!x.on_job && !amber && x.status !== 'out' && (
-          <button className="btn btn-sm btn-ghost pr-leave" onClick={e => { e.stopPropagation(); onChoose('drop') }}>{choice === 'drop' ? 'Put back' : 'Leave out'}</button>
+    <div ref={el} className={`pr-row ${state}${focus ? ' focus' : ''}${why || amber ? ' full' : ''}`} onClick={onShow}>
+      <span className="pr-dot" />
+      <div className="pr-c-ref">
+        {!numbered
+          ? <input className="form-control pr-ref-in" value={ref_} placeholder="Door number" onClick={e => e.stopPropagation()} onChange={e => onRef(e.target.value)} aria-label="Door number" />
+          : x.kind === 'gap' || !amber
+            ? <span className="pr-ref">{x.ref}</span>
+            : <input className="form-control pr-ref-in" value={ref_} onClick={e => e.stopPropagation()} onChange={e => onRef(e.target.value)} aria-label="Door reference" />}
+      </div>
+      <span className="pr-floor">{floor}</span>
+      <div className="pr-why">
+        {amber && <IconWarn size={13} />} {!numbered && <strong>Door with no tag. </strong>}{why}
+      </div>
+      <div className="pr-acts" onClick={e => e.stopPropagation()}>
+        {x.on_job ? null : (amber || x.status === 'out') ? (
+          <>
+            <button className={`btn btn-sm ${choice === 'keep' ? 'btn-primary' : ''}`} onClick={() => onChoose('keep')}
+                    disabled={!numbered && !ref_.trim()}>{keepLabel}</button>
+            {amber && <button className={`btn btn-sm ${choice === 'drop' ? 'btn-primary' : ''}`} onClick={() => onChoose('drop')}>{dropLabel}</button>}
+          </>
+        ) : (
+          <button className="btn btn-sm btn-ghost pr-leave" onClick={() => onChoose('drop')}>{choice === 'drop' ? 'Put back' : 'Leave out'}</button>
         )}
       </div>
-      {x.kind === 'untagged' && (
-        <input className="form-control pr-ref-in wide" value={ref_} placeholder="Its door number, to add it" onClick={e => e.stopPropagation()} onChange={e => onRef(e.target.value)} />
-      )}
-      {why && <div className="pr-why">{amber && <IconWarn size={13} />} {why}</div>}
-      {!x.on_job && (amber || x.status === 'out') && (
-        <div className="pr-acts" onClick={e => e.stopPropagation()}>
-          <button className={`btn btn-sm ${choice === 'keep' ? 'btn-primary' : ''}`} onClick={() => onChoose('keep')}
-                  disabled={x.kind === 'untagged' && !ref_.trim()}>{keepLabel}</button>
-          {amber && <button className={`btn btn-sm ${choice === 'drop' ? 'btn-primary' : ''}`} onClick={() => onChoose('drop')}>{dropLabel}</button>}
-        </div>
-      )}
     </div>
   )
 }
@@ -396,9 +423,21 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef }) {
 function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, onLabel }) {
   const src = useAuthImage(`/api/projects/${projectId}/plan-reads/${rid}/sheet/${page.file}/${page.page}`)
   const box = useRef()
+  const canvas = useRef()
   const [zoom, setZoom] = useState(1)
   const drag = useRef(null)
   const W = page.width, H = page.height
+  // "Whole sheet" is the whole sheet: the widest it can be with all of it in view
+  const [base, setBase] = useState(0)
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    const fit = () => setBase(Math.max(120, Math.floor(Math.min(el.clientWidth, el.clientHeight * (W / H)))))
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [W, H])
   const pos = x => ({ left: `${(x.x / W) * 100}%`, top: `${(x.y / H) * 100}%`, width: `${(x.w / W) * 100}%`, height: `${(x.h / H) * 100}%` })
 
   const zoomTo = (z, cx = 0.5, cy = 0.5) => {
@@ -428,19 +467,21 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
   // bring the picked door into the middle, close enough to read
   const pending = useRef(null)
   const [, setTick] = useState(0)
+  const [loaded, setLoaded] = useState(false)     // the picture has its size: only then can a door be scrolled to
   useEffect(() => {
-    if (!focus || !src) return
+    if (!focus || !loaded) return
     pending.current = focus
     setZoom(z => Math.max(z, 3))
     setTick(t => t + 1)
-  }, [focus, src])
+  }, [focus, loaded])
   useLayoutEffect(() => {
     const x = items.find(i => i.id === pending.current)
     const el = box.current
     if (!x || !el) return
     pending.current = null
-    const w = el.scrollWidth, h = el.scrollHeight
-    el.scrollTo({ left: ((x.x + x.w / 2) / W) * w - el.clientWidth / 2, top: ((x.y + x.h / 2) / H) * h - el.clientHeight / 2, behavior: 'smooth' })
+    const c = canvas.current
+    el.scrollTo({ left: c.offsetLeft + ((x.x + x.w / 2) / W) * c.offsetWidth - el.clientWidth / 2,
+                  top: c.offsetTop + ((x.y + x.h / 2) / H) * c.offsetHeight - el.clientHeight / 2, behavior: 'smooth' })
   })
 
   const down = e => {
@@ -463,8 +504,8 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
       </div>
       <div ref={box} className={`pr-viewer${labels ? ' picking' : ''}`} onMouseDown={down} onMouseMove={move}
            onMouseUp={() => { drag.current = null }} onMouseLeave={() => { drag.current = null }}>
-        <div className="pr-canvas" style={{ width: `${zoom * 100}%` }}>
-          {src ? <img src={src} alt={page.name} draggable={false} /> : <div className="pr-loading" style={{ aspectRatio: `${W} / ${H}` }}><span className="spinner spinner-lg" /></div>}
+        <div ref={canvas} className="pr-canvas" style={{ width: base ? `${Math.round(base * zoom)}px` : `${zoom * 100}%` }}>
+          {src ? <img src={src} alt={page.name} draggable={false} onLoad={() => setLoaded(true)} /> : <div className="pr-loading" style={{ aspectRatio: `${W} / ${H}` }}><span className="spinner spinner-lg" /></div>}
           {src && !labels && items.map(x => (
             <button key={x.id} className={`pr-mark ${stateOf(x)}${x.kind === 'untagged' ? ' swing' : ''}${focus === x.id ? ' focus' : ''}`}
                     style={pos(x)} title={x.ref || (x.reasons || [])[0]} onClick={() => onPick(x)} />

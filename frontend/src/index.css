@@ -1792,3 +1792,78 @@ button.ds-stat { cursor: pointer; }
 .ds-grid tr.ds-row.ticked td { background: #F1F6FC; }
 .ds-bulk.on { position: sticky; top: 8px; z-index: 5; box-shadow: 0 4px 16px rgba(15, 23, 42, .10); }
 .ds-bulk .picker select { max-width: none; min-width: 0; font-weight: 600; }
+
+/* Read doors: the plan on one half of the screen, the doors on the other */
+body:has(.pr-split) .crumbs { max-width: none; padding: 12px 20px 0; }
+.pr-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 12px 20px 0; height: calc(100vh - 124px); min-height: 420px; }
+.pr-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #fff; border: 1px solid var(--card-border); border-radius: var(--radius-card); box-shadow: var(--shadow-card); overflow: hidden; }
+.pr-pane-head { flex-shrink: 0; padding: 12px 14px 0; }
+.pr-split .pr-sheets { margin-bottom: 8px; }
+.pr-split .pr-sheet-tab { padding: 5px 11px; }
+.pr-split .pr-sheet-bar { margin-bottom: 10px; flex-wrap: nowrap; }
+.pr-split .pr-sheet-bar .form-control { width: 170px; height: 32px; }
+.pr-split .pr-sheet-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pr-sheet-note { margin: 0 0 10px; padding: 8px 10px; border-radius: 7px; background: #FFF6F0; border: 1px solid #F6D9C6; font-size: 12.5px; line-height: 1.45; color: var(--text2); }
+/* the plan fills its half */
+.pr-split .pr-viewer-wrap { flex: 1; min-height: 0; display: flex; margin: 0 14px; }
+.pr-split .pr-viewer { flex: 1; height: auto; min-height: 0; }
+.pr-split .pr-legend { flex-shrink: 0; margin: 0; padding: 9px 14px 10px; gap: 16px; font-size: 12px; }
+.pr-legend-tip { margin-left: auto; }
+/* the doors */
+.pr-counts { display: flex; gap: 0; margin-bottom: 10px; border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; width: fit-content; }
+.pr-counts > div { display: flex; align-items: baseline; gap: 8px; padding: 7px 16px; border-right: 1px solid var(--card-border); }
+.pr-counts > div:last-child { border-right: 0; }
+.pr-counts strong { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pr-counts strong em { font-style: normal; font-size: 14px; font-weight: 400; color: var(--text3); }
+.pr-counts span { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text3); white-space: nowrap; }
+.pr-counts .amber strong { color: var(--orange); }
+.pr-split .pr-style { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 10px; padding: 0; min-width: 0; border: 0; box-shadow: none; background: transparent; }
+.pr-style-label { flex-shrink: 0; padding-top: 6px; font-size: 13px; font-weight: 700; color: var(--ink); cursor: help; }
+.pr-split .pr-chips { gap: 6px; }
+.pr-split .pr-chips .chip-btn { padding: 4px 11px; font-size: 12.5px; }
+.pr-listbar { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--card-border); margin: 0 -14px; padding: 0 14px 0 0; }
+.pr-listbar .pr-tabs { border-bottom: 0; flex: 0 0 auto; }
+.pr-listbar .pr-tabs button { flex: 0 0 auto; padding: 11px 16px 9px; }
+.pr-listbar .pr-search.adm-search { margin: 0 0 0 auto; width: 240px; height: 34px; }
+.pr-split .pr-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0; border-top: 1px solid var(--card-border); }
+.pr-split .pr-row { display: grid; grid-template-columns: 10px minmax(96px, 150px) minmax(70px, 120px) minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  padding: 7px 14px; margin: 0; border: 0; border-bottom: 1px solid #EEF1F5; border-radius: 0; background: #fff; cursor: pointer; }
+.pr-split .pr-row:hover { background: #F7F9FC; }
+.pr-split .pr-row.focus { background: #EEF3FA; box-shadow: inset 3px 0 0 var(--accent); border-color: #EEF1F5; }
+.pr-split .pr-row-head { position: sticky; top: 0; z-index: 2; padding-top: 7px; padding-bottom: 7px; background: var(--bg3); cursor: default;
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text3); }
+.pr-split .pr-row-head:hover { background: var(--bg3); }
+.pr-dot { width: 9px; height: 9px; border-radius: 50%; background: #C4CCD4; }
+.pr-row.keep .pr-dot { background: #1F8A4C; }
+.pr-row.open .pr-dot { background: var(--orange); }
+.pr-split .pr-row.open { background: #FFFBF7; }
+.pr-split .pr-row.open:hover { background: #FFF4EA; }
+.pr-c-ref { min-width: 0; }
+.pr-split .pr-ref { font-size: 13.5px; }
+.pr-split .pr-ref-in.form-control { width: 100%; height: 30px; font-size: 13.5px; }
+.pr-split .pr-floor { margin: 0; font-size: 12.5px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; }
+.pr-split .pr-why { margin: 0; font-size: 12.5px; line-height: 1.4; min-width: 0; }
+.pr-split .pr-acts { margin: 0; justify-content: flex-end; }
+.pr-split .pr-acts .btn-sm { padding: 3px 11px; font-size: 12px; white-space: nowrap; }
+.pr-split .pr-row.drop, .pr-split .pr-row.job { background: #FAFBFC; }
+.pr-split .pr-list-head { margin: 0; padding: 12px 14px 6px; background: #FAFBFC; border-bottom: 1px solid #EEF1F5; }
+.pr-split .pr-empty { padding: 18px 14px; margin: 0; }
+.pr-split .pr-foot { flex-direction: row; align-items: flex-end; gap: 12px; padding: 10px 14px 12px; }
+.pr-split .pr-foot label { flex: 1; min-width: 0; }
+.pr-split .pr-foot .form-control { height: 40px; }
+.pr-split .pr-foot .btn-primary { height: 40px; padding: 0 22px; white-space: nowrap; flex-shrink: 0; }
+@media (max-width: 1000px) {
+  .pr-split { grid-template-columns: 1fr; height: auto !important; }
+  .pr-split .pr-viewer { height: 60vh; flex: none; }
+  .pr-split .pr-list { max-height: 60vh; }
+}
+/* All doors: two across; anything with a note or a choice takes the full width */
+.pr-split .pr-list.two { display: grid; grid-template-columns: 1fr 1fr; align-content: start; }
+.pr-split .pr-list.two .pr-row { grid-template-columns: 10px minmax(0, 1fr) auto auto; border-right: 1px solid #EEF1F5; padding: 5px 12px; }
+.pr-split .pr-list.two .pr-row .pr-why { display: none; }
+.pr-split .pr-list.two .pr-row.full { grid-column: 1 / -1; grid-template-columns: 10px minmax(96px, 150px) minmax(70px, 120px) minmax(0, 1fr) auto; border-right: 0; }
+.pr-split .pr-list.two .pr-row.full .pr-why { display: block; }
+.pr-split .pr-list.two .pr-list-head, .pr-split .pr-list.two .pr-empty { grid-column: 1 / -1; }
+.pr-split .pr-list.two .pr-floor { white-space: nowrap; }
+@media (max-width: 1500px) { .pr-legend-tip { display: none; } }
+.pr-split .pr-canvas { min-width: 0; margin: 0 auto; }
