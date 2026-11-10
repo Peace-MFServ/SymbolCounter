@@ -1867,3 +1867,15 @@ body:has(.pr-split) .crumbs { max-width: none; padding: 12px 20px 0; }
 .pr-split .pr-list.two .pr-floor { white-space: nowrap; }
 @media (max-width: 1500px) { .pr-legend-tip { display: none; } }
 .pr-split .pr-canvas { min-width: 0; margin: 0 auto; }
+/* Where is it, and the tag style kept out of the way */
+.pr-counts-row { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+.pr-counts-row .pr-counts { margin-bottom: 0; }
+.pr-fix-link.link-btn { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--text3); }
+.pr-fix-link.link-btn:hover { color: var(--accent); text-decoration: underline; }
+.pr-split .pr-style { flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--card-border); border-radius: 8px; background: #F8FAFC; }
+.pr-style-top { display: flex; align-items: flex-start; gap: 12px; }
+.pr-style-top .link-btn { margin-left: auto; flex-shrink: 0; font-size: 12.5px; font-weight: 600; color: var(--accent); }
+.pr-split .pr-style-label { padding: 0; font-size: 12.5px; font-weight: 500; color: var(--text2); cursor: default; line-height: 1.45; }
+.pr-split .pr-where.btn { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
+.pr-split .pr-acts { gap: 6px; flex-wrap: nowrap; }
+.pr-split .pr-list.two .pr-row { gap: 8px; }

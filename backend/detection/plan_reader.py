@@ -803,7 +803,7 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
                 doors.append({"id": l["id"], "ref": l["text"], "file": l["file"], "page": l["page"], "floor": l.get("floor", ""),
                               "x": l["rect"].x0, "y": l["rect"].y0, "w": l["rect"].width, "h": l["rect"].height,
                               "family": None, "src": l["src"], "status": "amber", "other_style": True,
-                              "reasons": [f"{l['text']} sits at a door but is not in the door tag style. A door tag in another style?"]})
+                              "reasons": [f"{l['text']} sits at a door but is numbered differently from the other doors. Is it a door?"]})
         else:
             other_note[sh] = (len(ls), sorted({l["text"] for l in ls})[:3])
 
@@ -884,11 +884,11 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
         p.pop("_swings", None)
         n = untagged_note.get(f"{p['file']}.{p['page']}")
         if n:
-            p["note"] = f"{n} other doors on this sheet have no tag in this style, so only the tagged doors are counted."
+            p["note"] = f"{n} other doors drawn on this sheet have no door number, so only the numbered doors are counted."
         o_ = other_note.get((p["file"], p["page"]))
         if o_:
-            p["note"] = ((p.get("note") or "") + f" {o_[0]} labels in other styles sit at doors ({', '.join(o_[1])}). "
-                         "If those are door tags, add their style above.").strip()
+            p["note"] = ((p.get("note") or "") + f" {o_[0]} labels numbered a different way sit at doors ({', '.join(o_[1])}). "
+                         "If those are doors too, use 'Not the door numbers?' to include them.").strip()
 
     green = sum(1 for d in doors if d["status"] == "green")
     amber = sum(1 for d in doors if d["status"] == "amber") + len(items)

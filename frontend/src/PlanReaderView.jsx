@@ -34,6 +34,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   const [floors, setFloors] = useState({})      // "file.page" -> floor name
   const [target, setTarget] = useState(setId ? String(setId) : '')
   const [list, setList] = useState(null)        // a door list read from a spreadsheet
+  const [fixing, setFixing] = useState(false)   // the wrong labels were read: show what else could be the door numbers
   const fileRef = useRef()
   const splitRef = useRef()
   const [splitH, setSplitH] = useState(0)
@@ -312,29 +313,35 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
         {/* Right half: the doors read off it */}
         <section className="pr-pane pr-right">
           <div className="pr-pane-head">
+            <div className="pr-counts-row">
             <div className="pr-counts">
               <div><strong>{adding.length}</strong><span>Doors to add</span></div>
               <div className={open.length ? 'amber' : ''}><strong>{open.length}<em>/{toCheck.length}</em></strong><span>Still to look at</span></div>
               <div><strong>{pages.length}</strong><span>Sheet{pages.length !== 1 ? 's' : ''}</span></div>
               {onJob > 0 && <div><strong>{onJob}</strong><span>Already on job</span></div>}
             </div>
-            <div className="pr-style">
-              <span className="pr-style-label" title="Wrong style? Pick another, or point at a door tag on the plan.">Door tag style</span>
+            {!fixing && <button className="link-btn inline pr-fix-link" onClick={() => setFixing(true)}>Not the door numbers?</button>}
+            </div>
+            {fixing && <div className="pr-style">
+              <div className="pr-style-top">
+                <span className="pr-style-label">These labels were read as the door numbers. If that is wrong, choose the right ones, or click a door number on the plan.</span>
+                <button className="link-btn inline" onClick={() => { setFixing(false); setPicking(false) }}>Close</button>
+              </div>
               <div className="pr-chips">
                 {fams.map(f => (
                   <button key={f.key} className={`chip-btn${chosen.has(f.key) ? ' on' : ''}`} disabled={!!busy}
                           title={`${f.count} different tags like ${f.example}${f.at_doors != null ? `, ${Math.round(f.at_doors * 100)}% beside a door` : ''}`}
                           onClick={() => chooseStyles(chosen.has(f.key) ? r.chosen.filter(k => k !== f.key) : [...r.chosen, f.key])}>
-                    Like {f.example} <span className="pr-chip-n">{f.count}</span>
+                    Labels like {f.example} <span className="pr-chip-n">{f.count}</span>
                   </button>
                 ))}
                 {extra.map(k => <span key={k} className="chip-btn on">Picked on the plan</span>)}
                 <button className={`btn btn-sm ${picking ? 'btn-primary' : 'btn-soft'}`} onClick={() => setPicking(p => !p)} disabled={!!busy}>
-                  {picking ? 'Click a tag on the plan' : 'Point at a tag'}
+                  {picking ? 'Now click a door number on the plan' : 'Click one on the plan'}
                 </button>
                 {busy === 'style' && <span className="spinner" />}
               </div>
-            </div>
+            </div>}
             {r.problems.map(p => <div key={p.file} className="pr-sheet-note"><strong>{p.name}</strong> {p.problem}</div>)}
             <div className="pr-listbar">
               <div className="pr-tabs">
@@ -404,6 +411,7 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef }) {
         {amber && <IconWarn size={13} />} {!numbered && <strong>Door with no tag. </strong>}{why}
       </div>
       <div className="pr-acts" onClick={e => e.stopPropagation()}>
+        <button className="btn btn-sm btn-soft pr-where" onClick={onShow} title="Move the plan to this door">Where is it</button>
         {x.on_job ? null : (amber || x.status === 'out') ? (
           <>
             <button className={`btn btn-sm ${choice === 'keep' ? 'btn-primary' : ''}`} onClick={() => onChoose('keep')}
