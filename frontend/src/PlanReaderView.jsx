@@ -153,7 +153,9 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
       if (!counts(x)) continue
       const ref = refOf(x)
       if (!ref || seen.has(ref.toUpperCase())) continue
-      seen.add(ref.toUpperCase()); out.push({ ref, floor: floorOf(x), set_id: Number(setOf[x.id] || target) || null })
+      seen.add(ref.toUpperCase())
+      out.push({ ref, floor: floorOf(x), set_id: Number(setOf[x.id] || target) || null,
+                 note: [x.type && x.type !== ref && `Type ${x.type}`, ...(x.also || [])].filter(Boolean).join(' · ') })
     }
     return out
   }, [items, choice, refs, floors, setOf, target])
@@ -355,6 +357,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
                 <span className="muted pr-sheet-file" title={page.name}>{page.name}</span>
               </div>
             )}
+            {page?.info && <div className="pr-sheet-info">{page.info}</div>}
             {page?.note && <div className="pr-sheet-note">{page.note}</div>}
             {page && !page.readable && <div className="rail-note">{page.problem}</div>}
           </div>
@@ -477,6 +480,8 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, t
   const dropLabel = x.kind === 'gap' ? 'No door' : 'Not a door'
   const state = x.on_job ? 'keep onjob' : amber ? (choice || 'open') : x.status === 'out' ? (choice === 'keep' ? 'keep' : 'drop') : (choice === 'drop' ? 'drop' : 'keep')
   const numbered = x.kind !== 'untagged'
+  // the door's type, where the plan gives one beside its number: B01.00.005 is an EDR251
+  const kind = x.type && !String(x.ref).startsWith(x.type) ? <span className="pr-type" title="Door type on the plan">{x.type}</span> : null
   return (
     <div ref={el} className={`pr-row ${state}${focus ? ' focus' : ''}${why || amber ? ' full' : ''}${ticked ? ' ticked' : ''}`} onClick={onShow}>
       {canSet
@@ -485,11 +490,11 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, t
       <span className="pr-dot" />
       <div className="pr-c-ref">
         {x.on_job
-          ? <span className="pr-ref">{ref_ || x.ref}</span>
+          ? <span className="pr-ref">{ref_ || x.ref}{kind}</span>
           : !numbered
           ? <input className="form-control pr-ref-in" value={ref_} placeholder="Door number" onClick={e => e.stopPropagation()} onChange={e => onRef(e.target.value)} aria-label="Door number" />
           : x.kind === 'gap' || !amber
-            ? <span className="pr-ref">{x.ref}</span>
+            ? <span className="pr-ref">{x.ref}{kind}</span>
             : <input className="form-control pr-ref-in" value={ref_} onClick={e => e.stopPropagation()} onChange={e => onRef(e.target.value)} aria-label="Door reference" />}
       </div>
       <span className="pr-floor">{floor}</span>

@@ -215,7 +215,8 @@ def _arcs_from_lines(segs) -> list:
                     break
         if len(chain) < 5:
             continue
-        p0, pm, p1 = chain[0], chain[len(chain) // 2], chain[-1]
+        # three points spread along it (the two ends of a closed loop are one point)
+        p0, pm, p1 = chain[0], chain[len(chain) // 3], chain[(2 * len(chain)) // 3]
         # the circle through the two ends and the middle
         ax, ay, bx, by, cx_, cy_ = p0.x, p0.y, pm.x, pm.y, p1.x, p1.y
         d = 2 * (ax * (by - cy_) + bx * (cy_ - ay) + cx_ * (ay - by))
@@ -226,10 +227,15 @@ def _arcs_from_lines(segs) -> list:
         r = math.hypot(ax - ux, ay - uy)
         if r < 3 or any(abs(math.hypot(p.x - ux, p.y - uy) - r) > 0.04 * r for p in chain):
             continue
-        turn = 0.0
+        turn, sharp = 0.0, False
         for a, b in zip(chain, chain[1:]):
             t = math.atan2(b.y - uy, b.x - ux) - math.atan2(a.y - uy, a.x - ux)
-            turn += (t + math.pi) % (2 * math.pi) - math.pi
+            t = (t + math.pi) % (2 * math.pi) - math.pi
+            # a curve drawn in straight pieces turns a little at each one; a box turns a right angle
+            sharp = sharp or abs(t) > 0.9
+            turn += t
+        if sharp:
+            continue
         out.append((ux, uy, r, abs(turn)))
     return out
 
@@ -250,12 +256,13 @@ def _door_size_at_scale(page) -> float:
     return 850 / scale * 72 / 25.4
 
 
-def _door_geometry(page) -> tuple[list, list, float]:
-    """(door swings as rectangles, highlighted line segments, typical door width in points)."""
+def _door_geometry(page) -> tuple[list, list, float, list]:
+    """(door swings as rectangles, highlighted line segments, typical door width in
+    points, whole circles as (x, y, radius))."""
     try:
         drawings = page.get_drawings()
     except Exception:
-        return [], [], 0.0
+        return [], [], 0.0, []
     pieces = []
     coloured = []
     short = []
@@ -295,11 +302,13 @@ def _door_geometry(page) -> tuple[list, list, float]:
         else:
             g = [cx, cy, r, turn]
             groups.append(g); cells[key].append(g)
-    swings = []
+    swings, circles = [], []
     for cx, cy, r, turn in groups:
         deg = math.degrees(turn)
         if 70 <= deg <= 110:                          # a door opening through about a right angle
             swings.append((cx, cy, r))
+        elif deg >= 300 and 3 <= r <= 45:
+            circles.append((cx, cy, r))
     if len(swings) < 3:
         door_w = 0.0
     else:
@@ -307,7 +316,7 @@ def _door_geometry(page) -> tuple[list, list, float]:
         # drawn curve fall either side of it
         bins = Counter(round(math.log(r, 1.25)) for _, _, r in swings if 3 < r < 200)
         if not bins:
-            return [], [], 0.0
+            return [], [], 0.0, circles
         mode = bins.most_common(1)[0][0]
         # where the sheet gives its scale, a door leaf (about 850 mm) has a known
         # size on paper: take the commonest swing near it, not the chairs and bins
@@ -321,7 +330,7 @@ def _door_geometry(page) -> tuple[list, list, float]:
     rects = [fitz.Rect(cx - r, cy - r, cx + r, cy + r) for cx, cy, r in swings]
     if door_w:
         coloured = [s for s in coloured if 0.5 * door_w <= math.hypot(s[1].x - s[0].x, s[1].y - s[0].y) <= 4 * door_w]
-    return rects, coloured, door_w
+    return rects, coloured, door_w, circles
 
 
 def _dist_rect(a, b) -> float:
@@ -520,6 +529,67 @@ def _near_miss(text: str, keys: list[str]) -> str | None:
     return None
 
 
+# ── What the sheet itself says ────────────────────────────────────────────────
+def _legend_codes(page) -> tuple[set, set]:
+    """The codes a sheet's own legend defines: "EDR = External Door", "WIN = Window
+    System". Returns (codes that are doors, codes that are something else). A lone
+    "X = y" is not a legend: at least two definitions are needed."""
+    lines = defaultdict(list)
+    for w in page.get_text("words"):
+        lines[(w[5], w[6])].append(w)
+    doors, others = set(), set()
+    for ws in lines.values():
+        ws.sort(key=lambda w: w[7])
+        t = [w[4] for w in ws]
+        if len(t) >= 3 and t[1] == "=" and re.fullmatch(r"[A-Z]{2,6}", t[0]):
+            meaning = " ".join(t[2:]).lower()
+            (doors if re.search(r"\bdoors?\b", meaning) else others).add(t[0])
+    if len(doors) + len(others) < 2:
+        return set(), set()
+    return doors, others - doors
+
+
+def _stacked(a, b, size: float) -> bool:
+    """Two labels printed as one tag: touching, or nearly, and overlapping along their length."""
+    if _dist_rect(a, b) > 0.8 * size:
+        return False
+    ox = min(a.x1, b.x1) - max(a.x0, b.x0)
+    oy = min(a.y1, b.y1) - max(a.y0, b.y0)
+    return ox >= 0.5 * min(a.width, b.width) or oy >= 0.5 * min(a.height, b.height)
+
+
+def _grid_refs(ls: list[dict], circles: list, near: dict) -> set:
+    """Grid line references: labels in circles, lined up in a row or a column with
+    at least two others, away from the doors."""
+    ringed = []
+    for l in ls:
+        r = l["rect"]
+        cx, cy = (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2
+        long = max(r.width, r.height)
+        # a bubble is drawn round its label: about the label's size, the label in its middle.
+        # (Four doors swinging about one point also draw a circle, a far bigger one.)
+        if any(math.hypot(cx - x, cy - y) <= 0.5 * rad and rad <= 1.6 * long for x, y, rad in circles):
+            ringed.append((l, cx, cy))
+    out = set()
+    for l, cx, cy in ringed:
+        col = sum(1 for _, x, _y in ringed if abs(x - cx) <= 3)
+        row = sum(1 for _, _x, y in ringed if abs(y - cy) <= 3)
+        if col >= 3 or row >= 3:
+            out.add(l["id"])
+    # only where the whole kind of label is grid references: one door tag that happens
+    # to sit in a ring, in line with two bubbles, stays a door tag
+    kinds = defaultdict(lambda: [0, 0])
+    for l in ls:
+        k = shape_key(l["text"])
+        if k:
+            kinds[k][0] += 1
+            kinds[k][1] += 1 if l["id"] in out else 0
+    out = {l["id"] for l in ls if l["id"] in out and kinds[shape_key(l["text"])][1] >= 0.6 * kinds[shape_key(l["text"])][0]}
+    if len(out) < 4 or sum(1 for i in out if near.get(i)) > 0.5 * len(out):
+        return set()
+    return out
+
+
 # ── The reading ───────────────────────────────────────────────────────────────
 _FLOORS = "BASEMENT|LOWER GROUND|UPPER GROUND|GROUND|FIRST|SECOND|THIRD|FOURTH|FIFTH|SIXTH|SEVENTH|EIGHTH|NINTH|TENTH|ROOF|MEZZANINE"
 
@@ -554,6 +624,8 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
     pages, labels, near, key_ids = [], [], {}, set()
     geo_pages = 0
     problems = []
+    legend_doors = set()
+    extra_items = []
     for fno, (name, data) in enumerate(files):
         try:
             doc = fitz.open(stream=data, filetype="pdf")
@@ -570,8 +642,22 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
                 pages.append(info)
                 continue
             ls = _labels(page, pno + 1, fno)
-            swings, lines, door_w = _door_geometry(page)
+            swings, lines, door_w, circles = _door_geometry(page)
             key_ids |= _key_entries(page, ls)
+            # the sheet's own legend: which codes are doors, and which are windows, risers, walls
+            door_codes, other_codes = _legend_codes(page)
+            legend_doors |= door_codes
+            code_words = [(w[4], fitz.Rect(w[:4])) for w in words if w[4] in other_codes or w[4] in door_codes]
+            for l in ls:
+                l["codes"] = {t for t, r in code_words if _stacked(l["rect"], r, l["size"])}
+            # a door tagged with a legend code but no number yet ("IDRXXX"): a door all the same
+            blanks = [fitz.Rect(w[:4]) for w in words
+                      if any(w[4].startswith(c) and re.fullmatch(r"[A-Z]{1,4}", w[4][len(c):]) for c in door_codes)
+                      and w[4] not in door_codes and w[4] not in other_codes]
+            blank_text = [w[4] for w in words
+                          if any(w[4].startswith(c) and re.fullmatch(r"[A-Z]{1,4}", w[4][len(c):]) for c in door_codes)
+                          and w[4] not in door_codes and w[4] not in other_codes]
+            circled = _grid_refs(ls, circles, {})
             if page.rotation:
                 # text and drawings come in the sheet's own frame; the sheet is shown turned
                 m = page.rotation_matrix
@@ -579,6 +665,7 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
                     l["rect"] = l["rect"] * m
                 swings = [r * m for r in swings]
                 lines = [(fitz.Point(a) * m, fitz.Point(b) * m) for a, b in lines]
+                blanks = [r * m for r in blanks]
             info["door_width"] = round(door_w, 1)
             info["swings"] = len(swings)
             if swings or lines:
@@ -591,16 +678,55 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
                 near[l["id"]] = at_swing or at_line
                 l["floor"] = info["floor"]
             info["_swings"] = swings
+            # left out before anything is counted: grid references, and whatever the legend says is not a door
+            grid = circled if sum(1 for i in circled if near.get(i)) <= 0.5 * len(circled) else set()
+            def not_door(l):
+                lead = re.match(r"[A-Za-z]*", l["text"]).group(0).upper()
+                return lead in other_codes or bool(l["codes"] & other_codes and not l["codes"] & door_codes)
+            dropped = [l for l in ls if l["id"] in grid or not_door(l)]
+            if dropped:
+                gone = {l["id"] for l in dropped}
+                ls = [l for l in ls if l["id"] not in gone]
+                if grid:
+                    eg = sorted(l["text"] for l in dropped if l["id"] in grid)[:3]
+                    info["left_out"] = f"{len(grid)} grid references ({', '.join(eg)} ...) are not doors and were left out."
+            if door_codes:
+                info["legend"] = sorted(door_codes)
+            for i, (r, t) in enumerate(zip(blanks, blank_text)):
+                extra_items.append({"id": f"blank.{fno}.{pno + 1}.{i}", "kind": "untagged", "ref": "", "file": fno, "page": pno + 1,
+                                    "floor": info["floor"], "x": r.x0, "y": r.y0, "w": r.width, "h": r.height, "status": "amber",
+                                    "reasons": [f"Tagged {t} on the plan: a door whose type has not been filled in"]})
             pages.append(info)
             labels.extend(ls)
         doc.close()
 
     has_geo = geo_pages > 0
     fams = _families(labels, near, key_ids, has_geo)
-    chosen = keys if keys else _auto_choose(fams, pages)
-    if not keys:
-        chosen += _companions(fams, chosen, {l["id"]: l for l in labels})
-    return _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems)
+    # where a legend names its door codes, those are the doors: nothing is guessed
+    by_legend = []
+    if legend_doors and not keys:
+        for l in labels:
+            k = shape_key(l["text"])
+            if k and l["id"] not in key_ids and re.match(r"[A-Za-z]*", l["text"]).group(0).upper() in legend_doors and k not in by_legend:
+                by_legend.append(k)
+    if by_legend:
+        # the legend speaks for the sheets that use its tags; any other sheet in the
+        # same upload (another architect's, say) is read the usual way
+        covered = {(l["file"], l["page"]) for l in labels if shape_key(l["text"]) in by_legend}
+        rest = [l for l in labels if (l["file"], l["page"]) not in covered]
+        fams_rest = _families(rest, near, key_ids, has_geo)
+        chosen_rest = _auto_choose(fams_rest, [p for p in pages if (p["file"], p["page"]) not in covered])
+        chosen_rest += _companions(fams_rest, chosen_rest, {l["id"]: l for l in rest})
+        chosen_rest = [c for c in chosen_rest if c not in by_legend]
+        chosen = by_legend + chosen_rest
+        keys_rest = {f["key"] for f in fams_rest}
+        fams = fams_rest + [f for f in fams if f["key"] not in keys_rest]
+    else:
+        chosen = keys if keys else _auto_choose(fams, pages)
+        if not keys:
+            chosen += _companions(fams, chosen, {l["id"]: l for l in labels})
+    return _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems, by_shape=set(by_legend),
+                  extra_items=extra_items if by_legend else [])
 
 
 def _lead(key: str) -> str:
@@ -669,8 +795,8 @@ def _auto_choose(fams: list[dict], pages: list[dict]) -> list[str]:
     return chosen
 
 
-def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dict:
-    doors, items = [], []
+def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems, by_shape=frozenset(), extra_items=()) -> dict:
+    doors, items = [], list(extra_items)
     fam_rate = {f["key"]: f["at_doors"] for f in fams}
     page_size = {(p["file"], p["page"]): (p["width"], p["height"]) for p in pages}
     multi = Counter(p["file"] for p in pages)
@@ -679,19 +805,80 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
     chosen = [_split_fam(c)[0] for c in chosen]
     members = set()
     for f in fams:
-        if f["key"] in chosen:
+        if f["key"] in chosen and f["key"] not in by_shape:
             members |= f["members"]
-    known = {f["key"] for f in fams}
-    # a style picked by hand that was too small to rank still counts, by its shape
+    known = {f["key"] for f in fams} - set(by_shape)
+    # a style picked by hand that was too small to rank still counts, by its shape; so
+    # does one the legend names, whatever size it is printed
     mine = [l for l in labels if l["id"] in members
             or (family_of(l["text"], [c for c in chosen if c not in known]) and l["id"] not in key_ids)]
+    mine_ids = {l["id"] for l in mine}
+    by_id = {l["id"]: l for l in labels}
+    # the labels printed with each door tag as one tag: the number with the type, a
+    # reference under it. Looked for around the door tags only, cell by cell.
+    CELL = 60.0
+    cells = defaultdict(list)
+    for l in labels:
+        r = l["rect"]
+        cells[(l["file"], l["page"], int(r.x0 // CELL), int(r.y0 // CELL))].append(l)
+    stack_of, with_mine = defaultdict(list), set()
+    for l in mine:
+        r = l["rect"]
+        cx, cy = int(r.x0 // CELL), int(r.y0 // CELL)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for o in cells.get((l["file"], l["page"], cx + dx, cy + dy), ()):
+                    if o is not l and _stacked(r, o["rect"], min(l["size"], o["size"])):
+                        stack_of[l["id"]].append(o["id"]); with_mine.add(o["id"])
+    # What else is printed in the same tag. A door type (EDR251) often carries the
+    # door's own number with it (B01.00.005): that number is the door's reference.
+    stat = defaultdict(lambda: [0, 0, set()])
+    for l in labels:
+        k = shape_key(l["text"])
+        if not k or l["id"] in mine_ids or l["id"] in key_ids:
+            continue
+        st = stat[k]
+        st[0] += 1; st[2].add(l["text"].upper())
+        if l["id"] in with_mine:
+            st[1] += 1
+    number_shapes = {k for k, (n, m, t) in stat.items() if n >= 3 and m >= 0.6 * n and len(t) >= 0.9 * n}
+    also_shapes = {k for k, (n, m, t) in stat.items() if n >= 2 and m >= 0.6 * n} - number_shapes
+    with_tag = number_shapes | also_shapes
+    ref_of, type_of, also_of = {}, {}, {}
+    for l in mine:
+        partners = [by_id[i] for i in stack_of.get(l["id"], ()) if i not in mine_ids]
+        num = next((q for q in partners if shape_key(q["text"]) in number_shapes), None)
+        if num:
+            ref_of[l["id"]] = num["text"]; type_of[l["id"]] = l["text"]
+        also_of[l["id"]] = [q["text"] for q in partners if shape_key(q["text"]) in also_shapes]
+    # A tag that names a kind of door is printed on every door of that kind: each one
+    # is a door, numbered in reading order.
+    fam_texts = defaultdict(list)
+    for l in mine:
+        if l["id"] not in ref_of and l["id"] not in key_ids:
+            fam_texts[family_of(l["text"], chosen)].append(l["text"].upper())
+    kinds = {f for f, ts in fam_texts.items() if len(ts) >= 3 and len(set(ts)) <= 0.7 * len(ts)}
+    numbered = set()
+    count_of = Counter()
+    total_of = Counter(l["text"].upper() for l in mine if l["id"] not in ref_of and l["id"] not in key_ids
+                       and family_of(l["text"], chosen) in kinds)
+    for l in sorted(mine, key=lambda l: (l["file"], l["page"], round(l["rect"].y0), l["rect"].x0)):
+        if l["id"] in ref_of or l["id"] in key_ids or family_of(l["text"], chosen) not in kinds:
+            continue
+        t = l["text"].upper()
+        if total_of[t] > 1:
+            count_of[t] += 1
+            ref_of[l["id"]] = f"{l['text']} ({count_of[t]})"; type_of[l["id"]] = l["text"]
+            numbered.add(l["id"])
     # Two sheets with the same tags in the same places show one floor twice: one copy
     # counts. The same tags in different places means each floor starts its numbers
     # again, and the floor tells the doors apart.
     by_sheet = defaultdict(dict)
     for l in mine:
+        if l["id"] in numbered:
+            continue                      # the same kind of door on two floors says nothing about the sheets
         W, H = page_size[(l["file"], l["page"])]
-        by_sheet[(l["file"], l["page"])][l["text"].upper()] = (l["rect"].x0 / W, l["rect"].y0 / H)
+        by_sheet[(l["file"], l["page"])][ref_of.get(l["id"], l["text"]).upper()] = (l["rect"].x0 / W, l["rect"].y0 / H)
     same_as, restart = {}, set()
     sheets = sorted(by_sheet)
     for i, a in enumerate(sheets):
@@ -723,20 +910,21 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
     sheet_rate = {k: v[0] / v[1] for k, v in at.items() if v[1] >= 5}
     for l in mine:
         f = family_of(l["text"], chosen)
-        text = l["text"].upper()
         sheet = (l["file"], l["page"])
-        ref = l["text"]
-        if sheet in restart:
+        ref = ref_of.get(l["id"], l["text"])
+        text = ref.upper()
+        if sheet in restart and l["id"] not in numbered:
             # numbers start again on each floor: the floor makes the reference unique
             fl = l.get("floor") or f"sheet {l['page']}"
-            ref, text = f"{l['text']} ({fl})", f"{text} ({fl.upper()})"
+            ref, text = f"{ref} ({fl})", f"{text} ({fl.upper()})"
         door = {"id": l["id"], "ref": ref, "file": l["file"], "page": l["page"], "floor": l.get("floor", ""),
                 "x": l["rect"].x0, "y": l["rect"].y0, "w": l["rect"].width, "h": l["rect"].height,
-                "family": f, "src": l["src"], "status": "green", "reasons": []}
+                "family": f, "src": l["src"], "status": "green", "reasons": [],
+                "type": type_of.get(l["id"], ""), "also": also_of.get(l["id"], [])}
         if l["id"] in key_ids or (re.search(r"\d", text) and all(int(x) == 0 for x in re.findall(r"\d+", text))):
             door["status"], door["reasons"] = "out", ["An example in the drawing key, not a door"]
             doors.append(door); continue
-        if sheet in same_as and l["text"].upper() in by_sheet[same_as[sheet]]:
+        if sheet in same_as and l["id"] not in numbered and ref_of.get(l["id"], l["text"]).upper() in by_sheet[same_as[sheet]]:
             door["status"], door["reasons"] = "out", [f"Also on sheet {same_as[sheet][1]}: this sheet repeats part of it"]
             doors.append(door); continue
         if text in seen:
@@ -747,7 +935,8 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
                 # plans of one floor in parts overlap at the edges: the door is already counted
                 door["status"], door["reasons"] = "out", [f"Also on {where}: the plans overlap here, so it is counted once"]
                 doors.append(door); continue
-            door["status"], door["reasons"] = "amber", [f"{l['text']} is printed twice: also on {where}" if other != sheet else f"{l['text']} is printed twice on this sheet"]
+            shown = ref_of.get(l["id"], l["text"])
+            door["status"], door["reasons"] = "amber", [f"{shown} is printed twice: also on {where}" if other != sheet else f"{shown} is printed twice on this sheet"]
         else:
             seen[text] = door
         usual = lengths[f].most_common(1)[0][0]
@@ -760,7 +949,7 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
         doors.append(door)
 
     # near misses: one slip from a chosen family
-    taken = {l["id"] for l in mine}
+    taken = {l["id"] for l in mine} | {l["id"] for l in labels if shape_key(l["text"]) in with_tag}
     slips = set()
     for l in labels:
         if l["id"] in taken or family_of(l["text"], chosen) or l["id"] in key_ids:
@@ -786,6 +975,8 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
     for l in labels:
         sh = (l["file"], l["page"])
         if l["id"] in counted_ids or l["id"] in key_ids or not near.get(l["id"]) or tagged_at.get(sh, 0) < GEO_RELIABLE:
+            continue
+        if shape_key(l["text"]) in with_tag:
             continue
         if not re.fullmatch(r"[A-Z]{1,4}[-./_]?\d{1,4}[A-Z]?", l["text"].upper()) or family_of(l["text"], chosen):
             continue
@@ -889,6 +1080,14 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems) -> dic
         if o_:
             p["note"] = ((p.get("note") or "") + f" {o_[0]} labels numbered a different way sit at doors ({', '.join(o_[1])}). "
                          "If those are doors too, use 'Not the door numbers?' to include them.").strip()
+        # what the reader went by on this sheet, said plainly
+        said = []
+        if p.get("legend") and by_shape:
+            said.append(f"The legend on this sheet names its door tags ({', '.join(p['legend'])}), so those are what was read.")
+        if p.get("left_out"):
+            said.append(p.pop("left_out"))
+        if said:
+            p["info"] = " ".join(said)
 
     green = sum(1 for d in doors if d["status"] == "green")
     amber = sum(1 for d in doors if d["status"] == "amber") + len(items)
