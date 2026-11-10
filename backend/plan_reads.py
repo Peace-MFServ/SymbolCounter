@@ -43,21 +43,105 @@ def _files(d: Path, meta: dict) -> list[tuple[str, bytes]]:
     return [(name, (d / f"{i}.pdf").read_bytes()) for i, name in enumerate(meta["names"])]
 
 
+_READER_STAMP = None
+
+
+def _reader_stamp() -> str:
+    """Changes whenever the reader's own code does, so a kept reading is never from an older reader."""
+    global _READER_STAMP
+    if _READER_STAMP is None:
+        import hashlib
+        import detection.plan_reader as pr
+        _READER_STAMP = hashlib.sha1(Path(pr.__file__).read_bytes()).hexdigest()[:16]
+    return _READER_STAMP
+
+
 def _reading(pid: int, rid: str, d: Path, meta: dict) -> dict:
+    """The doors read off the plans. Reading takes seconds, so the result is kept
+    beside the plans and used again until the plans, the labels chosen or the
+    reader itself change."""
     from detection.plan_reader import read_plans
-    r = read_plans(_files(d, meta), meta.get("chosen") or None)
-    if not meta.get("chosen"):
-        meta["chosen"] = r["chosen"]
-        (d / "meta.json").write_text(json.dumps(meta))
+    key = json.dumps([_reader_stamp(), meta["names"], meta.get("chosen") or None])
+    kept = d / "reading.json"
+    r = None
+    if kept.exists():
+        try:
+            saved = json.loads(kept.read_text())
+            if saved.get("key") == key:
+                r = saved["r"]
+        except (ValueError, KeyError):
+            r = None
+    if r is None:
+        r = read_plans(_files(d, meta), meta.get("chosen") or None)
+        if not meta.get("chosen"):
+            meta["chosen"] = r["chosen"]
+            (d / "meta.json").write_text(json.dumps(meta))
+            key = json.dumps([_reader_stamp(), meta["names"], meta["chosen"]])
+        try:
+            kept.write_text(json.dumps({"key": key, "r": r}))
+        except (TypeError, OSError):
+            pass
     return {"id": rid, "project_id": pid, "names": meta["names"], **r}
 
 
 def _with_job(db: Session, pid: int, r: dict) -> dict:
-    """Mark doors whose reference is already on the job."""
-    have = {(x or "").upper() for (x,) in db.query(models.Door.ref).filter(models.Door.project_id == pid).all()}
+    """Mark doors whose reference is already on the job, and send the job's doors
+    with their sets so the page can show and change them."""
+    from schedule import _effective_set_id
+    job = {}
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        job[(d.ref or "").upper()] = {"id": d.id, "set_id": _effective_set_id(d)}
     for d in r["doors"]:
-        d["on_job"] = d["ref"].upper() in have
+        d["on_job"] = d["ref"].upper() in job
+    r["job_doors"] = job
     return r
+
+
+def latest_reading(pid: int) -> str:
+    """The id of the job's newest plan reading, or '' when it has none."""
+    base = ROOT / str(pid)
+    if not base.is_dir():
+        return ""
+    metas = [m for m in base.glob("*/meta.json") if re.fullmatch(r"[a-f0-9]{12}", m.parent.name)]
+    return max(metas, key=lambda m: m.stat().st_mtime).parent.name if metas else ""
+
+
+@router.get("/projects/{pid}/plan-reads")
+def job_reading(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """The job's plans as last read, so the page opens on them. {id: ''} when there are none."""
+    from schedule import _own_project
+    _own_project(pid, db, cu)
+    rid = latest_reading(pid)
+    if not rid:
+        return {"id": ""}
+    d = _dir(pid, rid)
+    return _with_job(db, pid, _reading(pid, rid, d, _meta(d)))
+
+
+@router.post("/projects/{pid}/plan-reads/{rid}/files")
+async def add_plans(pid: int, rid: str, files: list[UploadFile] = File(...),
+                    db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """More plans for the same job: they join the ones already read."""
+    from schedule import _edit_project
+    _edit_project(pid, db, cu)
+    d = _dir(pid, rid)
+    meta = _meta(d)
+    added = 0
+    for f in files:
+        if len(meta["names"]) >= MAX_FILES:
+            break
+        data = await f.read()
+        name = Path(f.filename or "plan.pdf").name
+        if not data.startswith(b"%PDF"):
+            continue
+        (d / f"{len(meta['names'])}.pdf").write_bytes(data)
+        meta["names"].append(name); added += 1
+    if not added:
+        raise HTTPException(400, "Upload the floor plans as PDF files")
+    if not meta.get("picked"):
+        meta["chosen"] = None            # read afresh, so a new architect's sheet gets its own door numbers
+    (d / "meta.json").write_text(json.dumps(meta))
+    return _with_job(db, pid, _reading(pid, rid, d, meta))
 
 
 @router.post("/projects/{pid}/plan-reads")
@@ -106,6 +190,7 @@ def set_styles(pid: int, rid: str, payload: StylesIn, db: Session = Depends(get_
     if not keys:
         raise HTTPException(400, "Choose at least one door tag style")
     meta["chosen"] = keys
+    meta["picked"] = True                # a person chose: more plans added later do not undo it
     (d / "meta.json").write_text(json.dumps(meta))
     return _with_job(db, pid, _reading(pid, rid, d, meta))
 
@@ -191,7 +276,8 @@ def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str, note: s
         _link_set(db, pid, sid)
         db.flush()
     db.commit()
-    return {"added": added, "skipped": skipped, "project": p.name}
+    return {"added": added, "skipped": skipped, "project": p.name,
+            "job_doors": _with_job(db, pid, {"doors": []})["job_doors"]}
 
 
 # ── A door list from the architect's spreadsheet ─────────────────────────────

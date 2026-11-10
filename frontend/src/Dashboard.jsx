@@ -367,7 +367,8 @@ const avatarStyle = name => {
   return { background: bg, color: fg }
 }
 
-const openView = p => (p.kind === 'doors' ? 'job' : 'project')
+// a door schedule job whose floor plans have been read opens on them
+const openView = p => (p.kind === 'doors' ? (p.plan_read ? 'plan-reader' : 'job') : 'project')
 
 function NewProjectModal({ onClose, onCreated }) {
   const [kind,   setKind]   = useState('doors')

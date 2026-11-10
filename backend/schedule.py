@@ -2489,6 +2489,9 @@ def copy_project(pid: int, name: str = "", db: Session = Depends(get_db), cu=Dep
                        description=src.description, drawing_firm=src.drawing_firm, quote_no="", rep=src.rep,
                        kind=src.kind or "symbols", sets_only=bool(src.sets_only), owner_id=cu.id)
     db.add(p); db.flush()
+    from plan_reads import ROOT as _PLAN_ROOT
+    import shutil
+    shutil.rmtree(_PLAN_ROOT / str(p.id), ignore_errors=True)   # a job number used before must not inherit that job's plans
     set_map: dict[int, int] = {}
     for s in db.query(models.HardwareSet).filter(models.HardwareSet.project_id == pid).all():
         c = models.HardwareSet(code=s.code, name=s.name, description=s.description, fire_rated=s.fire_rated,

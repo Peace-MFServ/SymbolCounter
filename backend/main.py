@@ -258,8 +258,20 @@ class ProjectOut(BaseModel):
     quote_no: str = ""; rep: str = ""; kind: str = "symbols"
     revision: int = 1; sets_only: bool = False
     door_count: int = 0; door_types_to_decide: int = 0
+    plan_read: str = ""          # the job's floor plans have been read: it opens on them
     owner_id: Optional[int] = None; owner_name: str = ""; created_at: Optional[str] = None; updated_at: Optional[str] = None
     class Config: from_attributes = True
+
+
+def _drop_plan_reads(pid: int):
+    """The floor plans read for a job go when the job goes."""
+    from plan_reads import ROOT
+    shutil.rmtree(ROOT / str(pid), ignore_errors=True)
+
+
+def _plan_read(pid: int) -> str:
+    from plan_reads import latest_reading
+    return latest_reading(pid)
 
 
 def _project_out(p: models.Project, db: Session) -> ProjectOut:
@@ -274,6 +286,7 @@ def _project_out(p: models.Project, db: Session) -> ProjectOut:
                       quote_no=p.quote_no or "", rep=p.rep or "", kind=p.kind or "symbols",
                       revision=p.revision or 1, sets_only=bool(p.sets_only),
                       door_count=doors, door_types_to_decide=decide,
+                      plan_read=_plan_read(p.id) if (p.kind or "") == "doors" else "",
                       owner_id=p.owner_id, owner_name=p.owner.name if p.owner else "",
                       created_at=p.created_at.isoformat() if p.created_at else None,
                       updated_at=(p.updated_at or p.created_at).isoformat() if (p.updated_at or p.created_at) else None)
@@ -404,6 +417,7 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db),
         raise HTTPException(400, "Project kind must be 'symbols' or 'doors'")
     p = models.Project(**payload.model_dump(exclude_none=True), owner_id=cu.id)
     db.add(p); db.commit(); db.refresh(p)
+    _drop_plan_reads(p.id)      # a job number used before must not inherit that job's plans
     return _project_out(p, db)
 
 @app.get("/api/projects/{pid}", response_model=ProjectOut)
@@ -438,6 +452,7 @@ def duplicate_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.g
         quote_no=src.quote_no or "", rep=src.rep or "", kind=src.kind,
         sets_only=bool(src.sets_only), notes=src.notes or "", owner_id=cu.id)
     db.add(copy); db.flush()
+    _drop_plan_reads(copy.id)
 
     for st in src.symbol_types:
         db.add(models.ProjectSymbolType(name=st.name, code=st.code, color=st.color,
@@ -526,6 +541,7 @@ def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_
     db.flush()
     db.delete(p)
     db.commit()
+    _drop_plan_reads(pid)
 
 
 # ── Symbol types ──────────────────────────────────────────────────────────────

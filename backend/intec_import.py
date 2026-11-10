@@ -215,6 +215,9 @@ def import_intec(db, data: dict, owner_id: int, create_project: bool = True, sou
                               drawing_firm="", quote_no=job.get("quote_no") or "", rep=job.get("rep") or "",
                               kind="doors", owner_id=owner_id)
         db.add(proj); db.flush()
+        import shutil
+        from plan_reads import ROOT as _PLAN_ROOT
+        shutil.rmtree(_PLAN_ROOT / str(proj.id), ignore_errors=True)   # a job number used before must not inherit that job's plans
 
     # Sets: one of the core library sets only when it has exactly the same
     # products and quantities; otherwise the job's own set, which stays on this
