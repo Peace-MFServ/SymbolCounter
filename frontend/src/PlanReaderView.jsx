@@ -34,6 +34,9 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   const [floors, setFloors] = useState({})      // "file.page" -> floor name
   const [target, setTarget] = useState(setId ? String(setId) : '')
   const [list, setList] = useState(null)        // a door list read from a spreadsheet
+  const [setOf, setSetOf] = useState({})        // id -> the set given to that door here
+  const [ticked, setTicked] = useState(() => new Set())   // doors ticked to be given one set together
+  const lastTick = useRef(null)
   const [fixing, setFixing] = useState(false)   // the wrong labels were read: show what else could be the door numbers
   const fileRef = useRef()
   const splitRef = useRef()
@@ -56,9 +59,9 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   useEffect(() => {
     if (!rid) return
     const s = store.get(`planread:${rid}`) || {}
-    setChoice(s.choice || {}); setRefs(s.refs || {}); setFloors(s.floors || {})
+    setChoice(s.choice || {}); setRefs(s.refs || {}); setFloors(s.floors || {}); setSetOf(s.setOf || {}); setTicked(new Set())
   }, [rid])
-  useEffect(() => { if (rid) store.set(`planread:${rid}`, { choice, refs, floors }) }, [rid, choice, refs, floors])
+  useEffect(() => { if (rid) store.set(`planread:${rid}`, { choice, refs, floors, setOf }) }, [rid, choice, refs, floors, setOf])
 
   const opened = (data, names) => {
     setR(data); setRid(data.id)
@@ -91,7 +94,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     const fd = new FormData()
     pdfs.forEach(f => fd.append('files', f))
     setBusy('upload')
-    try { opened(await apiFetch(`/projects/${projectId}/plan-reads`, { method: 'POST', body: fd })); setChoice({}); setRefs({}); setFloors({}) }
+    try { opened(await apiFetch(`/projects/${projectId}/plan-reads`, { method: 'POST', body: fd })); setChoice({}); setRefs({}); setFloors({}); setSetOf({}); setTicked(new Set()) }
     catch (err) { showToast(err.message, 'error') }
     finally { setBusy('') }
   }
@@ -141,10 +144,18 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
       if (!counts(x)) continue
       const ref = refOf(x)
       if (!ref || seen.has(ref.toUpperCase())) continue
-      seen.add(ref.toUpperCase()); out.push({ ref, floor: floorOf(x) })
+      seen.add(ref.toUpperCase()); out.push({ ref, floor: floorOf(x), set_id: Number(setOf[x.id] || target) || null })
     }
     return out
-  }, [items, choice, refs, floors])
+  }, [items, choice, refs, floors, setOf, target])
+  // the sets a door can be given: the job's own first, then the library
+  const setOptions = useMemo(() => [
+    ...(job?.sets || []).map(js => ({ value: String(js.set.id), code: js.set.code, label: `${js.set.code} · ${js.set.name}`, group: 'On this job' })),
+    ...(job?.library || []).map(x => ({ value: String(x.id), code: x.code, label: `${x.code} · ${x.name}`, group: 'Set library' })),
+  ], [job])
+  const setCode = x => setOptions.find(o => o.value === String(setOf[x.id] || target || ''))?.code || ''
+  const tickable = x => !x.on_job && !(x.status === 'out' && choice[x.id] !== 'keep') && choice[x.id] !== 'drop'
+  const withSet = adding.filter(a => a.set_id).length
   const onJob = items.filter(x => x.on_job).length
   const bySheet = useMemo(() => {
     const m = {}
@@ -157,6 +168,31 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     return m
   }, [items, choice])
 
+  const tick = (x, e, rows) => {
+    const on = !ticked.has(x.id)
+    const next = new Set(ticked)
+    // shift-click ticks the run from the last door ticked to this one
+    const from = lastTick.current != null && rows ? rows.findIndex(r => r.id === lastTick.current) : -1
+    const to = rows ? rows.findIndex(r => r.id === x.id) : -1
+    const run = e?.shiftKey && from >= 0 && to >= 0 ? rows.slice(Math.min(from, to), Math.max(from, to) + 1).filter(tickable) : [x]
+    for (const d of run) on ? next.add(d.id) : next.delete(d.id)
+    lastTick.current = x.id
+    setTicked(next)
+  }
+  const tickThese = xs => {
+    const able = xs.filter(tickable)
+    const all = able.length > 0 && able.every(x => ticked.has(x.id))
+    const next = new Set(ticked)
+    for (const x of able) all ? next.delete(x.id) : next.add(x.id)
+    setTicked(next)
+  }
+  const giveTicked = sid => {
+    const n = ticked.size
+    setSetOf(m => { const o = { ...m }; for (const id of ticked) o[id] = sid; return o })
+    const name = setOptions.find(o => o.value === sid)?.code
+    showToast(sid ? `${n} door${n !== 1 ? 's' : ''} given ${name}` : `Set taken off ${n} door${n !== 1 ? 's' : ''}`, 'success')
+    setTicked(new Set())
+  }
   const lefty = x => (x.on_job || (x.status === 'out' && choice[x.id] !== 'keep') ? 1 : 0)
   const show = x => { setSheet(sheetKey(x)); setFocus(x.id) }
   const decide = (x, c) => {
@@ -299,14 +335,15 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
             {page && !page.readable && <div className="rail-note">{page.problem}</div>}
           </div>
           {page && <Sheet key={sheet} projectId={projectId} rid={rid} page={page} items={onSheet} focus={focus}
-                          stateOf={x => markState(x, choice, counts)} onPick={x => { setFocus(x.id); setTab(x.status === 'amber' ? 'check' : 'all') }}
+                          stateOf={x => markState(x, choice, counts)} ticked={ticked} setCode={setCode}
+                          onPick={(x, e) => { if (e?.shiftKey && tickable(x)) { tick(x); return } setFocus(x.id); setTab(x.status === 'amber' ? 'check' : 'all') }}
                           labels={picking ? labels : null} onLabel={l => chooseStyles([l.key])} />}
           <div className="pr-legend">
             <span><i className="m green" /> Read, going on the job</span>
             <span><i className="m amber" /> To look at</span>
             <span><i className="m gap" /> Number missing</span>
             <span><i className="m out" /> Left out</span>
-            <span className="pr-legend-tip">Ctrl + scroll to zoom, drag to move</span>
+            <span className="pr-legend-tip">Ctrl + scroll zooms · Shift + click ticks a door</span>
           </div>
         </section>
 
@@ -317,6 +354,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
             <div className="pr-counts">
               <div><strong>{adding.length}</strong><span>Doors to add</span></div>
               <div className={open.length ? 'amber' : ''}><strong>{open.length}<em>/{toCheck.length}</em></strong><span>Still to look at</span></div>
+              <div><strong>{withSet}<em>/{adding.length}</em></strong><span>Have a set</span></div>
               <div><strong>{pages.length}</strong><span>Sheet{pages.length !== 1 ? 's' : ''}</span></div>
               {onJob > 0 && <div><strong>{onJob}</strong><span>Already on job</span></div>}
             </div>
@@ -351,24 +389,44 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
               <label className="adm-search pr-search"><IconSearch size={16} /><input placeholder="Find a door or floor" value={q} onChange={e => setQ(e.target.value)} /></label>
             </div>
           </div>
+          {(tab === 'all' || ticked.size > 0) && (
+            <div className={`pr-bulk${ticked.size ? ' on' : ''}`}>
+              {ticked.size ? (
+                <>
+                  <strong>{ticked.size} door{ticked.size !== 1 ? 's' : ''} ticked</strong>
+                  <span>Give {ticked.size === 1 ? 'it' : 'them'}</span>
+                  <SetPick value="" options={setOptions} blank="Choose a set..." onChange={giveTicked} always />
+                  <button className="link-btn inline" onClick={() => giveTicked('')}>Take set off</button>
+                  <button className="link-btn inline" onClick={() => setTicked(new Set())}>Untick all</button>
+                </>
+              ) : (
+                <>
+                  <span>Tick doors to give them one set together:</span>
+                  <button className="chip-btn" onClick={() => tickThese(onSheet)}>This sheet</button>
+                  <button className="chip-btn" onClick={() => tickThese(items)}>Every door</button>
+                  <span className="muted">or pick a set on a door's own row</span>
+                </>
+              )}
+            </div>
+          )}
           <div className={`pr-list${tab === 'all' ? ' two' : ''}`}>
             {tab === 'check' && toCheck.length === 0 && <p className="muted pr-empty"><IconCheck size={16} /> Nothing to look at. Every door was read cleanly.</p>}
-            {listed.length > 0 && tab === 'check' && <div className="pr-row pr-row-head"><span /><span>Door</span><span>Floor</span><span>Note</span><span /></div>}
+            {listed.length > 0 && tab === 'check' && <div className="pr-row pr-row-head"><span /><span /><span>Door</span><span>Floor</span><span>Note</span><span>Set</span><span /></div>}
             {listed.slice(0, 600).map((x, i) => (
               <React.Fragment key={x.id}>
                 {i === firstOut && <div className="pr-list-head">Left out ({listed.length - firstOut})</div>}
                 <Row x={x} focus={focus === x.id} choice={choice[x.id]} ref_={refs[x.id] ?? x.ref ?? ''}
                      floor={floorOf(x)} onShow={() => show(x)} onChoose={c => decide(x, c)}
-                     onRef={v => setRefs(m => ({ ...m, [x.id]: v }))} />
+                     onRef={v => setRefs(m => ({ ...m, [x.id]: v }))}
+                     canSet={tickable(x)} ticked={ticked.has(x.id)} onTick={e => tick(x, e, listed)}
+                     setValue={setOf[x.id] || ''} setOptions={setOptions} fallback={target}
+                     onSet={v => setSetOf(m => ({ ...m, [x.id]: v }))} />
               </React.Fragment>
             ))}
           </div>
           <div className="pr-foot">
-            <label>Set for these doors
-              <select className="form-control" value={target} onChange={e => setTarget(e.target.value)}>
-                <option value="">Choose later</option>
-                {sets.map(js => <option key={js.set.id} value={js.set.id}>{js.set.code} · {js.set.name}</option>)}
-              </select>
+            <label>Set for every door not given one above
+              <SetPick value={target} options={setOptions} blank="None: choose later" onChange={setTarget} always wide />
             </label>
             <button className="btn btn-primary" onClick={apply} disabled={!adding.length || !!busy}>
               {busy === 'apply' ? <span className="spinner" /> : `Add ${adding.length} door${adding.length !== 1 ? 's' : ''} to the job`}
@@ -387,7 +445,7 @@ function markState(x, choice, counts) {
   return counts(x) ? 'green' : 'out'
 }
 
-function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef }) {
+function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, ticked, onTick, setValue, setOptions, fallback, onSet }) {
   const el = useRef()
   useEffect(() => { if (focus) el.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [focus])
   const amber = x.status === 'amber'
@@ -397,7 +455,10 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef }) {
   const state = x.on_job ? 'job' : amber ? (choice || 'open') : x.status === 'out' ? (choice === 'keep' ? 'keep' : 'drop') : (choice === 'drop' ? 'drop' : 'keep')
   const numbered = x.kind !== 'untagged'
   return (
-    <div ref={el} className={`pr-row ${state}${focus ? ' focus' : ''}${why || amber ? ' full' : ''}`} onClick={onShow}>
+    <div ref={el} className={`pr-row ${state}${focus ? ' focus' : ''}${why || amber ? ' full' : ''}${ticked ? ' ticked' : ''}`} onClick={onShow}>
+      {canSet
+        ? <input type="checkbox" className="pr-tick" checked={ticked} onChange={() => {}} onClick={e => { e.stopPropagation(); onTick(e) }} aria-label={`Tick ${x.ref || 'this door'}`} />
+        : <span />}
       <span className="pr-dot" />
       <div className="pr-c-ref">
         {!numbered
@@ -410,6 +471,7 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef }) {
       <div className="pr-why">
         {amber && <IconWarn size={13} />} {!numbered && <strong>Door with no tag. </strong>}{why}
       </div>
+      {canSet ? <SetPick value={setValue} options={setOptions} fallback={fallback} onChange={onSet} /> : <span />}
       <div className="pr-acts" onClick={e => e.stopPropagation()}>
         {amber && !x.on_job && <button className="btn btn-sm btn-soft pr-where" onClick={onShow} title="Move the plan to this door">Where is it</button>}
         {x.on_job ? null : (amber || x.status === 'out') ? (
@@ -426,9 +488,29 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef }) {
   )
 }
 
+/* A door's set. The long list of sets is only built once the box is about to
+   be used, so hundreds of doors do not each carry the whole library. */
+function SetPick({ value, options, onChange, fallback = '', blank = '', always = false, wide = false }) {
+  const [armed, setArmed] = useState(always)
+  const cur = options.find(o => o.value === String(value || ''))
+  const fb = options.find(o => o.value === String(fallback || ''))
+  const groups = [...new Set(options.map(o => o.group))]
+  return (
+    <select className={`form-control pr-setpick${cur ? ' on' : ''}${wide ? ' wide' : ''}`} value={cur ? cur.value : ''}
+            title={cur ? cur.label : fb ? `${fb.label} (the set for every door not given one)` : 'Give this door a set'}
+            onMouseEnter={() => setArmed(true)} onFocus={() => setArmed(true)} onClick={e => e.stopPropagation()}
+            onChange={e => onChange(e.target.value)}>
+      <option value="">{blank || (fb ? `${fb.code} (all)` : 'Set...')}</option>
+      {armed
+        ? groups.map(g => <optgroup key={g} label={g}>{options.filter(o => o.group === g).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>)
+        : cur && <option value={cur.value}>{cur.label}</option>}
+    </select>
+  )
+}
+
 /* One sheet: the plan as a picture with a mark on every tag. Scroll to move
    about, Ctrl and scroll (or the buttons) to zoom, drag to pan. */
-function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, onLabel }) {
+function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, onLabel, ticked, setCode }) {
   const src = useAuthImage(`/api/projects/${projectId}/plan-reads/${rid}/sheet/${page.file}/${page.page}`)
   const box = useRef()
   const canvas = useRef()
@@ -521,8 +603,10 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
         <div ref={canvas} className={`pr-canvas${zoom >= 2.5 ? ' near' : ''}`} style={{ width: base ? `${Math.round(base * zoom)}px` : `${zoom * 100}%` }}>
           {src ? <img src={src} alt={page.name} draggable={false} onLoad={() => setLoaded(true)} /> : <div className="pr-loading" style={{ aspectRatio: `${W} / ${H}` }}><span className="spinner spinner-lg" /></div>}
           {src && !labels && items.map(x => (
-            <button key={x.id} className={`pr-mark ${stateOf(x)}${x.kind === 'untagged' ? ' swing' : ''}${focus === x.id ? ' focus' : ''}`}
-                    style={mark(x)} title={x.ref || (x.reasons || [])[0]} onClick={() => onPick(x)} />
+            <button key={x.id} className={`pr-mark ${stateOf(x)}${x.kind === 'untagged' ? ' swing' : ''}${focus === x.id ? ' focus' : ''}${ticked?.has(x.id) ? ' ticked' : ''}`}
+                    style={mark(x)} title={`${x.ref || (x.reasons || [])[0]}${setCode?.(x) ? ` · ${setCode(x)}` : ''}`} onClick={e => onPick(x, e)}>
+              {stateOf(x) === 'green' && setCode?.(x) && <span className="pr-mark-set">{setCode(x)}</span>}
+            </button>
           ))}
           {src && labels && labels.map(l => (
             <button key={l.id} className="pr-label" style={pos(l)} title={`Use the style of ${l.text}`} onClick={() => onLabel(l)} />

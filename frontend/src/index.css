@@ -1892,3 +1892,25 @@ body:has(.pr-split) .crumbs { max-width: none; padding: 12px 20px 0; }
 .pr-split .pr-mark.focus { outline: 3px solid var(--accent); outline-offset: 3px; z-index: 3; }
 .pr-split .pr-legend .m.green { border-color: #0E7A3C; background: rgba(22, 163, 74, .55); }
 .pr-split .pr-legend .m.amber { border-color: #C2410C; background: rgba(237, 110, 2, .65); }
+/* Sets on the reader page: a tick and a set on every door, a bar for the ticked ones */
+.pr-split .pr-row { grid-template-columns: 16px 10px minmax(96px, 150px) minmax(70px, 110px) minmax(0, 1fr) 150px auto; gap: 10px; }
+.pr-split .pr-list.two .pr-row { grid-template-columns: 16px 10px minmax(0, 1fr) auto 132px auto; gap: 8px; }
+.pr-split .pr-list.two .pr-row.full { grid-template-columns: 16px 10px minmax(96px, 150px) minmax(70px, 110px) minmax(0, 1fr) 150px auto; }
+.pr-tick { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.pr-split .pr-row.ticked, .pr-split .pr-row.ticked:hover { background: #EAF1FB; }
+.pr-setpick.form-control { height: 30px; padding: 2px 22px 2px 8px; font-size: 12.5px; width: 100%; min-width: 0; color: var(--text3); border-color: #D9E0E8; background-color: #fff; text-overflow: ellipsis; cursor: pointer; }
+.pr-setpick.form-control.on { color: var(--accent); font-weight: 700; border-color: #B9CCE6; background-color: #F3F7FD; }
+.pr-setpick.form-control:hover { border-color: var(--accent); }
+.pr-setpick.form-control.wide { height: 40px; font-size: 14px; padding-left: 12px; color: var(--ink); }
+.pr-bulk { flex-shrink: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 14px; border-top: 1px solid var(--card-border); font-size: 13px; color: var(--text2); background: #FAFBFC; }
+.pr-bulk.on { background: #EAF1FB; color: var(--accent); }
+.pr-bulk.on strong { font-size: 13.5px; }
+.pr-bulk .pr-setpick.form-control { width: 240px; }
+.pr-bulk .chip-btn { padding: 3px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 600; border: 1px solid #D2DCE8; background: #fff; color: var(--text2); cursor: pointer; }
+.pr-bulk .chip-btn:hover { border-color: var(--accent); color: var(--accent); }
+.pr-bulk .link-btn { font-size: 12.5px; font-weight: 600; color: var(--accent); }
+.pr-bulk .muted { font-size: 12.5px; }
+/* on the plan: ticked doors ringed in blue, and each door's set under it close up */
+.pr-split .pr-mark.ticked { box-shadow: 0 0 0 2px #fff, 0 0 0 5px #075EB5; z-index: 2; }
+.pr-mark-set { display: none; position: absolute; left: 50%; top: 100%; transform: translate(-50%, 3px); padding: 1px 5px; border-radius: 3px; background: var(--accent); color: #fff; font: 700 10px/1.4 var(--font-body); white-space: nowrap; pointer-events: none; }
+.pr-split .pr-canvas.near .pr-mark-set { display: block; }

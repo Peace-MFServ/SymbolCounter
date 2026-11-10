@@ -149,6 +149,7 @@ class DoorIn(BaseModel):
     ref: str
     floor: str = ""
     note: str = ""
+    set_id: Optional[int] = None      # this door's own set; without one it takes the set given for them all
 
 
 class ApplyIn(BaseModel):
@@ -165,10 +166,13 @@ def add_doors(pid: int, rid: str, payload: ApplyIn, db: Session = Depends(get_db
 
 def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str, note: str) -> dict:
     """The doors a person has looked over go onto the job. References already on it are left alone."""
-    from schedule import _edit_project, _link_set, _set_or_404
+    from schedule import _edit_project, _link_set, _usable_set
     p = _edit_project(pid, db, cu)
-    if payload.set_id:
-        _set_or_404(payload.set_id, db)
+    # a library set or this job's own, never another job's
+    for sid in {payload.set_id} | {d.set_id for d in payload.doors[:5000]}:
+        if sid:
+            _usable_set(db, pid, sid)
+    used = set()
     have = {(x or "").upper() for (x,) in db.query(models.Door.ref).filter(models.Door.project_id == pid).all()}
     added, skipped = 0, []
     for dr in payload.doors[:5000]:
@@ -177,11 +181,15 @@ def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str, note: s
             continue
         if ref.upper() in have:
             skipped.append(ref); continue
-        db.add(models.Door(project_id=pid, ref=ref, floor=dr.floor.strip()[:60], set_id=payload.set_id,
+        sid = dr.set_id or payload.set_id or None
+        db.add(models.Door(project_id=pid, ref=ref, floor=dr.floor.strip()[:60], set_id=sid,
                            source=source, note=(dr.note.strip() or note)[:500]))
         have.add(ref.upper()); added += 1
-    if payload.set_id and added:
-        _link_set(db, pid, payload.set_id)
+        if sid:
+            used.add(sid)
+    for sid in sorted(used):
+        _link_set(db, pid, sid)
+        db.flush()
     db.commit()
     return {"added": added, "skipped": skipped, "project": p.name}
 
