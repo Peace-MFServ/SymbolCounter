@@ -590,6 +590,47 @@ def _grid_refs(ls: list[dict], circles: list, near: dict) -> set:
     return out
 
 
+def _set_refs(words, ls: list[dict], door_codes: set, other_codes: set) -> dict:
+    """Tags the legend files under something other than doors (a railing, a screen)
+    that carry an ironmongery reference all the same: a gate in a railing. The
+    reference is the short label (A1, B2, A1+i) the architect prints beside the door
+    tags on the same sheet; where a railing or screen tag has one too, it has a
+    leaf that needs ironmongery. Returns {label id: the reference}."""
+    lead = lambda l: re.match(r"[A-Za-z]*", l["text"]).group(0).upper()
+    small = [(w[4], fitz.Rect(w[:4])) for w in words
+             if len(w[4]) <= 5 and re.search(r"[A-Za-z]", w[4]) and re.search(r"\d", w[4])
+             and not re.search(r"[^A-Za-z0-9+]", w[4])]
+    if not small:
+        return {}
+    kind = lambda t: re.sub(r"\d+", "#", re.sub(r"[A-Za-z]", "A", t))
+
+    def beside(l):
+        r = l["rect"]
+        for t, q in small:
+            if t.upper() == l["text"].upper() or _dist_rect(r, q) > 1.5 * l["size"]:
+                continue
+            ox = min(r.x1, q.x1) - max(r.x0, q.x0)
+            oy = min(r.y1, q.y1) - max(r.y0, q.y0)
+            if ox >= 0.5 * min(r.width, q.width) or oy >= 0.5 * min(r.height, q.height):
+                return t
+        return None
+
+    at_doors = Counter()
+    for l in ls:
+        if lead(l) in door_codes:
+            t = beside(l)
+            if t:
+                at_doors[kind(t)] += 1
+    kinds = {k for k, n in at_doors.items() if n >= 2}
+    out = {}
+    for l in ls:
+        if lead(l) in other_codes and re.search(r"\d", l["text"]):
+            t = beside(l)
+            if t and kind(t) in kinds:
+                out[l["id"]] = t
+    return out
+
+
 # ── The reading ───────────────────────────────────────────────────────────────
 _FLOORS = "BASEMENT|LOWER GROUND|UPPER GROUND|GROUND|FIRST|SECOND|THIRD|FOURTH|FIFTH|SIXTH|SEVENTH|EIGHTH|NINTH|TENTH|ROOF|MEZZANINE"
 
@@ -658,6 +699,20 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
                           if any(w[4].startswith(c) and re.fullmatch(r"[A-Z]{1,4}", w[4][len(c):]) for c in door_codes)
                           and w[4] not in door_codes and w[4] not in other_codes]
             circled = _grid_refs(ls, circles, {})
+            set_ref = _set_refs(words, ls, door_codes, other_codes) if door_codes else {}
+            # the number printed with a door's type is the door's, whatever else is noted
+            # beside it ("WR" under the door to the wet riser)
+            door_tags = [l for l in ls if re.match(r"[A-Za-z]*", l["text"]).group(0).upper() in door_codes]
+            paired = defaultdict(lambda: [0, 0, 0])
+            for l in ls:
+                k = shape_key(l["text"])
+                if not k or not door_tags:
+                    continue
+                st = paired[k]
+                st[0] += 1
+                st[1] += 1 if any(d is not l and _stacked(l["rect"], d["rect"], min(l["size"], d["size"])) for d in door_tags) else 0
+                st[2] += 1 if l["codes"] & other_codes else 0
+            door_numbers = {k for k, (n, d, o) in paired.items() if d >= 0.6 * n and o < 0.5 * n}
             if page.rotation:
                 # text and drawings come in the sheet's own frame; the sheet is shown turned
                 m = page.rotation_matrix
@@ -681,8 +736,15 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
             # left out before anything is counted: grid references, and whatever the legend says is not a door
             grid = circled if sum(1 for i in circled if near.get(i)) <= 0.5 * len(circled) else set()
             def not_door(l):
+                if l["id"] in set_ref:
+                    return False
                 lead = re.match(r"[A-Za-z]*", l["text"]).group(0).upper()
-                return lead in other_codes or bool(l["codes"] & other_codes and not l["codes"] & door_codes)
+                if lead in other_codes:
+                    return True
+                return bool(l["codes"] & other_codes and not l["codes"] & door_codes) and shape_key(l["text"]) not in door_numbers
+            for l in ls:
+                if l["id"] in set_ref:
+                    l["set_ref"] = set_ref[l["id"]]
             dropped = [l for l in ls if l["id"] in grid or not_door(l)]
             if dropped:
                 gone = {l["id"] for l in dropped}
@@ -692,6 +754,9 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
                     info["left_out"] = f"{len(grid)} grid references ({', '.join(eg)} ...) are not doors and were left out."
             if door_codes:
                 info["legend"] = sorted(door_codes)
+            gates = sorted(l["text"] for l in ls if l.get("set_ref") and l["id"] not in key_ids)
+            if gates:
+                info["gates"] = gates
             for i, (r, t) in enumerate(zip(blanks, blank_text)):
                 extra_items.append({"id": f"blank.{fno}.{pno + 1}.{i}", "kind": "untagged", "ref": "", "file": fno, "page": pno + 1,
                                     "floor": info["floor"], "x": r.x0, "y": r.y0, "w": r.width, "h": r.height, "status": "amber",
@@ -707,7 +772,8 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
     if legend_doors and not keys:
         for l in labels:
             k = shape_key(l["text"])
-            if k and l["id"] not in key_ids and re.match(r"[A-Za-z]*", l["text"]).group(0).upper() in legend_doors and k not in by_legend:
+            if k and l["id"] not in key_ids and k not in by_legend and (
+                    re.match(r"[A-Za-z]*", l["text"]).group(0).upper() in legend_doors or l.get("set_ref")):
                 by_legend.append(k)
     if by_legend:
         # the legend speaks for the sheets that use its tags; any other sheet in the
@@ -920,7 +986,8 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems, by_sha
         door = {"id": l["id"], "ref": ref, "file": l["file"], "page": l["page"], "floor": l.get("floor", ""),
                 "x": l["rect"].x0, "y": l["rect"].y0, "w": l["rect"].width, "h": l["rect"].height,
                 "family": f, "src": l["src"], "status": "green", "reasons": [],
-                "type": type_of.get(l["id"], ""), "also": also_of.get(l["id"], [])}
+                "type": type_of.get(l["id"], ""),
+                "also": also_of.get(l["id"], []) + ([f"Ironmongery ref {l['set_ref']}"] if l.get("set_ref") else [])}
         if l["id"] in key_ids or (re.search(r"\d", text) and all(int(x) == 0 for x in re.findall(r"\d+", text))):
             door["status"], door["reasons"] = "out", ["An example in the drawing key, not a door"]
             doors.append(door); continue
@@ -1084,6 +1151,11 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems, by_sha
         said = []
         if p.get("legend") and by_shape:
             said.append(f"The legend on this sheet names its door tags ({', '.join(p['legend'])}), so those are what was read.")
+        g = p.pop("gates", None)
+        if g:
+            said.append(f"{', '.join(g)} {'is' if len(g) == 1 else 'are'} not door tags by the legend, but "
+                        f"{'has' if len(g) == 1 else 'each has'} an ironmongery reference beside it, so "
+                        f"{'it is' if len(g) == 1 else 'they are'} counted as {'a door' if len(g) == 1 else 'doors'}.")
         if p.get("left_out"):
             said.append(p.pop("left_out"))
         if said:
