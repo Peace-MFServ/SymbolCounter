@@ -1879,3 +1879,16 @@ body:has(.pr-split) .crumbs { max-width: none; padding: 12px 20px 0; }
 .pr-split .pr-where.btn { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
 .pr-split .pr-acts { gap: 6px; flex-wrap: nowrap; }
 .pr-split .pr-list.two .pr-row { gap: 8px; }
+/* Marks on the plan: easy to pick out on the whole sheet, light enough to read through close up */
+.pr-split .pr-mark { box-sizing: border-box; transform: translate(-50%, -50%); padding: 0; border-radius: 4px; box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(15, 23, 42, .35); }
+.pr-split .pr-mark.green { border: 2px solid #0E7A3C; background: rgba(22, 163, 74, .55); }
+.pr-split .pr-mark.amber { border: 3px solid #C2410C; background: rgba(237, 110, 2, .65); }
+.pr-split .pr-mark.gap { border: 3px dashed #C2410C; border-radius: 50%; background: rgba(237, 110, 2, .15); padding: 0; transform: translate(-50%, -50%); }
+.pr-split .pr-mark.swing { border-radius: 50%; }
+.pr-split .pr-mark.out { border: 2px dotted #7B8794; background: rgba(123, 135, 148, .12); box-shadow: none; }
+.pr-split .pr-mark:hover { filter: brightness(1.08); z-index: 2; }
+.pr-split .pr-canvas.near .pr-mark.green { background: rgba(22, 163, 74, .18); }
+.pr-split .pr-canvas.near .pr-mark.amber { background: rgba(237, 110, 2, .22); }
+.pr-split .pr-mark.focus { outline: 3px solid var(--accent); outline-offset: 3px; z-index: 3; }
+.pr-split .pr-legend .m.green { border-color: #0E7A3C; background: rgba(22, 163, 74, .55); }
+.pr-split .pr-legend .m.amber { border-color: #C2410C; background: rgba(237, 110, 2, .65); }

@@ -447,6 +447,12 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
     return () => ro.disconnect()
   }, [W, H])
   const pos = x => ({ left: `${(x.x / W) * 100}%`, top: `${(x.y / H) * 100}%`, width: `${(x.w / W) * 100}%`, height: `${(x.h / H) * 100}%` })
+  // a mark sits on its tag's middle and is never smaller than a size the eye picks out on the whole sheet
+  const mark = x => {
+    const [mw, mh] = x.kind === 'gap' || x.kind === 'untagged' ? [26, 26] : x.status === 'amber' ? [26, 18] : [22, 15]
+    return { left: `${((x.x + x.w / 2) / W) * 100}%`, top: `${((x.y + x.h / 2) / H) * 100}%`,
+             width: `max(calc(${(x.w / W) * 100}% + 8px), ${mw}px)`, height: `max(calc(${(x.h / H) * 100}% + 8px), ${mh}px)` }
+  }
 
   const zoomTo = (z, cx = 0.5, cy = 0.5) => {
     const el = box.current
@@ -512,11 +518,11 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
       </div>
       <div ref={box} className={`pr-viewer${labels ? ' picking' : ''}`} onMouseDown={down} onMouseMove={move}
            onMouseUp={() => { drag.current = null }} onMouseLeave={() => { drag.current = null }}>
-        <div ref={canvas} className="pr-canvas" style={{ width: base ? `${Math.round(base * zoom)}px` : `${zoom * 100}%` }}>
+        <div ref={canvas} className={`pr-canvas${zoom >= 2.5 ? ' near' : ''}`} style={{ width: base ? `${Math.round(base * zoom)}px` : `${zoom * 100}%` }}>
           {src ? <img src={src} alt={page.name} draggable={false} onLoad={() => setLoaded(true)} /> : <div className="pr-loading" style={{ aspectRatio: `${W} / ${H}` }}><span className="spinner spinner-lg" /></div>}
           {src && !labels && items.map(x => (
             <button key={x.id} className={`pr-mark ${stateOf(x)}${x.kind === 'untagged' ? ' swing' : ''}${focus === x.id ? ' focus' : ''}`}
-                    style={pos(x)} title={x.ref || (x.reasons || [])[0]} onClick={() => onPick(x)} />
+                    style={mark(x)} title={x.ref || (x.reasons || [])[0]} onClick={() => onPick(x)} />
           ))}
           {src && labels && labels.map(l => (
             <button key={l.id} className="pr-label" style={pos(l)} title={`Use the style of ${l.text}`} onClick={() => onLabel(l)} />
