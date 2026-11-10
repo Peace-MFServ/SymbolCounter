@@ -411,7 +411,7 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef }) {
         {amber && <IconWarn size={13} />} {!numbered && <strong>Door with no tag. </strong>}{why}
       </div>
       <div className="pr-acts" onClick={e => e.stopPropagation()}>
-        <button className="btn btn-sm btn-soft pr-where" onClick={onShow} title="Move the plan to this door">Where is it</button>
+        {amber && !x.on_job && <button className="btn btn-sm btn-soft pr-where" onClick={onShow} title="Move the plan to this door">Where is it</button>}
         {x.on_job ? null : (amber || x.status === 'out') ? (
           <>
             <button className={`btn btn-sm ${choice === 'keep' ? 'btn-primary' : ''}`} onClick={() => onChoose('keep')}
