@@ -1925,3 +1925,15 @@ body:has(.pr-split) .crumbs { max-width: none; padding: 12px 20px 0; }
 .pr-split .pr-c-ref { overflow: hidden; }
 .pr-split .pr-c-ref .pr-ref { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
 .pr-split .pr-type { display: block; margin: 0; font-size: 11px; line-height: 1.2; }
+/* Adding a door by hand */
+.pr-add-door.btn { margin-left: auto; white-space: nowrap; gap: 5px; padding: 5px 12px; font-size: 12.5px; }
+.pr-listbar .pr-add-door + .pr-search.adm-search { margin-left: 0; width: 210px; }
+.pr-placing { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 10px; padding: 8px 12px; border-radius: 7px; background: #EAF1FB; border: 1px solid #B9CCE6; font-size: 13px; color: var(--accent); }
+.pr-placing .link-btn { font-size: 12.5px; font-weight: 600; color: var(--accent); }
+.pr-placing .link-btn:hover { text-decoration: underline; }
+.pr-viewer.placing .pr-mark { pointer-events: none; }
+.pr-add-modal p { margin: 0 0 14px; }
+.pr-add-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text2); margin-bottom: 18px; }
+.pr-add-label .form-control { font-size: 15px; font-weight: 600; }
+/* a door added by hand has no number printed on the plan: its mark carries it */
+.pr-mark-ref { position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -3px); padding: 1px 6px; border-radius: 3px; background: #0E7A3C; color: #fff; font: 700 11px/1.4 var(--font-body); white-space: nowrap; pointer-events: none; }

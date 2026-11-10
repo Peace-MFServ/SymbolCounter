@@ -4,7 +4,7 @@ import { showToast } from './toast'
 import { Topbar } from './Dashboard'
 import { useAuthImage } from './TemplatesView'
 import { useConfirm } from './confirm'
-import { IconUpload, IconCheck, IconWarn, IconSearch, IconLeft } from './icons'
+import { IconUpload, IconCheck, IconWarn, IconSearch, IconLeft, IconPlus } from './icons'
 
 const refKey = r => (r || '').split(/(\d+)/).map(t => (/^\d+$/.test(t) ? t.padStart(8, '0') : t.toLowerCase())).join('')
 const sheetKey = x => `${x.file}.${x.page}`
@@ -37,6 +37,8 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   const [setOf, setSetOf] = useState({})        // id -> the set given to that door here
   const [ticked, setTicked] = useState(() => new Set())   // doors ticked to be given one set together
   const lastTick = useRef(null)
+  const [placing, setPlacing] = useState(false)  // adding a door by hand: waiting for a click on the plan
+  const [adding1, setAdding1] = useState(null)   // the door being added by hand: { file, page, x, y } (x, y null if it is on no sheet)
   const [fixing, setFixing] = useState(false)   // the wrong labels were read: show what else could be the door numbers
   const fileRef = useRef()
   const loadJob = () => apiFetch(`/projects/${projectId}/job`).then(setJob).catch(err => showToast(err.message, 'error'))
@@ -218,8 +220,29 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     showToast(sid ? `${n} door${n !== 1 ? 's' : ''} given ${name}` : `Set taken off ${n} door${n !== 1 ? 's' : ''}`, 'success')
     setTicked(new Set())
   }
+  const addByHand = async ref => {
+    const at = adding1
+    // already read off the plans, or on the job: show it, do not add it twice
+    const same = items.find(x => refOf(x).toUpperCase() === ref.toUpperCase() && (x.on_job || counts(x) || x.status === 'amber'))
+    if (same) {
+      showToast(`${refOf(same)} is already in the list`, 'info')
+      setAdding1(null); setPlacing(false); setTab(same.status === 'amber' && !same.on_job ? 'check' : 'all'); show(same)
+      return
+    }
+    try {
+      const data = await apiFetch(`/projects/${projectId}/plan-reads/${rid}/manual`, { method: 'POST',
+        body: JSON.stringify({ ref, file: at.file, page: at.page, x: at.x, y: at.y }) })
+      setR(data); setAdding1(null); setPlacing(false); setTab('all')
+      if (at.x != null) setFocus(data.added)
+      showToast(`${ref} added. It goes on the job with the others.`, 'success')
+    } catch (err) { showToast(err.message, 'error') }
+  }
+  const removeByHand = async x => {
+    try { setR(await apiFetch(`/projects/${projectId}/plan-reads/${rid}/manual/${x.id}`, { method: 'DELETE' })) }
+    catch (err) { showToast(err.message, 'error') }
+  }
   const lefty = x => (!x.on_job && x.status === 'out' && choice[x.id] !== 'keep' ? 1 : 0)
-  const show = x => { setSheet(sheetKey(x)); setFocus(x.id) }
+  const show = x => { setSheet(sheetKey(x)); if (x.x != null) setFocus(x.id) }
   const decide = (x, c) => {
     setChoice(cur => ({ ...cur, [x.id]: cur[x.id] === c ? undefined : c }))
     // move on to the next one still to look at
@@ -335,6 +358,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
         </>
       } />
       {confirmModal}
+      {adding1 && <AddDoorModal placed={adding1.x != null} floor={page ? floorOf(page) : ''} onAdd={addByHand} onClose={() => setAdding1(null)} />}
       <div className="pr-split" ref={splitRef} style={splitH ? { height: splitH } : undefined}>
         {/* Left half: the plan */}
         <section className="pr-pane pr-left">
@@ -360,11 +384,19 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
             {page?.info && <div className="pr-sheet-info">{page.info}</div>}
             {page?.note && <div className="pr-sheet-note">{page.note}</div>}
             {page && !page.readable && <div className="rail-note">{page.problem}</div>}
+            {placing && (
+              <div className="pr-placing">
+                <strong>Click where the door is on the plan.</strong>
+                <button className="link-btn inline" onClick={() => page && setAdding1({ file: page.file, page: page.page, x: null, y: null })}>It is not on this plan</button>
+                <button className="link-btn inline" onClick={() => setPlacing(false)}>Cancel</button>
+              </div>
+            )}
           </div>
           {page && <Sheet key={sheet} projectId={projectId} rid={rid} page={page} items={onSheet} focus={focus}
                           stateOf={x => markState(x, choice, counts)} ticked={ticked} setCode={setCode}
                           onPick={(x, e) => { if (e?.shiftKey && tickable(x)) { tick(x); return } setFocus(x.id); setTab(x.status === 'amber' ? 'check' : 'all') }}
-                          labels={picking ? labels : null} onLabel={l => chooseStyles([l.key])} />}
+                          labels={picking ? labels : null} onLabel={l => chooseStyles([l.key])}
+                          placing={placing} onPlace={pt => setAdding1({ file: page.file, page: page.page, ...pt })} />}
           <div className="pr-legend">
             <span><i className="m green" /> Read, going on the job</span>
             <span><i className="m amber" /> To look at</span>
@@ -412,6 +444,8 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
                 <button className={tab === 'check' ? 'on' : ''} onClick={() => setTab('check')}>To look at <span>{open.length}</span></button>
                 <button className={tab === 'all' ? 'on' : ''} onClick={() => setTab('all')}>All doors <span>{allDoors.length}</span></button>
               </div>
+              <button className={`btn btn-sm pr-add-door ${placing ? 'btn-primary' : 'btn-soft'}`} onClick={() => { setPlacing(v => !v); setPicking(false) }}
+                      title="A door the reader missed: add it yourself"><IconPlus size={14} /> Add a door</button>
               <label className="adm-search pr-search"><IconSearch size={16} /><input placeholder="Find a door or floor" value={q} onChange={e => setQ(e.target.value)} /></label>
             </div>
           </div>
@@ -446,7 +480,8 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
                      onRef={v => setRefs(m => ({ ...m, [x.id]: v }))}
                      canSet={tickable(x)} ticked={ticked.has(x.id)} onTick={e => tick(x, e, listed)}
                      setValue={x.on_job ? String(x.job_set || '') : (setOf[x.id] || '')} setOptions={setOptions} fallback={x.on_job ? '' : target}
-                     onSet={v => (x.on_job ? saveJobSet([x], v) : setSetOf(m => ({ ...m, [x.id]: v })))} />
+                     onSet={v => (x.on_job ? saveJobSet([x], v) : setSetOf(m => ({ ...m, [x.id]: v })))}
+                     onRemove={() => removeByHand(x)} />
               </React.Fragment>
             ))}
           </div>
@@ -471,7 +506,7 @@ function markState(x, choice, counts) {
   return counts(x) ? 'green' : 'out'
 }
 
-function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, ticked, onTick, setValue, setOptions, fallback, onSet }) {
+function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, ticked, onTick, setValue, setOptions, fallback, onSet, onRemove }) {
   const el = useRef()
   useEffect(() => { if (focus) el.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [focus])
   const amber = x.status === 'amber' && !x.on_job
@@ -511,9 +546,44 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, t
             {amber && <button className={`btn btn-sm ${choice === 'drop' ? 'btn-primary' : ''}`} onClick={() => onChoose('drop')}>{dropLabel}</button>}
           </>
         ) : (
-          <button className="btn btn-sm btn-ghost pr-leave" onClick={() => onChoose('drop')}>{choice === 'drop' ? 'Put back' : 'Leave out'}</button>
+          x.src === 'manual'
+            ? <button className="btn btn-sm btn-ghost pr-leave" onClick={onRemove} title="You added this door by hand">Remove</button>
+            : <button className="btn btn-sm btn-ghost pr-leave" onClick={() => onChoose('drop')}>{choice === 'drop' ? 'Put back' : 'Leave out'}</button>
         )}
       </div>
+    </div>
+  )
+}
+
+/* A door the reader missed, added by hand: just its number. */
+function AddDoorModal({ placed, floor, onAdd, onClose }) {
+  const [ref, setRef] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    const key = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', key)
+    return () => document.removeEventListener('keydown', key)
+  }, [])
+  const submit = async e => {
+    e.preventDefault()
+    if (!ref.trim() || busy) return
+    setBusy(true)
+    await onAdd(ref.trim())
+    setBusy(false)
+  }
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <form className="modal unsaved-modal pr-add-modal" onSubmit={submit}>
+        <h2>Add a door</h2>
+        <p>{placed ? 'It will be marked where you clicked' : 'It will not be marked on a plan'}{floor ? `, on ${floor}` : ''}.</p>
+        <label className="pr-add-label">Door number
+          <input className="form-control" autoFocus value={ref} onChange={e => setRef(e.target.value)} placeholder="e.g. D-14" autoComplete="off" />
+        </label>
+        <div className="modal-actions">
+          <button className="btn btn-primary" type="submit" disabled={!ref.trim() || busy}>{busy ? <span className="spinner" /> : 'Add the door'}</button>
+          <button className="btn" type="button" onClick={onClose}>Cancel</button>
+        </div>
+      </form>
     </div>
   )
 }
@@ -540,7 +610,7 @@ function SetPick({ value, options, onChange, fallback = '', blank = '', always =
 
 /* One sheet: the plan as a picture with a mark on every tag. Scroll to move
    about, Ctrl and scroll (or the buttons) to zoom, drag to pan. */
-function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, onLabel, ticked, setCode }) {
+function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, onLabel, ticked, setCode, placing, onPlace }) {
   const src = useAuthImage(`/api/projects/${projectId}/plan-reads/${rid}/sheet/${page.file}/${page.page}`)
   const box = useRef()
   const canvas = useRef()
@@ -603,7 +673,7 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
   useLayoutEffect(() => {
     const x = items.find(i => i.id === pending.current)
     const el = box.current
-    if (!x || !el) return
+    if (!x || !el || x.x == null) return
     pending.current = null
     const c = canvas.current
     el.scrollTo({ left: c.offsetLeft + ((x.x + x.w / 2) / W) * c.offsetWidth - el.clientWidth / 2,
@@ -611,8 +681,18 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
   })
 
   const down = e => {
-    if (e.button !== 0 || e.target.closest('.pr-mark, .pr-label')) return
+    if (e.button !== 0 || (!placing && e.target.closest('.pr-mark, .pr-label'))) return
     drag.current = { x: e.clientX, y: e.clientY, l: box.current.scrollLeft, t: box.current.scrollTop }
+  }
+  // adding a door by hand: a click (not a drag) on the plan says where it is
+  const up = e => {
+    const d = drag.current
+    drag.current = null
+    if (!placing || !d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || !canvas.current) return
+    const b = canvas.current.getBoundingClientRect()
+    const fx = (e.clientX - b.left) / b.width, fy = (e.clientY - b.top) / b.height
+    if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return
+    onPlace({ x: fx * W, y: fy * H })
   }
   const move = e => {
     const d = drag.current
@@ -628,13 +708,14 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
         <button className="btn btn-sm" onClick={() => setZoom(1)} disabled={zoom === 1}>Whole sheet</button>
         <button className="btn btn-sm" onClick={() => zoomTo(zoom * 1.5)} disabled={zoom >= 8} aria-label="Zoom in">+</button>
       </div>
-      <div ref={box} className={`pr-viewer${labels ? ' picking' : ''}`} onMouseDown={down} onMouseMove={move}
-           onMouseUp={() => { drag.current = null }} onMouseLeave={() => { drag.current = null }}>
+      <div ref={box} className={`pr-viewer${labels || placing ? ' picking' : ''}${placing ? ' placing' : ''}`} onMouseDown={down} onMouseMove={move}
+           onMouseUp={up} onMouseLeave={() => { drag.current = null }}>
         <div ref={canvas} className={`pr-canvas${zoom >= 2.5 ? ' near' : ''}`} style={{ width: base ? `${Math.round(base * zoom)}px` : `${zoom * 100}%` }}>
           {src ? <img src={src} alt={page.name} draggable={false} onLoad={() => setLoaded(true)} /> : <div className="pr-loading" style={{ aspectRatio: `${W} / ${H}` }}><span className="spinner spinner-lg" /></div>}
-          {src && !labels && items.map(x => (
+          {src && !labels && items.filter(x => x.x != null).map(x => (
             <button key={x.id} className={`pr-mark ${stateOf(x)}${x.kind === 'untagged' ? ' swing' : ''}${focus === x.id ? ' focus' : ''}${ticked?.has(x.id) ? ' ticked' : ''}`}
                     data-kind={x.kind} style={mark(x)} title={`${x.ref || (x.reasons || [])[0]}${setCode?.(x) ? ` · ${setCode(x)}` : ''}`} onClick={e => onPick(x, e)}>
+              {x.src === 'manual' && <span className="pr-mark-ref">{x.ref}</span>}
               {stateOf(x) === 'green' && setCode?.(x) && <span className="pr-mark-set">{setCode(x)}</span>}
             </button>
           ))}

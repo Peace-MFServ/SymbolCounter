@@ -81,6 +81,15 @@ def _reading(pid: int, rid: str, d: Path, meta: dict) -> dict:
             kept.write_text(json.dumps({"key": key, "r": r}))
         except (TypeError, OSError):
             pass
+    # doors a person added by hand, where the reader missed one: kept with the plans
+    floor_of = {(p["file"], p["page"]): p.get("floor", "") for p in r["pages"]}
+    r = {**r, "doors": list(r["doors"])}
+    for m in meta.get("manual") or []:
+        placed = m.get("x") is not None
+        r["doors"].append({"id": m["id"], "ref": m["ref"], "file": m["file"], "page": m["page"],
+                           "floor": floor_of.get((m["file"], m["page"]), ""),
+                           "x": (m["x"] - 12) if placed else None, "y": (m["y"] - 7) if placed else None, "w": 24, "h": 14,
+                           "family": None, "src": "manual", "status": "green", "reasons": [], "type": "", "also": []})
     return {"id": rid, "project_id": pid, "names": meta["names"], **r}
 
 
@@ -228,6 +237,48 @@ def sheet_image(pid: int, rid: str, file: int, page: int, db: Session = Depends(
             zoom = min(4.0, 2400 / max(pg.rect.width, 1))
             pg.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False).save(out)
     return Response(out.read_bytes(), media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
+
+
+class ManualIn(BaseModel):
+    ref: str
+    file: int = 0
+    page: int = 1
+    x: Optional[float] = None       # where it is on the sheet, in the sheet's own points; none if it is on no sheet
+    y: Optional[float] = None
+
+
+@router.post("/projects/{pid}/plan-reads/{rid}/manual")
+def add_door_by_hand(pid: int, rid: str, payload: ManualIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """A door the reader missed: its number, and where it is on the plan."""
+    from schedule import _edit_project
+    _edit_project(pid, db, cu)
+    d = _dir(pid, rid)
+    meta = _meta(d)
+    ref = " ".join(payload.ref.split())[:60]
+    if not ref:
+        raise HTTPException(400, "Type the door's number")
+    if not (0 <= payload.file < len(meta["names"])) or payload.page < 1:
+        raise HTTPException(404, "No such sheet")
+    manual = meta.setdefault("manual", [])
+    if len(manual) >= 2000:
+        raise HTTPException(400, "That is too many doors added by hand")
+    if any(m["ref"].upper() == ref.upper() for m in manual):
+        raise HTTPException(409, f"{ref} has already been added by hand")
+    mid = "m." + secrets.token_hex(4)
+    manual.append({"id": mid, "ref": ref, "file": payload.file, "page": payload.page, "x": payload.x, "y": payload.y})
+    (d / "meta.json").write_text(json.dumps(meta))
+    return {"added": mid, **_with_job(db, pid, _reading(pid, rid, d, meta))}
+
+
+@router.delete("/projects/{pid}/plan-reads/{rid}/manual/{mid}")
+def remove_door_by_hand(pid: int, rid: str, mid: str, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    from schedule import _edit_project
+    _edit_project(pid, db, cu)
+    d = _dir(pid, rid)
+    meta = _meta(d)
+    meta["manual"] = [m for m in meta.get("manual") or [] if m["id"] != mid]
+    (d / "meta.json").write_text(json.dumps(meta))
+    return _with_job(db, pid, _reading(pid, rid, d, meta))
 
 
 class DoorIn(BaseModel):
