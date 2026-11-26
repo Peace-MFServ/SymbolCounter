@@ -2,12 +2,14 @@ import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 're
 import { apiFetch, useAuthImage, downloadBlob } from './api'
 import { showToast } from './toast'
 import { Topbar, clockOf } from './Dashboard'
+import logo from './assets/mf-logo.jpeg'
 import { useAuth } from './auth'
 import { useConfirm } from './confirm'
 import { IconUpload, IconCheck, IconWarn, IconSearch, IconLeft, IconPlus, IconFile } from './icons'
 
 const refKey = r => (r || '').split(/(\d+)/).map(t => (/^\d+$/.test(t) ? t.padStart(8, '0') : t.toLowerCase())).join('')
 const sheetKey = x => `${x.file}.${x.page}`
+const MAX_ZOOM = 12
 const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k) || 'null') } catch { return null } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch { /* private window */ } },
@@ -43,21 +45,13 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   const [placing, setPlacing] = useState(false)  // adding a door by hand: waiting for a click on the plan
   const [adding1, setAdding1] = useState(null)   // the door being added by hand: { file, page, x, y } (x, y null if it is on no sheet)
   const [fixing, setFixing] = useState(false)   // the wrong labels were read: show what else could be the door numbers
-  const [briefOpen, setBriefOpen] = useState(false)
   const fileRef = useRef()
   const loadJob = () => {
     apiFetch(`/projects/${projectId}/job`).then(setLib).catch(() => {})
     return apiFetch(`/projects/${projectId}`).then(setJob).catch(err => showToast(err.message, 'error'))
   }
   const splitRef = useRef()
-  const [splitH, setSplitH] = useState(0)
   const { ask, modal: confirmModal } = useConfirm()
-  useLayoutEffect(() => {
-    const fit = () => { if (splitRef.current) setSplitH(Math.max(420, window.innerHeight - splitRef.current.getBoundingClientRect().top - 14)) }
-    fit()
-    window.addEventListener('resize', fit)
-    return () => window.removeEventListener('resize', fit)
-  }, [r, list, job, briefOpen])
 
   useEffect(() => {
     loadJob()
@@ -328,7 +322,6 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
         : mine && <button className="btn btn-primary" onClick={markChecked} disabled={!!busy || !onJob}
                           title={onJob ? 'Every door on this job has been looked over' : 'Confirm the doors first'}>Mark checked</button>
   )
-  const brief = job && job.source === 'portal' && <SentIn job={job} open={briefOpen} setOpen={setBriefOpen} onRead={readSentList} busy={busy} theirs={theirs} />
 
   if (list) return <DoorListReview data={list} projectId={projectId} crumbs={crumbs} onNavigate={onNavigate} onBack={() => setList(null)} theirs={theirs}
                                    setOptions={setOptions} target={target} setTarget={setTarget}
@@ -346,8 +339,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     return (
       <>
         <Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={
-          <><button className="btn btn-ghost back-jobs" onClick={() => onNavigate('dashboard')}><IconLeft size={16} /> Back to jobs</button>{jobButtons}</>} />
-        {brief}
+          <>{job?.source === 'portal' && <BriefButton job={job} onRead={readSentList} busy={busy} />}<button className="btn btn-ghost back-jobs" onClick={() => onNavigate('dashboard')}><IconLeft size={16} /> Back to jobs</button>{jobButtons}</>} />
         <div className="page-wrap pr-start" {...drop}>
           <div className="page-header">
             <div>
@@ -398,66 +390,66 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     .sort((a, b) => tab === 'check' ? 0 : (lefty(a) - lefty(b)) || refKey(refOf(a)).localeCompare(refKey(refOf(b))))
   const firstOut = tab === 'all' ? listed.findIndex(lefty) : -1
 
+  const clock = job && clockOf(job)
+  const scans = pages.filter(p => !p.readable)
   return (
-    <>
-      <Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={
-        <>
-          <button className="btn btn-ghost back-jobs" onClick={() => onNavigate('dashboard')}><IconLeft size={16} /> Back to jobs</button>
-          <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xlsm,.csv" multiple style={{ display: 'none' }} onChange={e => { upload(e.target.files); e.target.value = '' }} />
-          {mine && <button className="btn" onClick={() => fileRef.current.click()} disabled={!!busy}>{busy === 'upload' ? <><span className="spinner" /> Reading...</> : 'Add more plans'}</button>}
-          <button className="btn" onClick={download} disabled={!onJob} title="The confirmed doors as a spreadsheet">Download doors</button>
-          {jobButtons}
-        </>
-      } />
+    <div className="pr-full">
+      {/* One slim bar: where you are, the job, and what to do with it */}
+      <header className="pr-bar">
+        <a className="pr-bar-logo" onClick={() => onNavigate('dashboard')} title="Jobs"><img src={logo} alt="MF Services" /></a>
+        <button className="btn btn-ghost btn-sm pr-bar-back" onClick={() => onNavigate('dashboard')}><IconLeft size={15} /> Jobs</button>
+        <div className="pr-bar-title" title={job?.name}>
+          <strong>{job?.name || '…'}</strong>
+          <span>{[job?.client, job?.site].filter(Boolean).join(' · ')}</span>
+        </div>
+        {clock && <span className={`in-clock ${clock.cls}`}>{clock.text}</span>}
+        {scans.length > 0 && <span className="pr-bar-warn"><IconWarn size={13} /> {scans.length} sheet{scans.length !== 1 ? 's' : ''} cannot be read</span>}
+        {job?.source === 'portal' && <BriefButton job={job} onRead={readSentList} busy={busy} />}
+        {theirs && <span className="pr-bar-theirs">{theirs} has this job</span>}
+        <span className="spacer" />
+        <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xlsm,.csv" multiple style={{ display: 'none' }} onChange={e => { upload(e.target.files); e.target.value = '' }} />
+        {mine && <button className="btn btn-sm" onClick={() => fileRef.current.click()} disabled={!!busy}>{busy === 'upload' ? <><span className="spinner" /> Reading...</> : 'Add plans'}</button>}
+        <button className="btn btn-sm" onClick={download} disabled={!onJob} title="The confirmed doors as a spreadsheet, with their sets">Download doors</button>
+        {jobButtons}
+      </header>
       {confirmModal}
-      {brief}
-      {!brief && theirs && <div className="pr-theirs">{theirs} has this job. You can look, but only they can change it.</div>}
       {adding1 && <AddDoorModal placed={adding1.x != null} floor={page ? floorOf(page) : ''} onAdd={addByHand} onClose={() => setAdding1(null)} />}
-      <div className="pr-split" ref={splitRef} style={splitH ? { height: splitH } : undefined}>
-        {/* Left half: the plan */}
+      <div className="pr-split" ref={splitRef}>
+        {/* Left half: the plan, edge to edge */}
         <section className="pr-pane pr-left">
-          <div className="pr-pane-head">
+          <div className="pr-sheetrow">
             <div className="pr-sheets">
               {pages.map(p => {
                 const k = sheetKey(p), c = bySheet[k] || { green: 0, amber: 0 }
                 return (
-                  <button key={k} className={`pr-sheet-tab${k === sheet ? ' on' : ''}${!p.readable ? ' bad' : ''}`} onClick={() => { setSheet(k); setFocus(null) }}>
-                    <span className="pr-sheet-name" title={p.name}>{sheetLabel(p)}{pages.filter(x => x.file === p.file).length > 1 ? ` · p${p.page}` : ''}</span>
+                  <button key={k} className={`pr-sheet-tab${k === sheet ? ' on' : ''}${!p.readable ? ' bad' : ''}`} onClick={() => { setSheet(k); setFocus(null) }} title={p.name}>
+                    <span className="pr-sheet-name">{sheetLabel(p)}{pages.filter(x => x.file === p.file).length > 1 ? ` · p${p.page}` : ''}</span>
                     <span className="pr-sheet-n">{p.readable ? <>{c.green}{c.amber > 0 && <em> · {c.amber} to check</em>}</> : 'cannot be read'}</span>
                   </button>
                 )
               })}
             </div>
             {page && (
-              <div className="pr-sheet-bar">
-                <label>Floor <input className="form-control" value={floorOf(page)} placeholder="e.g. Ground"
-                                    onChange={e => setFloors(f => ({ ...f, [sheet]: e.target.value }))} /></label>
-                <span className="muted pr-sheet-file" title={page.name}>{page.name}</span>
-              </div>
-            )}
-            {page?.info && <div className="pr-sheet-info">{page.info}</div>}
-            {page?.note && <div className="pr-sheet-note">{page.note}</div>}
-            {page && !page.readable && <div className="rail-note">{page.problem}</div>}
-            {placing && (
-              <div className="pr-placing">
-                <strong>Click where the door is on the plan.</strong>
-                <button className="link-btn inline" onClick={() => page && setAdding1({ file: page.file, page: page.page, x: null, y: null })}>It is not on this plan</button>
-                <button className="link-btn inline" onClick={() => setPlacing(false)}>Cancel</button>
-              </div>
+              <label className="pr-floor-in">Floor
+                <input className="form-control" value={floorOf(page)} placeholder="e.g. Ground" onChange={e => setFloors(f => ({ ...f, [sheet]: e.target.value }))} />
+              </label>
             )}
           </div>
+          {(page?.info || page?.note || (page && !page.readable)) && (
+            <SheetNotes key={sheet} info={page.info} note={page.note} problem={page && !page.readable ? page.problem : ''} />
+          )}
+          {placing && (
+            <div className="pr-placing">
+              <strong>Click where the door is on the plan.</strong>
+              <button className="link-btn inline" onClick={() => page && setAdding1({ file: page.file, page: page.page, x: null, y: null })}>It is not on this plan</button>
+              <button className="link-btn inline" onClick={() => setPlacing(false)}>Cancel</button>
+            </div>
+          )}
           {page && <Sheet key={sheet} projectId={projectId} rid={rid} page={page} items={onSheet} focus={focus}
                           stateOf={x => markState(x, choice, counts)} ticked={ticked} setCode={setCode}
                           onPick={(x, e) => { if (e?.shiftKey && tickable(x)) { tick(x); return } setFocus(x.id); setTab(x.status === 'amber' && !x.on_job ? 'check' : 'all') }}
                           labels={picking ? labels : null} onLabel={l => chooseStyles([l.key])}
                           placing={placing} onPlace={pt => setAdding1({ file: page.file, page: page.page, ...pt })} />}
-          <div className="pr-legend">
-            <span><i className="m green" /> A door: read, or confirmed</span>
-            <span><i className="m amber" /> To look at</span>
-            <span><i className="m gap" /> Number missing</span>
-            <span><i className="m out" /> Left out</span>
-            <span className="pr-legend-tip">Ctrl + scroll zooms · Shift + click ticks a door</span>
-          </div>
         </section>
 
         {/* Right half: the doors read off it */}
@@ -549,52 +541,67 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
           </div>
         </section>
       </div>
-    </>
+    </div>
   )
 }
 
-/* What the architect sent with the job: who, the clock, the brief and the files as sent. */
-function SentIn({ job, open, setOpen, onRead, busy, theirs }) {
+/* What the architect sent with the job: who, the brief and the files as sent,
+   opened from the bar so the plan keeps the screen. */
+function BriefButton({ job, onRead, busy }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef()
+  useEffect(() => {
+    if (!open) return
+    const away = e => { if (box.current && !box.current.contains(e.target)) setOpen(false) }
+    const key = e => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key) }
+  }, [open])
   const c = job.contact || {}
-  const clock = clockOf(job)
   const files = job.files || []
   const scans = files.filter(f => f.kind === 'pdf' && f.unreadable?.length)
   return (
-    <div className={`pr-sent${open ? ' open' : ''}`}>
-      <div className="pr-sent-line">
-        <span className="pr-sent-who"><strong>{c.name || 'The architect'}</strong>{c.company ? `, ${c.company}` : ''}</span>
-        {c.email && <a href={`mailto:${c.email}`}>{c.email}</a>}
-        {c.phone && <a href={`tel:${c.phone.replace(/\s+/g, '')}`}>{c.phone}</a>}
-        {clock && <span className={`in-clock ${clock.cls}`}>{clock.text}</span>}
-        {theirs && <span className="muted">{theirs} has this job</span>}
-        {scans.length > 0 && !open && <span className="pr-sent-scan"><IconWarn size={13} /> {scans.length} file{scans.length !== 1 ? 's have' : ' has'} sheets that cannot be read</span>}
-        <span className="spacer" />
-        <button className="link-btn inline" onClick={() => setOpen(!open)}>{open ? 'Hide the brief' : `Brief and files (${files.length})`}</button>
-      </div>
-      {!open && <p className="pr-sent-brief clip">{job.brief}</p>}
+    <div className="pr-brief" ref={box}>
+      <button className={`btn btn-sm ${open ? 'btn-soft' : 'btn-ghost'}`} onClick={() => setOpen(!open)}>
+        {c.name || 'Architect'}{c.company ? `, ${c.company}` : ''} · Brief and files ({files.length})
+      </button>
       {open && (
-        <div className="pr-sent-body">
-          <div>
-            <h3>Brief</h3>
-            <p className="pr-sent-brief">{job.brief}</p>
+        <div className="pr-brief-pop">
+          <div className="pr-brief-who">
+            <strong>{c.name}</strong>{c.company ? `, ${c.company}` : ''}
+            {c.email && <a href={`mailto:${c.email}`}>{c.email}</a>}
+            {c.phone && <a href={`tel:${c.phone.replace(/\s+/g, '')}`}>{c.phone}</a>}
           </div>
-          <div>
-            <h3>Files sent</h3>
-            <ul className="pr-sent-files">
-              {files.map((f, i) => (
-                <li key={i}>
-                  <IconFile size={15} />
-                  <span className="pr-sent-fname">{f.name}</span>
-                  <span className="muted">{fmtSize(f.size)}</span>
-                  <button className="link-btn inline" onClick={() => downloadBlob(`/projects/${job.id}/files/${i}`, f.name).catch(err => showToast(err.message, 'error'))}>Download</button>
-                  {f.kind !== 'pdf' && <button className="link-btn inline" disabled={!!busy} onClick={() => onRead(i)}>Read the doors in it</button>}
-                </li>
-              ))}
-            </ul>
-            {scans.length > 0 && <p className="pr-sent-warn"><IconWarn size={13} /> {scans.map(f => f.name).join(', ')}: some sheets have no text and look like scans. Doors on those sheets cannot be read; ask the architect for the CAD export.</p>}
-          </div>
+          <h3>Brief</h3>
+          <p className="pr-sent-brief">{job.brief}</p>
+          <h3>Files sent</h3>
+          <ul className="pr-sent-files">
+            {files.map((f, i) => (
+              <li key={i}>
+                <IconFile size={15} />
+                <span className="pr-sent-fname">{f.name}</span>
+                <span className="muted">{fmtSize(f.size)}</span>
+                <button className="link-btn inline" onClick={() => downloadBlob(`/projects/${job.id}/files/${i}`, f.name).catch(err => showToast(err.message, 'error'))}>Download</button>
+                {f.kind !== 'pdf' && <button className="link-btn inline" disabled={!!busy} onClick={() => { setOpen(false); onRead(i) }}>Read the doors in it</button>}
+              </li>
+            ))}
+          </ul>
+          {scans.length > 0 && <p className="pr-sent-warn"><IconWarn size={13} /> {scans.map(f => f.name).join(', ')}: some sheets have no text and look like scans. Doors on those sheets cannot be read; ask the architect for the CAD export.</p>}
         </div>
       )}
+    </div>
+  )
+}
+
+/* What the reader says about a sheet: one line, opened in full on a click. */
+function SheetNotes({ info, note, problem }) {
+  const [open, setOpen] = useState(false)
+  const text = [problem, note, info].filter(Boolean)
+  const warn = !!(problem || note)
+  return (
+    <div className={`pr-notes${warn ? ' warn' : ''}${open ? ' open' : ''}`} onClick={() => setOpen(!open)} title={open ? 'Show less' : 'Show all'}>
+      {warn && <IconWarn size={13} />}
+      <span>{text.join(' ')}</span>
     </div>
   )
 }
@@ -745,27 +752,38 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
   const zoomTo = (z, cx = 0.5, cy = 0.5) => {
     const el = box.current
     if (!el) return
-    const nz = Math.min(8, Math.max(1, z))
-    const fx = (el.scrollLeft + el.clientWidth * cx) / el.scrollWidth
-    const fy = (el.scrollTop + el.clientHeight * cy) / el.scrollHeight
+    const nz = Math.min(MAX_ZOOM, Math.max(1, z))
+    const c = canvas.current
+    if (!c || nz === zoomNow.current) return
+    // the point of the sheet under the pointer stays under the pointer
+    const px = el.scrollLeft + el.clientWidth * cx, py = el.scrollTop + el.clientHeight * cy
+    anchor.current = { fx: (px - c.offsetLeft) / c.offsetWidth, fy: (py - c.offsetTop) / c.offsetHeight, cx, cy }
+    zoomNow.current = nz
     setZoom(nz)
-    requestAnimationFrame(() => {
-      el.scrollLeft = fx * el.scrollWidth - el.clientWidth * cx
-      el.scrollTop = fy * el.scrollHeight - el.clientHeight * cy
-    })
   }
+  const zoomNow = useRef(1)
+  const anchor = useRef(null)
+  useLayoutEffect(() => {
+    zoomNow.current = zoom
+    const a = anchor.current, el = box.current, c = canvas.current
+    if (!a || !el || !c) return
+    anchor.current = null
+    el.scrollLeft = c.offsetLeft + a.fx * c.offsetWidth - el.clientWidth * a.cx
+    el.scrollTop = c.offsetTop + a.fy * c.offsetHeight - el.clientHeight * a.cy
+  }, [zoom])
   useEffect(() => {
     const el = box.current
     if (!el) return
+    // the wheel zooms, towards the pointer, as in any drawing viewer; dragging moves the plan
     const wheel = e => {
-      if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
       const b = el.getBoundingClientRect()
-      zoomTo(zoom * (e.deltaY < 0 ? 1.25 : 0.8), (e.clientX - b.left) / b.width, (e.clientY - b.top) / b.height)
+      const step = Math.exp(-Math.max(-120, Math.min(120, e.deltaY * (e.deltaMode === 1 ? 33 : 1))) * 0.0016)
+      zoomTo(zoomNow.current * step, (e.clientX - b.left) / b.width, (e.clientY - b.top) / b.height)
     }
     el.addEventListener('wheel', wheel, { passive: false })
     return () => el.removeEventListener('wheel', wheel)
-  }, [zoom])
+  }, [])
   // bring the picked door into the middle, close enough to read
   const pending = useRef(null)
   const [, setTick] = useState(0)
@@ -800,6 +818,11 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
     if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return
     onPlace({ x: fx * W, y: fy * H })
   }
+  const dbl = e => {
+    if (placing || labels || e.target.closest('.pr-mark, .pr-label')) return
+    const b = box.current.getBoundingClientRect()
+    zoomTo(zoom * 2, (e.clientX - b.left) / b.width, (e.clientY - b.top) / b.height)
+  }
   const move = e => {
     const d = drag.current
     if (!d) return
@@ -811,11 +834,18 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
     <div className="pr-viewer-wrap">
       <div className="pr-zoom">
         <button className="btn btn-sm" onClick={() => zoomTo(zoom / 1.5)} disabled={zoom <= 1} aria-label="Zoom out">−</button>
-        <button className="btn btn-sm" onClick={() => setZoom(1)} disabled={zoom === 1}>Whole sheet</button>
-        <button className="btn btn-sm" onClick={() => zoomTo(zoom * 1.5)} disabled={zoom >= 8} aria-label="Zoom in">+</button>
+        <button className="btn btn-sm pr-zoom-n" onClick={() => { zoomNow.current = 1; setZoom(1) }} disabled={zoom === 1} title="Whole sheet">{zoom === 1 ? 'Fit' : `${Math.round(zoom * 100)}%`}</button>
+        <button className="btn btn-sm" onClick={() => zoomTo(zoom * 1.5)} disabled={zoom >= MAX_ZOOM} aria-label="Zoom in">+</button>
+      </div>
+      <div className="pr-key">
+        <span><i className="m green" /> Door</span>
+        <span><i className="m amber" /> To look at</span>
+        <span><i className="m gap" /> Number missing</span>
+        <span><i className="m out" /> Left out</span>
+        <span className="pr-key-tip">Scroll to zoom · drag to move · double-click to zoom in</span>
       </div>
       <div ref={box} className={`pr-viewer${labels || placing ? ' picking' : ''}${placing ? ' placing' : ''}`} onMouseDown={down} onMouseMove={move}
-           onMouseUp={up} onMouseLeave={() => { drag.current = null }}>
+           onMouseUp={up} onMouseLeave={() => { drag.current = null }} onDoubleClick={dbl}>
         <div ref={canvas} className={`pr-canvas${zoom >= 2.5 ? ' near' : ''}`} style={{ width: base ? `${Math.round(base * zoom)}px` : `${zoom * 100}%` }}>
           {src ? <img src={src} alt={page.name} draggable={false} onLoad={() => setLoaded(true)} /> : <div className="pr-loading" style={{ aspectRatio: `${W} / ${H}` }}><span className="spinner spinner-lg" /></div>}
           {src && !labels && items.filter(x => x.x != null).map(x => (

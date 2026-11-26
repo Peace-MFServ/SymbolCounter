@@ -2062,3 +2062,77 @@ body:has(.pr-split) .crumbs { max-width: none; padding: 12px 20px 0; }
 .pr-counts > div { padding: 7px 13px; }
 .pr-counts-row { flex-wrap: wrap; row-gap: 4px; }
 .clean-note { margin: 6px 0 12px; line-height: 1.45; }
+
+/* ═══ The reader page, full screen: a slim bar, then the plan and the doors 50/50 ═══ */
+body:has(.pr-full) { overflow: hidden; }
+.pr-full { height: 100vh; display: flex; flex-direction: column; background: #fff; }
+.pr-bar { flex-shrink: 0; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 14px; border-bottom: 1px solid var(--card-border); box-shadow: inset 0 -2px 0 var(--orange); background: #fff; min-width: 0; }
+.pr-bar-logo { display: flex; cursor: pointer; flex-shrink: 0; }
+.pr-bar-logo img { height: 24px; width: auto; }
+.pr-bar-back.btn { padding: 4px 8px; flex-shrink: 0; }
+.pr-bar-title { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; padding-left: 10px; border-left: 1px solid var(--card-border); }
+.pr-bar-title strong { font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 28vw; }
+.pr-bar-title span { font-size: 12px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 28vw; }
+.pr-bar-warn { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--warn); white-space: nowrap; }
+.pr-bar-theirs { font-size: 12.5px; font-weight: 600; color: #B35406; background: #FFF7F0; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+.pr-bar .btn-sm { height: 32px; white-space: nowrap; flex-shrink: 0; }
+.pr-bar .stage-pill { flex-shrink: 0; }
+.pr-brief { position: relative; min-width: 0; }
+.pr-brief > .btn { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; }
+.pr-brief-pop { position: absolute; top: calc(100% + 8px); left: 0; z-index: 40; width: min(560px, 80vw); max-height: 70vh; overflow-y: auto; padding: 16px 18px;
+  background: #fff; border: 1px solid var(--card-border); border-radius: 10px; box-shadow: 0 12px 32px rgba(15, 23, 42, .16); }
+.pr-brief-pop h3 { margin: 14px 0 4px; }
+.pr-brief-who { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13.5px; }
+.pr-brief-who a { text-decoration: none; font-weight: 500; }
+
+.pr-full .pr-split { flex: 1; min-height: 0; height: auto; padding: 0; gap: 0; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.pr-full .pr-pane { border: 0; border-radius: 0; box-shadow: none; }
+.pr-full .pr-left { border-right: 1px solid var(--card-border); background: #F4F6F8; }
+.pr-sheetrow { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 6px 10px; background: #fff; border-bottom: 1px solid var(--card-border); min-width: 0; }
+.pr-full .pr-sheets { flex: 1; min-width: 0; margin: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+.pr-full .pr-sheet-tab { flex-direction: row; align-items: baseline; gap: 8px; padding: 5px 10px; flex-shrink: 0; border-radius: 6px; }
+.pr-full .pr-sheet-tab.on { box-shadow: none; }
+.pr-full .pr-sheet-name { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.pr-full .pr-sheet-n { font-size: 12px; white-space: nowrap; }
+.pr-floor-in { display: flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 12.5px; font-weight: 600; color: var(--text2); }
+.pr-floor-in .form-control { width: 130px; height: 30px; padding: 3px 8px; font-size: 13px; }
+.pr-notes { flex-shrink: 0; display: flex; align-items: flex-start; gap: 6px; padding: 6px 12px; font-size: 12.5px; line-height: 1.45; color: var(--text2);
+  background: #F3F7FD; border-bottom: 1px solid #D5E2F3; cursor: pointer; }
+.pr-notes.warn { background: #FFF6F0; border-bottom-color: #F6D9C6; }
+.pr-notes svg { color: var(--warn); margin-top: 3px; flex-shrink: 0; }
+.pr-notes span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-notes.open span { white-space: normal; }
+.pr-full .pr-placing { margin: 0; border-radius: 0; flex-shrink: 0; }
+.pr-full .pr-viewer-wrap { flex: 1; min-height: 0; display: flex; margin: 0; position: relative; }
+.pr-full .pr-viewer { flex: 1; height: auto; min-height: 0; border: 0; border-radius: 0; background: #F4F6F8; cursor: grab; }
+.pr-full .pr-zoom { top: 10px; right: 12px; }
+.pr-zoom-n { min-width: 58px; font-variant-numeric: tabular-nums; }
+.pr-key { position: absolute; left: 10px; bottom: 10px; z-index: 3; display: flex; gap: 12px; align-items: center; padding: 5px 10px; border-radius: 7px;
+  background: rgba(255, 255, 255, .92); box-shadow: 0 1px 4px rgba(15, 23, 42, .12); font-size: 11.5px; color: var(--text2); pointer-events: none; }
+.pr-key span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.pr-key .m { display: inline-block; width: 12px; height: 9px; border: 2px solid; border-radius: 2px; }
+.pr-key .m.green { border-color: #0E7A3C; background: rgba(22, 163, 74, .55); }
+.pr-key .m.amber { border-color: #C2410C; background: rgba(237, 110, 2, .65); }
+.pr-key .m.gap { border: 2px dashed var(--orange); border-radius: 50%; width: 11px; height: 11px; }
+.pr-key .m.out { border-color: #98A2B3; border-style: dotted; }
+.pr-key-tip { color: var(--text3); padding-left: 10px; border-left: 1px solid var(--card-border); }
+@media (max-width: 1600px) { .pr-key-tip { display: none; } }
+.pr-full .pr-right .pr-pane-head { padding: 8px 12px 0; }
+.pr-full .pr-counts > div { padding: 5px 12px; }
+.pr-full .pr-counts strong { font-size: 17px; }
+.pr-full .pr-listbar { margin: 0 -12px; padding-right: 12px; }
+@media (max-width: 1100px) {
+  body:has(.pr-full) { overflow: auto; }
+  .pr-full { height: auto; }
+  .pr-full .pr-split { grid-template-columns: 1fr; }
+  .pr-full .pr-viewer { height: 70vh; flex: none; }
+}
+/* a sheet smaller than the space sits in the middle of it; a bigger one scrolls */
+.pr-full .pr-viewer { display: flex; }
+.pr-full .pr-canvas { margin: auto; flex-shrink: 0; }
+/* a narrow half lists the doors one to a row */
+.pr-full .pr-right { container-type: inline-size; }
+@container (max-width: 780px) {
+  .pr-split .pr-list.two { grid-template-columns: 1fr; }
+  .pr-split .pr-list.two .pr-row { border-right: 0; }
+}
