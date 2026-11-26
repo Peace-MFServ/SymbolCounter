@@ -2136,3 +2136,5 @@ body:has(.pr-full) { overflow: hidden; }
   .pr-split .pr-list.two { grid-template-columns: 1fr; }
   .pr-split .pr-list.two .pr-row { border-right: 0; }
 }
+.inv-send { flex-wrap: wrap; }
+.inv-send a.btn { text-decoration: none; }

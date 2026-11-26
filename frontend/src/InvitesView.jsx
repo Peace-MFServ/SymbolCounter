@@ -50,7 +50,7 @@ export function InvitesView({ onNavigate }) {
         <div className="page-header">
           <div>
             <h1>Architect links</h1>
-            <p className="lede">Each link lets one architect send one project's plans in. The link and its PIN go separately: the link in an email, the PIN by phone or a second email. Five wrong PINs locks the link.</p>
+            <p className="lede">Each link lets one architect send one project's plans in. Make a link and Outlook opens with the email ready: the link and its PIN, to the architect. Five wrong PINs locks the link.</p>
           </div>
           <div className="spacer" />
           <button className="btn btn-primary btn-lg" onClick={() => setMaking(true)}><IconPlus size={16} /> New link</button>
@@ -134,7 +134,7 @@ function MakeInvite({ onClose, onMade }) {
         <div className="form-grid">
           <div className="form-group">
             <label>Their email</label>
-            <input className="form-control" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="For your records" />
+            <input className="form-control" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="The email goes to them" />
           </div>
           <div className="form-group">
             <label>Project, if known</label>
@@ -156,26 +156,32 @@ function MakeInvite({ onClose, onMade }) {
   )
 }
 
-/* The link and PIN, shown once. The PIN is not kept anywhere it can be read again. */
+/* The link and PIN, shown once, and the email that carries both: opened in
+   Outlook ready to send, or copied. The PIN is not kept anywhere it can be read again. */
 function ShowInvite({ data, onClose }) {
   const { invite, pin } = data
   const link = linkOf(invite)
+  const subject = `Send your floor plans to MF Services${invite.project ? `: ${invite.project}` : ''}`
   const email = `Hello,
 
 Please send the floor plans for ${invite.project || 'your project'} through this link:
 
 ${link}
 
-You will need a PIN to open it. We will send it to you separately.
+Your PIN to open it: ${pin}
 
 Upload the floor plans as PDFs exported from CAD, with every door labelled, and add a short brief about the project. We will have your door schedule back to you within 48 hours.
 
+Kind regards,
 MF Services`
+  const q = `subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(email)}`
+  const mailto = `mailto:${encodeURIComponent(invite.email || '')}?${q}`
+  const owa = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(invite.email || '')}&${q}`
   return (
     <div className="modal-overlay">
       <div className="modal inv-show">
         <h2>Link for {invite.firm}</h2>
-        <p className="rail-note" style={{ marginTop: 10 }}>Copy the PIN now. It is shown this once and cannot be looked up again. If it is lost, make a new PIN.</p>
+        <p className="rail-note" style={{ marginTop: 10 }}>Send the email now: the PIN is shown this once and cannot be looked up again. If it is lost, make a new PIN.</p>
         <label className="inv-label">PIN</label>
         <div className="inv-copyrow">
           <code className="inv-pin">{pin}</code>
@@ -186,11 +192,14 @@ MF Services`
           <input className="form-control mono" readOnly value={link} onFocus={e => e.target.select()} />
           <button className="btn btn-sm" onClick={() => copy(link, 'Link')}><IconCopy size={13} /> Copy link</button>
         </div>
-        <label className="inv-label">An email to send with the link (the PIN goes separately)</label>
-        <textarea className="form-control inv-email" readOnly value={email} rows={9} />
-        <div className="modal-actions" style={{ justifyContent: 'flex-end' }}>
+        <label className="inv-label">The email, with the link and the PIN{invite.email ? `, to ${invite.email}` : ''}</label>
+        <textarea className="form-control inv-email" readOnly value={email} rows={10} />
+        <div className="modal-actions inv-send">
+          <a className="btn btn-primary" href={mailto}>Open in Outlook</a>
+          <a className="btn" href={owa} target="_blank" rel="noopener noreferrer">Outlook on the web</a>
           <button className="btn" onClick={() => copy(email, 'Email')}>Copy email</button>
-          <button className="btn btn-primary" onClick={onClose}>Done</button>
+          <span className="spacer" />
+          <button className="btn btn-ghost" onClick={onClose}>Done</button>
         </div>
       </div>
     </div>
