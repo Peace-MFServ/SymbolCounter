@@ -227,7 +227,12 @@ def mark_checked(pid: int, payload: CheckedIn, db: Session = Depends(get_db), cu
 
 @router.delete("/projects/{pid}", status_code=204)
 def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    p = edit_project(pid, db, cu)
+    _delete_job(db, edit_project(pid, db, cu))
+
+
+def _delete_job(db: Session, p: models.Project):
+    """The job and everything that is only its own: plans, drawings, doors, its own sets."""
+    pid = p.id
     db.query(models.Invite).filter(models.Invite.project_id == pid).update({models.Invite.project_id: None})
     folders = [d.filename for d in p.drawings if d.filename]       # device counting drawings, on disk
     purge_project_rows(db, pid)
@@ -238,6 +243,31 @@ def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_
     for f in folders:
         if re.fullmatch(r"[a-f0-9]{32}", f):
             shutil.rmtree(Path("uploads") / f, ignore_errors=True)
+
+
+CLEAN_START = "DELETE ALL JOBS"
+
+
+class CleanStartIn(BaseModel):
+    confirm: str = ""
+
+
+@router.post("/projects/delete-all")
+def delete_all_jobs(payload: CleanStartIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """A clean start: every job goes, whoever made it. Products, the sets library and
+    the architect links stay. Only with the words typed out, so it is never a slip."""
+    if payload.confirm.strip().upper() != CLEAN_START:
+        raise HTTPException(400, f"Type {CLEAN_START} to confirm")
+    ids = [pid for (pid,) in db.query(models.Project.id).all()]
+    gone = 0
+    for pid in ids:
+        p = db.query(models.Project).get(pid)
+        if p:
+            _delete_job(db, p)
+            gone += 1
+    import logging
+    logging.getLogger(__name__).warning("Clean start: %s deleted all %d jobs", cu.email, gone)
+    return {"deleted": gone}
 
 
 def purge_project_rows(db: Session, pid: int):

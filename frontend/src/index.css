@@ -2061,3 +2061,4 @@ body:has(.pr-split) .crumbs { max-width: none; padding: 12px 20px 0; }
 .pr-split .pr-list.two .pr-row:not(.full) .pr-floor { display: none; }
 .pr-counts > div { padding: 7px 13px; }
 .pr-counts-row { flex-wrap: wrap; row-gap: 4px; }
+.clean-note { margin: 6px 0 12px; line-height: 1.45; }

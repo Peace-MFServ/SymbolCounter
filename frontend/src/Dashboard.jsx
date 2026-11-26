@@ -83,6 +83,7 @@ export function Dashboard({ onNavigate }) {
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
+  const [wiping, setWiping] = useState(false)
   const [search, setSearch] = useState('')
   const [now, setNow] = useState(Date.now())
   const { ask, modal: confirmModal } = useConfirm()
@@ -237,6 +238,13 @@ export function Dashboard({ onNavigate }) {
               <div className="glance-row"><span>Overdue</span><strong className={late ? 'warn-num' : ''}>{late}</strong></div>
               <div className="glance-row"><span>Jobs</span><strong>{projects.length}</strong></div>
             </div>
+            {projects.length > 0 && (
+              <div className="glance-card">
+                <h3>Clean start</h3>
+                <p className="muted clean-note">Delete every job, everyone's. Products, sets in the library and architect links are kept.</p>
+                <button className="btn btn-sm danger-text" onClick={() => setWiping(true)}>Delete all jobs</button>
+              </div>
+            )}
             <div className="glance-card">
               <h3>Device counting</h3>
               <div className="rail-links">
@@ -248,6 +256,8 @@ export function Dashboard({ onNavigate }) {
         </div>
       </div>
 
+      {wiping && <DeleteAll count={projects.length} onClose={() => setWiping(false)}
+                            onDone={n => { setWiping(false); setProjects([]); showToast(`${n} job${n !== 1 ? 's' : ''} deleted`, 'info') }} />}
       {showNew && (
         <NewProjectModal onClose={() => setShowNew(false)}
                          onCreated={p => { setProjects(ps => [p, ...ps]); setShowNew(false); open(p) }} />
@@ -382,6 +392,37 @@ function NewProjectModal({ onClose, onCreated }) {
           </div>
         </form>
       </div>
+    </div>
+  )
+}
+
+/* Every job gone at once. It cannot be undone, so the words have to be typed. */
+const CLEAN_START = 'DELETE ALL JOBS'
+function DeleteAll({ count, onClose, onDone }) {
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const ok = typed.trim().toUpperCase() === CLEAN_START
+  const go = async e => {
+    e.preventDefault()
+    if (!ok || busy) return
+    setBusy(true)
+    try { const r = await apiFetch('/projects/delete-all', { method: 'POST', body: JSON.stringify({ confirm: typed }) }); onDone(r.deleted) }
+    catch (err) { showToast(err.message, 'error'); setBusy(false) }
+  }
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !busy && onClose()}>
+      <form className="modal unsaved-modal" onSubmit={go}>
+        <h2>Delete all {count} job{count !== 1 ? 's' : ''}?</h2>
+        <p style={{ marginTop: 10 }}>Every job goes, whoever made it: its plans, drawings, doors and its own sets. This cannot be undone.</p>
+        <p style={{ marginTop: 8 }}>Products, the sets library and architect links are kept.</p>
+        <label className="pr-add-label" style={{ marginTop: 16 }}><span>Type <strong>{CLEAN_START}</strong> to confirm</span>
+          <input className="form-control" autoFocus value={typed} onChange={e => setTyped(e.target.value)} autoComplete="off" spellCheck={false} />
+        </label>
+        <div className="modal-actions">
+          <button className="btn btn-danger" type="submit" disabled={!ok || busy}>{busy ? <span className="spinner" /> : 'Delete all jobs'}</button>
+          <button className="btn" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+        </div>
+      </form>
     </div>
   )
 }
