@@ -2196,3 +2196,6 @@ body:has(.pr-full) { overflow: hidden; }
   font-size: 13px; font-weight: 600; color: var(--text2); background: #fff; cursor: pointer; white-space: nowrap; }
 .pr-extout input { width: 15px; height: 15px; accent-color: var(--accent); }
 .pr-extout:has(input:checked) { border-color: var(--accent); background: #EEF3FA; color: var(--accent); }
+.pr-out-head { display: flex; align-items: baseline; gap: 12px; }
+.pr-out-head .link-btn { font-size: 13px; font-weight: 600; color: var(--text2); }
+.pr-out-head .link-btn:hover { color: var(--accent); }

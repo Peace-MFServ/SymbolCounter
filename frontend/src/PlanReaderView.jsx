@@ -227,6 +227,7 @@ export function PlanReaderView({ projectId, setId = null, newSet = null, onNavig
   const excludedN = Object.values(r?.job_doors || {}).filter(v => v.excluded).length
   const withSet = adding.filter(a => a.set_id).length + Object.values(r?.job_doors || {}).filter(v => v.set_id).length
   const [excluding, setExcluding] = useState(null)     // the doors about to be excluded
+  const [showOut, setShowOut] = useState(false)        // the excluded doors, folded away at the foot of the list
   const bySheet = useMemo(() => {
     const m = {}
     for (const x of items) {
@@ -242,9 +243,10 @@ export function PlanReaderView({ projectId, setId = null, newSet = null, onNavig
   const sided = items.filter(x => x.side && (x.kind === 'door' || x.kind === 'listed') && !(x.status === 'out' && !x.on_job) && choice[x.id] !== 'drop')
   const external = sided.filter(x => x.side === 'external')
   const externalOut = external.length > 0 && external.every(x => x.on_job && x.excluded)
+  const inScope = sided.filter(x => !(x.on_job && x.excluded))
   const typeGroups = useMemo(() => {
     const g = {}
-    for (const x of sided) if (x.dtype) (g[x.dtype] ||= []).push(x)
+    for (const x of sided) if (x.dtype && !(x.on_job && x.excluded)) (g[x.dtype] ||= []).push(x)
     return Object.entries(g).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
   }, [items, choice])
   const leaveExternal = on => (on ? excludeThese(external.filter(x => !(x.on_job && x.excluded)), 'External, not in scope') : includeThese(external))
@@ -466,7 +468,10 @@ export function PlanReaderView({ projectId, setId = null, newSet = null, onNavig
   const chosen = new Set(r.chosen)
   const extra = r.chosen.filter(k => !fams.some(f => f.key === k))
   const jobOnce = new Set(jobItems.map(x => x.id))
-  const allDoors = items.filter(x => x.on_job ? jobOnce.has(x.id) : (x.kind === 'door' && x.status !== 'amber'))
+  const everyDoor = items.filter(x => x.on_job ? jobOnce.has(x.id) : (x.kind === 'door' && x.status !== 'amber'))
+  const outOfScope = everyDoor.filter(x => x.on_job && x.excluded)
+    .sort((a, b) => refKey(refOf(a)).localeCompare(refKey(refOf(b))))
+  const allDoors = everyDoor.filter(x => !(x.on_job && x.excluded))
   const listed = (tab === 'check' ? toCheck : allDoors)
     .filter(x => !q.trim() || `${refOf(x)} ${x.printed || ''} ${floorOf(x)}`.toLowerCase().includes(q.trim().toLowerCase()))
     .sort((a, b) => tab === 'check' ? 0 : (lefty(a) - lefty(b)) || refKey(refOf(a)).localeCompare(refKey(refOf(b))))
@@ -604,11 +609,9 @@ export function PlanReaderView({ projectId, setId = null, newSet = null, onNavig
                 <>
                   <span>Tick doors to give them one set together:</span>
                   <button className="chip-btn" onClick={() => tickThese(onSheet)}>This sheet</button>
-                  <button className="chip-btn" onClick={() => tickThese(items)}>Every door</button>
-                  {sided.length > 0 && <>
-                    <button className="chip-btn" onClick={() => tickThese(sided.filter(x => x.side === 'internal'))}>Internal ({sided.filter(x => x.side === 'internal').length})</button>
-                    <button className="chip-btn" onClick={() => tickThese(external)}>External ({external.length})</button>
-                  </>}
+                  <button className="chip-btn" onClick={() => tickThese(items.filter(x => !(x.on_job && x.excluded)))}>Every door</button>
+                  {inScope.some(x => x.side === 'internal') && <button className="chip-btn" onClick={() => tickThese(inScope.filter(x => x.side === 'internal'))}>Internal ({inScope.filter(x => x.side === 'internal').length})</button>}
+                  {inScope.some(x => x.side === 'external') && <button className="chip-btn" onClick={() => tickThese(inScope.filter(x => x.side === 'external'))}>External ({inScope.filter(x => x.side === 'external').length})</button>}
                   {typeGroups.map(([t, xs]) => <button key={t} className="chip-btn" onClick={() => tickThese(xs)}>{t} ({xs.length})</button>)}
                   <span className="muted">or pick a set on a door's own row</span>
                 </>
@@ -631,6 +634,20 @@ export function PlanReaderView({ projectId, setId = null, newSet = null, onNavig
                      onRemove={() => removeByHand(x)} onUnconfirm={mine ? () => unconfirm(x) : null}
                      onInclude={mine ? () => includeThese([x]) : null} />
               </React.Fragment>
+            ))}
+            {tab === 'all' && outOfScope.length > 0 && (
+              <div className="pr-list-head pr-out-head">
+                <button className="link-btn inline" onClick={() => setShowOut(v => !v)}>
+                  Excluded ({outOfScope.length}) · {showOut ? 'Hide' : 'Show'}
+                </button>
+                <span className="muted">{[...new Set(outOfScope.map(x => x.ex_reason))].join(', ')}</span>
+              </div>
+            )}
+            {tab === 'all' && showOut && outOfScope.map(x => (
+              <Row key={x.id} x={x} focus={focus === x.id} choice={choice[x.id]} ref_={refs[x.id] ?? x.ref ?? ''}
+                   floor={floorOf(x)} onShow={() => show(x)} onChoose={c => decide(x, c)} onRef={() => {}}
+                   canSet={false} ticked={false} onTick={() => {}} setValue="" setOptions={setOptions}
+                   onSet={() => {}} onRemove={() => {}} onInclude={mine ? () => includeThese([x]) : null} />
             ))}
           </div>
           <div className="pr-foot">
@@ -746,6 +763,7 @@ function JobDoors({ projectId, setOptions, canEdit, onChanged, onDownload, onNex
   const [ticked, setTicked] = useState(() => new Set())
   const [q, setQ] = useState('')
   const [excluding, setExcluding] = useState(null)
+  const [showOut, setShowOut] = useState(false)
   const load = () => apiFetch(`/projects/${projectId}/doors`).then(setDoors).catch(err => showToast(err.message, 'error'))
   useEffect(() => { load() }, [projectId])
   if (!doors) return null
@@ -759,7 +777,8 @@ function JobDoors({ projectId, setOptions, canEdit, onChanged, onDownload, onNex
     try { await apiFetch(`/projects/${projectId}/doors/remove`, { method: 'POST', body: JSON.stringify({ doors: [{ ref: d.ref }] }) }); await load(); onChanged() }
     catch (err) { showToast(err.message, 'error') }
   }
-  const shown = doors.filter(d => !q.trim() || `${d.ref} ${d.floor} ${d.note} ${d.side}`.toLowerCase().includes(q.trim().toLowerCase()))
+  const matching = doors.filter(d => !q.trim() || `${d.ref} ${d.floor} ${d.note} ${d.side}`.toLowerCase().includes(q.trim().toLowerCase()))
+  const shown = matching.filter(d => !d.excluded || showOut)
   const ext = doors.filter(d => d.side === 'external')
   const extOut = ext.length > 0 && ext.every(d => d.excluded)
   const noSet = doors.filter(d => !d.effective_set_id && !d.excluded).length
@@ -827,6 +846,11 @@ function JobDoors({ projectId, setOptions, canEdit, onChanged, onDownload, onNex
           ))}
         </tbody>
       </table>
+      {nExcluded > 0 && (
+        <div className="pr-list-head pr-out-head">
+          <button className="link-btn inline" onClick={() => setShowOut(v => !v)}>Excluded ({nExcluded}) · {showOut ? 'Hide' : 'Show'}</button>
+        </div>
+      )}
     </section>
   )
 }
