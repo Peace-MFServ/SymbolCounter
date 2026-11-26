@@ -1,11 +1,14 @@
 """
 MF Services door reader: architects send their floor plans in through a locked
-portal, the doors are read off the plans, and the team checks them.
+portal, the doors are read off the plans, and the team checks them and gives
+them their sets.
 
   /api/auth/...       the team's logins
   /api/projects/...   jobs, their plans as read, the doors confirmed     (jobs.py, plan_reads.py)
   /api/invites/...    links and PINs for architects                      (portal.py)
   /api/portal/...     the only part an architect can reach, with a PIN   (portal.py)
+  /api/products, /api/sets, /api/cin7/...   products, the Cin7 sync, the sets library  (schedule.py, documents.py)
+  /api/drawings, /api/templates ...          device counting            (symbols.py)
 """
 import logging
 import logging.handlers
@@ -46,11 +49,17 @@ def _ensure_columns():
     """New columns on tables made before they existed (safe on every start)."""
     import sqlalchemy as sa
     adds = {
-        "projects": {"kind": "TEXT DEFAULT 'doors'", "notes": "TEXT DEFAULT ''", "quote_no": "TEXT DEFAULT ''",
-                     "rep": "TEXT DEFAULT ''", "source": "TEXT DEFAULT ''", "stage": "TEXT DEFAULT ''",
+        "projects": {"kind": "TEXT DEFAULT 'symbols'", "notes": "TEXT DEFAULT ''", "quote_no": "TEXT DEFAULT ''",
+                     "rep": "TEXT DEFAULT ''", "revision": "INTEGER DEFAULT 1", "sets_only": "BOOLEAN DEFAULT 0",
+                     "source": "TEXT DEFAULT ''", "stage": "TEXT DEFAULT ''",
                      "brief": "TEXT DEFAULT ''", "contact": "TEXT DEFAULT ''", "received_at": "DATETIME",
                      "due_at": "DATETIME", "checked_at": "DATETIME"},
-        "doors": {"source": "TEXT DEFAULT 'plan'", "note": "TEXT DEFAULT ''"},
+        "global_templates": {"threshold_override": "REAL"},
+        "drawings": {"error_message": "TEXT"},
+        "products": {"product_type": "TEXT DEFAULT ''", "brand": "TEXT DEFAULT ''"},
+        "documents": {"codes": "TEXT DEFAULT ''", "has_text": "BOOLEAN"},
+        "product_documents": {"confirmed": "BOOLEAN DEFAULT 0"},
+        "hardware_sets": {"project_id": "INTEGER", "locked_by_id": "INTEGER", "locked_at": "DATETIME"},
     }
     try:
         with engine.begin() as conn:
@@ -177,15 +186,81 @@ def me(current_user=Depends(auth.get_current_user)):
 from jobs import router as jobs_router  # noqa: E402
 from plan_reads import router as plan_reads_router  # noqa: E402
 from portal import router as portal_router, staff as invites_router  # noqa: E402
+from schedule import router as schedule_router  # noqa: E402
+from documents import router as documents_router  # noqa: E402
+from symbols import router as symbols_router  # noqa: E402
 app.include_router(jobs_router)
 app.include_router(plan_reads_router)
 app.include_router(invites_router)
 app.include_router(portal_router)
+app.include_router(schedule_router)
+app.include_router(documents_router)
+app.include_router(symbols_router)
+
+
+# One-off: pictures stored before the normaliser existed get tidied at startup.
+@app.on_event("startup")
+def _tidy_product_pictures():
+    import threading
+
+    def run():
+        from database import SessionLocal
+        from images import normalize_all
+        from schedule import PRODUCT_IMG_DIR
+        db = SessionLocal()
+        try:
+            n = normalize_all(db, models.Product, PRODUCT_IMG_DIR)
+            if n:
+                logger.info("Normalised %d product pictures", n)
+        except Exception as e:
+            logger.warning("Picture tidy skipped: %s", e)
+        finally:
+            db.close()
+    threading.Thread(target=run, daemon=True).start()
+
+
+@app.on_event("startup")
+def _cin7_nightly():
+    """Once the office has applied a Cin7 sync by hand, keep it fresh every
+    night at three. Nothing runs until that first deliberate sync."""
+    import threading
+    import time
+    from datetime import datetime, timezone
+
+    def run():
+        import cin7
+        from database import SessionLocal
+        from schedule import _data_dir, guess_product_type
+        done_for = ""
+        while True:
+            time.sleep(15 * 60)
+            try:
+                now = datetime.now(timezone.utc)
+                today = now.strftime("%Y-%m-%d")
+                if not cin7.configured() or now.hour != 3 or done_for == today:
+                    continue
+                last = cin7.last_run(_data_dir())
+                if not last or not last.get("applied"):
+                    continue
+                db = SessionLocal()
+                try:
+                    report = cin7.sync(db, models, guess_product_type, apply=True)
+                    report["by"] = "nightly refresh"
+                    cin7.remember(_data_dir(), report)
+                    logger.info("Cin7 nightly: %d new, %d updated", report["new"], report["changed"])
+                finally:
+                    db.close()
+                done_for = today
+            except Exception as e:
+                logger.warning("Cin7 nightly skipped: %s", e)
+                done_for = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    threading.Thread(target=run, daemon=True).start()
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "4.0.0"}
+    from symbols import POPPLER_OK
+    return {"status": "ok" if POPPLER_OK else "degraded", "version": "4.1.0", "poppler": POPPLER_OK}
 
 
 # ── The page itself ───────────────────────────────────────────────────────────

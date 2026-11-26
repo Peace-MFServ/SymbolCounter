@@ -1,9 +1,14 @@
 # MF Services Door Reader
 
 Architects send their floor plans in through a locked portal; the doors are read
-off the plans; the team checks them. A playground for Liam, Norman, Evan and
-Peace to test until the reader finds 99% of doors and flags the rest, before it
-moves into the CRM. Door schedules and sets live in the CRM, not here.
+off the plans; the team checks them and gives them their sets. A playground for
+Liam, Norman, Evan and Peace to test until the reader finds 99% of doors and
+flags the rest, before it moves into the CRM. Door schedules themselves are made
+in the CRM.
+
+Also here: the Products page with the Cin7 sync (nightly at 3am once a sync has
+been applied by hand), the sets library, and device counting for fire and
+security drawings.
 
 ## How it works
 
@@ -14,8 +19,9 @@ moves into the CRM. Door schedules and sets live in the CRM, not here.
    list (.xlsx/.csv), write a brief, tick the terms, send. Each file is checked as
    it arrives; a scan is flagged there and then.
 3. **Incoming** (staff): the job appears with the clock running (48 hours by
-   default). Someone takes it, checks the doors on the plan reader page,
-   confirms them, and marks the job checked. The confirmed doors download as Excel.
+   default). Someone takes it, checks the doors on the plan reader page, gives
+   them their sets, confirms them, and marks the job checked. The confirmed doors
+   download as Excel with their sets, for the CRM.
 
 Jobs can also be made by hand from plans already in hand.
 
@@ -43,12 +49,17 @@ be framed by another site.
 | `backend/jobs.py` | jobs, Incoming, take / checked, doors as Excel, files as sent |
 | `backend/plan_reads.py` | a job's plans as read, confirming doors |
 | `backend/portal.py` | architect links and PINs, the portal |
+| `backend/schedule.py` | products, the Cin7 sync, the sets library, sets on doors |
+| `backend/documents.py`, `backend/images.py`, `backend/cin7.py` | product datasheets, pictures, Cin7 |
+| `backend/symbols.py`, `backend/detection/pipeline.py` | device counting |
 | `backend/detection/plan_reader.py` | reading door tags off any architect's plans |
 | `backend/detection/door_list.py` | reading a door list spreadsheet |
 | `frontend/src/Dashboard.jsx` | Jobs and Incoming |
 | `frontend/src/InvitesView.jsx` | Architect links |
 | `frontend/src/PlanReaderView.jsx` | the plan beside the doors read off it |
 | `frontend/src/Portal.jsx` | the architect's page |
+| `frontend/src/ProductsView.jsx`, `SetsView.jsx` | Products and Sets |
+| `frontend/src/ProjectView.jsx`, `VerifyView.jsx` | device counting |
 
 ## Run it
 
@@ -62,5 +73,5 @@ cd ../frontend && npm ci && npm run build
 cd ../backend && python -m uvicorn main:app --port 8000
 ```
 
-The database keeps the old schedule and device-count tables untouched; nothing
-reads them any more.
+Device counting needs Poppler (`apt install poppler-utils`, or `winget install
+poppler` on Windows); the server's Docker image includes it.

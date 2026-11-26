@@ -1,0 +1,952 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import { apiFetch, openBlob } from './api'
+import { showToast } from './toast'
+import { Topbar, place } from './Dashboard'
+import { useAuthImage } from './TemplatesView'
+import { TYPE_NAMES, TYPE_ORDER, money } from './shared'
+import { useLeaveGuard } from './unsaved'
+import { IconSearch, IconPlus, IconImage, IconChevron, IconFile, IconBox, IconLayers, IconUpload } from './icons'
+
+const EMPTY = { sku: '', name: '', category: 'Other', unit: 'EACH', cost: '', sell: '', intec_code: '', product_type: '', brand: '', notes: '', active: true }
+
+const PAGE_SIZES = [25, 50, 100]
+/* The columns the list can be put in order by, and what to read off a product for each. */
+const SORTS = {
+  sku:  p => (p.sku || '').toLowerCase(),
+  name: p => (p.name || '').toLowerCase(),
+  type: p => TYPE_ORDER.indexOf(p.product_type || ''),
+  sell: p => (p.sell == null ? -Infinity : p.sell),
+  used: p => p.used_in.length,
+}
+
+export function ProductsView({ onNavigate }) {
+  const [products,   setProducts]   = useState([])
+  const [cats,       setCats]       = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [q,          setQ]          = useState('')
+  const [cat,        setCat]        = useState('')
+  const [brand,      setBrand]      = useState('')
+  const [setName,    setSetName]    = useState('')
+  const [ptype,      setPtype]      = useState(null)    // null = all, '' = untyped, '01'…
+  const [withPhoto,  setWithPhoto]  = useState(false)
+  const [costOnly,   setCostOnly]   = useState('')      // '' | 'priced' | 'none'
+  const [usedOnly,   setUsedOnly]   = useState('')      // '' | 'used' | 'free'
+  const [sheetOnly,  setSheetOnly]  = useState('')      // '' | 'has' | 'missing'
+  const [sort,       setSort]       = useState({ key: 'sku', dir: 1 })
+  const [page,       setPage]       = useState(1)
+  const [pageSize,   setPageSize]   = useState(50)
+  const [editing,    setEditing]    = useState(null)   // product object or EMPTY for new
+  const [importing,  setImporting]  = useState(false)
+  const [pasting,    setPasting]    = useState(false)
+  const [imgReport,  setImgReport]  = useState(null)
+  const [pendingN,   setPendingN]   = useState(0)
+  useEffect(() => { apiFetch('/products/pending-images?limit=1').then(r => setPendingN(r?.total || 0)).catch(() => {}) }, [imgReport])
+  const [imgBusy,    setImgBusy]    = useState(false)
+  const [docReport,  setDocReport]  = useState(null)
+  const [docsPending, setDocsPending] = useState(0)
+  const [checking,   setChecking]   = useState(false)   // Check for doubles open
+  const [docBusy,    setDocBusy]    = useState(false)
+  const docZipRef = useRef()
+  useEffect(() => { apiFetch('/products/documents/pending?limit=1').then(r => setDocsPending(r?.total || 0)).catch(() => {}) }, [docReport])
+  // First a check that stores nothing and says what would land where; only on
+  // a yes does the same zip go in for real.
+  const [docFile, setDocFile] = useState(null)
+  const [onlyMatched, setOnlyMatched] = useState(true)   // leave out what matches no product
+  const importDocs = async (file, dryRun = true, only = onlyMatched) => {
+    if (!file) return
+    setDocBusy(true)
+    try {
+      const form = new FormData(); form.append('file', file)
+      const r = await apiFetch(`/products/import-documents?dry_run=${dryRun}&only_matched=${only}`, { method: 'POST', body: form })
+      setDocFile(dryRun ? file : null); setDocReport(r)
+      if (!dryRun) await load()
+    } catch (err) { showToast('Datasheet import failed: ' + err.message, 'error') }
+    setDocBusy(false)
+  }
+  const [cin7,       setCin7]       = useState({ configured: false, last: null })
+  const [syncRep,    setSyncRep]    = useState(null)    // the dry run, waiting for a yes
+  const [syncBusy,   setSyncBusy]   = useState('')
+  useEffect(() => { apiFetch('/cin7/status').then(r => r && setCin7(r)).catch(() => {}) }, [])
+  const cin7Sync = async apply => {
+    setSyncBusy(apply ? 'apply' : 'look')
+    try {
+      const r = await apiFetch(`/cin7/sync?apply=${apply}`, { method: 'POST' })
+      if (apply) {
+        showToast(`Synced from Cin7: ${r.new} new, ${r.changed} updated`, 'success')
+        setSyncRep(r.pictures_we_lack ? r : null); await load()
+        apiFetch('/cin7/status').then(x => x && setCin7(x)).catch(() => {})
+      } else setSyncRep(r)
+    } catch (err) { showToast(err.message, 'error') }
+    setSyncBusy('')
+  }
+  const cin7Pictures = async () => {
+    setSyncBusy('pics')
+    try {
+      const r = await apiFetch('/cin7/pictures', { method: 'POST' })
+      showToast(`${r.fetched} picture${r.fetched !== 1 ? 's' : ''} from Cin7${r.remaining ? `, ${r.remaining} more to fetch` : ''}${r.failed ? `, ${r.failed} could not be read` : ''}`, r.fetched ? 'success' : 'info')
+      setSyncRep(null); await load()
+    } catch (err) { showToast(err.message, 'error') }
+    setSyncBusy('')
+  }
+  const zipRef = useRef()
+  const importImages = async file => {
+    if (!file) return
+    setImgBusy(true)
+    try {
+      const form = new FormData(); form.append('file', file)
+      const r = await apiFetch('/products/import-images', { method: 'POST', body: form })
+      setImgReport(r); await load()
+    } catch (err) { showToast('Image import failed: ' + err.message, 'error') }
+    setImgBusy(false)
+  }
+  const fileRef = useRef()
+
+  const load = async () => {
+    const [p, c] = await Promise.all([apiFetch('/products'), apiFetch('/products/categories')])
+    setProducts(p || []); setCats(c || []); setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  // everything except the chip row, so the chip counts can be read off it
+  const base = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    return products.filter(p =>
+      (!cat || p.category === cat) &&
+      (!brand || (p.brand || '') === brand) &&
+      (!setName || p.used_in.includes(setName)) &&
+      (costOnly === '' || (costOnly === 'priced' ? p.sell != null : p.sell == null)) &&
+      (usedOnly === '' || (usedOnly === 'used' ? p.used_in.length > 0 : p.used_in.length === 0)) &&
+      (sheetOnly === '' || (sheetOnly === 'has' ? p.datasheets > 0 : !p.datasheets)) &&
+      (!needle || p.sku.toLowerCase().includes(needle) || p.name.toLowerCase().includes(needle)
+        || (p.intec_code || '').toLowerCase().includes(needle)))
+  }, [products, q, cat, brand, setName, costOnly, usedOnly, sheetOnly])
+
+  const shown = useMemo(() => {
+    const rows = base.filter(p =>
+      (ptype === null || (p.product_type || '') === ptype) && (!withPhoto || p.image_url))
+    const read = SORTS[sort.key] || SORTS.sku
+    return [...rows].sort((a, b) => {
+      const x = read(a), y = read(b)
+      return (x < y ? -1 : x > y ? 1 : 0) * sort.dir
+    })
+  }, [base, ptype, withPhoto, sort])
+
+  const pages = Math.max(1, Math.ceil(shown.length / pageSize))
+  const cur = Math.min(page, pages)
+  const rows = shown.slice((cur - 1) * pageSize, cur * pageSize)
+  // any change to what is being looked for starts again at the front
+  useEffect(() => { setPage(1) }, [q, cat, brand, setName, costOnly, usedOnly, sheetOnly, ptype, withPhoto, pageSize])
+
+  const brands = useMemo(() => [...new Set(products.map(p => p.brand).filter(Boolean))].sort(), [products])
+  const setNames = useMemo(() => [...new Set(products.flatMap(p => p.used_in))].sort(), [products])
+  const typeCounts = useMemo(() => {
+    const n = {}
+    for (const p of base) { const t = p.product_type || ''; n[t] = (n[t] || 0) + 1 }
+    return n
+  }, [base])
+  const photoCount = base.filter(p => p.image_url).length
+  const extraFilters = (costOnly ? 1 : 0) + (usedOnly ? 1 : 0) + (sheetOnly ? 1 : 0)
+
+  const by = key => () => setSort(s => ({ key, dir: s.key === key ? -s.dir : 1 }))
+  const arrow = key => (sort.key === key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '')
+
+  const importFile = async file => {
+    if (!file) return
+    setImporting(true)
+    try {
+      const form = new FormData(); form.append('file', file)
+      const r = await apiFetch('/products/import', { method: 'POST', body: form })
+      showToast(`Imported: ${r.added} new, ${r.updated} updated`, 'success')
+      await load()
+    } catch (err) { showToast('Import failed: ' + err.message, 'error') }
+    setImporting(false)
+  }
+
+  // the three-dot menu hands a product over here to get its picture changed
+  const photoRef = useRef()
+  const [photoFor, setPhotoFor] = useState(null)
+  const uploadPhoto = async file => {
+    if (!file || !photoFor) return
+    try {
+      const form = new FormData(); form.append('file', file)
+      await apiFetch(`/products/${photoFor}/image`, { method: 'POST', body: form })
+      showToast('Photo saved', 'success'); await load()
+    } catch (err) { showToast(err.message, 'error') }
+    setPhotoFor(null)
+  }
+  const pickPhoto = p => { setPhotoFor(p.id); setTimeout(() => photoRef.current?.click(), 0) }
+  const removeProduct = async p => {
+    if (!confirm(`Remove ${p.sku} from the list? Sets that use it keep it.`)) return
+    try {
+      await apiFetch(`/products/${p.id}`, { method: 'DELETE' })
+      showToast('Product removed', 'info'); await load()
+    } catch (err) { showToast(err.message, 'error') }
+  }
+
+  return (
+    <>
+      <Topbar onNavigate={onNavigate} active="products" />
+      <div className="page-wrap adm-wrap">
+        <div className="adm-head">
+          <div className="adm-title">
+            <h1>Products</h1>
+            <p className="lede">{products.length} products. Prices are the Cin7 selling price in euro.</p>
+          </div>
+          <div className="adm-actions">
+            {cin7.configured ? (
+              <button className="btn btn-line" onClick={() => cin7Sync(false)} disabled={!!syncBusy}
+                      title={cin7.last ? `Last synced ${new Date(cin7.last.when).toLocaleString('en-IE')} by ${cin7.last.by}` : 'Not synced yet'}>
+                {syncBusy === 'look' ? <><span className="spinner" /> Asking Cin7…</> : <><IconBox size={17} /> Sync from Cin7</>}
+              </button>
+            ) : (
+              <button className="btn btn-line" onClick={() => fileRef.current.click()} disabled={importing}>
+                {importing ? <><span className="spinner" /> Importing…</> : <><IconBox size={17} /> Import from Cin7</>}
+              </button>
+            )}
+            <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }}
+                   onChange={e => { importFile(e.target.files[0]); e.target.value = '' }} />
+            <input ref={zipRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={e => { importImages(e.target.files[0]); e.target.value = '' }} />
+            <input ref={docZipRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={e => { importDocs(e.target.files[0]); e.target.value = '' }} />
+            <ImportMenu busy={imgBusy ? 'Importing images…' : docBusy ? 'Importing datasheets…' : ''}
+                        groups={[
+              { title: 'Images', items: [
+                { label: 'Import images', note: 'A zip of pictures', onClick: () => zipRef.current.click() },
+                { label: 'Match images', count: pendingN, onClick: () => onNavigate('match-images') },
+              ] },
+              { title: 'Datasheets', items: [
+                { label: 'Import datasheets', note: 'A zip of PDFs', onClick: () => docZipRef.current.click() },
+                { label: 'Match datasheets', count: docsPending, onClick: () => onNavigate('match-documents') },
+                { label: 'Check for doubles', note: 'The same sheet twice, or on the wrong product', onClick: () => setChecking(true) },
+              ] },
+              { title: 'Prices', items: [
+                { label: 'Intec prices', note: 'Paste from a Cost Summary', onClick: () => setPasting(true) },
+              ] },
+            ]} />
+            <button className="btn btn-primary" onClick={() => setEditing({ ...EMPTY })}><IconPlus size={17} /> Add product</button>
+          </div>
+        </div>
+        <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }}
+               onChange={e => { uploadPhoto(e.target.files[0]); e.target.value = '' }} />
+        {checking && <DocCheckModal onClose={() => { setChecking(false); load() }} />}
+        {syncRep && <Cin7Modal r={syncRep} busy={syncBusy} onApply={() => cin7Sync(true)} onPictures={cin7Pictures} onClose={() => setSyncRep(null)} />}
+        {docReport && <DocReportModal r={docReport} busy={docBusy}
+                                      onlyMatched={onlyMatched}
+                                      onOnlyMatched={v => { setOnlyMatched(v); importDocs(docFile, true, v) }}
+                                      onImport={() => importDocs(docFile, false)}
+                                      onClose={() => { setDocReport(null); setDocFile(null) }}
+                                      onMatch={() => { setDocReport(null); onNavigate('match-documents') }} />}
+        {imgReport && <ImageReportModal r={imgReport} onClose={() => setImgReport(null)} onMatch={() => { setImgReport(null); onNavigate('match-images') }} />}
+        {pasting && <IntecPasteModal onClose={() => setPasting(false)} onDone={async () => { setPasting(false); await load() }} />}
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner spinner-lg" /></div>
+        ) : products.length === 0 ? (
+          <div className="empty-state">
+            <h2>No products yet.</h2>
+            <p>Import the Cin7 Products Price List to load the catalogue.</p>
+            <button className="btn btn-primary" onClick={() => fileRef.current.click()}>Import from Cin7</button>
+          </div>
+        ) : (
+          <>
+            <div className="adm-filters">
+              <label className="adm-search">
+                <IconSearch size={17} />
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search code, name or type..." />
+              </label>
+              {cats.length > 1 && (
+                <Picker value={cat} onChange={setCat} all="All categories"
+                        options={cats.map(c => ({ value: c.name, label: `${c.name} (${c.count})` }))} />
+              )}
+              {brands.length > 0 && (
+                <Picker value={brand} onChange={setBrand} all="All brands"
+                        options={brands.map(b => ({ value: b, label: b }))} />
+              )}
+              {setNames.length > 0 && (
+                <Picker value={setName} onChange={setSetName} all="All sets"
+                        options={setNames.map(s => ({ value: s, label: s }))} />
+              )}
+              <FilterMenu count={extraFilters} onClear={() => { setCostOnly(''); setUsedOnly(''); setSheetOnly('') }}>
+                <FilterGroup label="Selling price" value={costOnly} onChange={setCostOnly} options={[
+                  { value: '', label: 'Any' }, { value: 'priced', label: 'Has a price' }, { value: 'none', label: 'No price yet' }]} />
+                <FilterGroup label="Used in sets" value={usedOnly} onChange={setUsedOnly} options={[
+                  { value: '', label: 'Any' }, { value: 'used', label: 'In a set' }, { value: 'free', label: 'Not used yet' }]} />
+                <FilterGroup label="Datasheet" value={sheetOnly} onChange={setSheetOnly} options={[
+                  { value: '', label: 'Any' }, { value: 'has', label: 'Has one' }, { value: 'missing', label: 'Missing' }]} />
+              </FilterMenu>
+            </div>
+
+            <div className="prods-chips">
+              <button className={`pchip${ptype === null && !withPhoto ? ' on' : ''}`}
+                      onClick={() => { setPtype(null); setWithPhoto(false) }}>All ({base.length})</button>
+              <button className={`pchip${withPhoto ? ' on' : ''}`} onClick={() => setWithPhoto(v => !v)}>With pictures ({photoCount})</button>
+              {TYPE_ORDER.map(t => typeCounts[t]
+                ? <button key={t || 'none'} className={`pchip${ptype === t ? ' on' : ''}`}
+                          onClick={() => setPtype(ptype === t ? null : t)}>{TYPE_NAMES[t]} ({typeCounts[t]})</button>
+                : null)}
+            </div>
+
+            <div className="adm-card">
+              <div className="adm-scroll">
+                <table className="prod-grid">
+                  <colgroup>
+                    <col style={{ width: 112 }} /><col style={{ width: '14%' }} /><col style={{ width: '32%' }} />
+                    <col style={{ width: '15%' }} /><col style={{ width: '10%' }} /><col style={{ width: '15%' }} />
+                    <col style={{ width: 148 }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Image</th>
+                      <th><button className="th-sort" onClick={by('sku')}>Code{arrow('sku')}</button></th>
+                      <th><button className="th-sort" onClick={by('name')}>Product{arrow('name')}</button></th>
+                      <th><button className="th-sort" onClick={by('type')}>Type{arrow('type')}</button></th>
+                      <th className="num"><button className="th-sort" onClick={by('sell')}>Selling price{arrow('sell')}</button></th>
+                      <th><button className="th-sort" onClick={by('used')}>Used in sets{arrow('used')}</button></th>
+                      <th className="num">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(p => (
+                      <tr key={p.id}>
+                        <td><ProdThumb url={p.image_url} onUpload={() => pickPhoto(p)} /></td>
+                        <td className="p-code">{p.sku}</td>
+                        <td>
+                          <div className="p-name">{p.name}</div>
+                          {(p.intec_code || p.notes || p.datasheets > 0 || p.certificates > 0) && (
+                            <div className="p-meta">{[p.intec_code && `Intec code ${p.intec_code}`, p.notes,
+                              p.datasheets && `${p.datasheets} datasheet${p.datasheets !== 1 ? 's' : ''}`,
+                              p.certificates && `${p.certificates} certificate${p.certificates !== 1 ? 's' : ''}`].filter(Boolean).join(' · ')}</div>
+                          )}
+                        </td>
+                        <td>
+                          <div className={`p-type${p.product_type ? '' : ' unset'}`}>{p.product_type ? TYPE_NAMES[p.product_type] : 'Not set'}</div>
+                          <div className="p-meta">{p.category || 'Other'}</div>
+                        </td>
+                        <td className="num p-cost">{p.sell != null ? `€${money(p.sell)}` : <span className="p-dash">—</span>}</td>
+                        <td>
+                          {p.used_in.length ? (
+                            <>
+                              <div className="p-used">{p.used_in.length} set{p.used_in.length !== 1 ? 's' : ''}</div>
+                              <div className="p-meta" title={p.used_in.join(', ')}>{p.used_in.join(', ')}</div>
+                            </>
+                          ) : <span className="p-dash">Not used yet</span>}
+                        </td>
+                        <td className="num">
+                          <div className="p-actions">
+                            <button className="btn btn-soft btn-edit" onClick={e => { e.stopPropagation(); setEditing(p) }}>Edit</button>
+                            <ProdMenu onRemove={() => removeProduct(p)} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {rows.length === 0 && (
+                      <tr className="no-hover"><td colSpan={7} className="adm-none">No products match what you are looking for.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {shown.length > 0 && (
+                <div className="adm-foot">
+                  <span className="adm-count">
+                    Showing <strong>{(cur - 1) * pageSize + 1}–{Math.min(cur * pageSize, shown.length)}</strong> of {shown.length} product{shown.length !== 1 ? 's' : ''}
+                  </span>
+                  <div className="adm-pager">
+                    <Picker value={String(pageSize)} onChange={v => setPageSize(Number(v))} small
+                            options={PAGE_SIZES.map(n => ({ value: String(n), label: `${n} per page` }))} />
+                    <Pager page={cur} pages={pages} onGo={setPage} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {editing && (
+        <ProductModal product={editing} categories={cats.map(c => c.name)}
+                      onClose={() => setEditing(null)}
+                      onSaved={p => { setEditing(null); load() }} />
+      )}
+    </>
+  )
+}
+
+/* A plain select dressed to match the filter row. */
+export function Picker({ value, onChange, options, all, small = false }) {
+  return (
+    <div className={`picker${small ? ' small' : ''}`}>
+      <select value={value} onChange={e => onChange(e.target.value)}>
+        {all && <option value="">{all}</option>}
+        {options.filter(o => !o.group).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {[...new Set(options.filter(o => o.group).map(o => o.group))].map(g => (
+          <optgroup key={g} label={g}>
+            {options.filter(o => o.group === g).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </optgroup>
+        ))}
+      </select>
+      <IconChevron size={16} />
+    </div>
+  )
+}
+
+/* The filters that are used less often, kept out of the way until asked for.
+   Each page fills it with its own groups. */
+export function FilterMenu({ count, onClear, children }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  useEffect(() => {
+    if (!open) return
+    const away = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const key = e => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key) }
+  }, [open])
+  return (
+    <div className="more-filters" ref={ref}>
+      <button className={`btn btn-line more-btn${count ? ' on' : ''}`} onClick={() => setOpen(v => !v)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 3H2l8 9.5V20l4 2v-9.5Z" /></svg>
+        More filters{count ? ` (${count})` : ''}
+      </button>
+      {open && (
+        <div className="more-pop">
+          {children}
+          <div className="more-foot"><button className="btn btn-ghost btn-sm" onClick={onClear}>Clear</button></div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* One labelled row of choices inside the More filters panel. */
+export function FilterGroup({ label, value, onChange, options }) {
+  return (
+    <div className="more-group">
+      <label>{label}</label>
+      <div className="more-opts">
+        {options.map(o => (
+          <button key={o.value} className={value === o.value ? 'on' : ''} onClick={() => onChange(o.value)}>{o.label}</button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* Previous, a window of page numbers with gaps marked, next. */
+export function Pager({ page, pages, onGo }) {
+  const nums = []
+  const push = n => { if (!nums.includes(n)) nums.push(n) }
+  push(1)
+  for (let n = page - 1; n <= page + 1; n++) if (n > 1 && n < pages) push(n)
+  if (page <= 3) for (let n = 2; n <= Math.min(5, pages - 1); n++) push(n)
+  if (page >= pages - 2) for (let n = Math.max(2, pages - 4); n < pages; n++) push(n)
+  if (pages > 1) push(pages)
+  nums.sort((a, b) => a - b)
+  const out = []
+  nums.forEach((n, i) => {
+    if (i && n - nums[i - 1] > 1) out.push(<span key={`gap${n}`} className="pg-gap">…</span>)
+    out.push(<button key={n} className={`pg${n === page ? ' on' : ''}`} onClick={() => onGo(n)}>{n}</button>)
+  })
+  return (
+    <div className="pager">
+      <button className="pg arrow" disabled={page <= 1} onClick={() => onGo(page - 1)} aria-label="Previous page">
+        <IconChevron size={16} style={{ transform: 'rotate(90deg)' }} />
+      </button>
+      {out}
+      <button className="pg arrow" disabled={page >= pages} onClick={() => onGo(page + 1)} aria-label="Next page">
+        <IconChevron size={16} style={{ transform: 'rotate(-90deg)' }} />
+      </button>
+    </div>
+  )
+}
+
+/* Removing a product, kept behind the dots so it cannot be hit by accident. */
+function ProdMenu({ onRemove }) {
+  const [at, setAt] = useState(null)
+  const ref = useRef()
+  const pop = useRef()
+  useEffect(() => {
+    if (!at) return
+    const away = e => {
+      const inside = (ref.current && ref.current.contains(e.target)) || (pop.current && pop.current.contains(e.target))
+      if (!inside) setAt(null)
+    }
+    const key = e => { if (e.key === 'Escape') setAt(null) }
+    const follow = () => { if (ref.current) setAt(place(ref.current)) }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', key)
+    window.addEventListener('scroll', follow, true); window.addEventListener('resize', follow)
+    return () => {
+      document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key)
+      window.removeEventListener('scroll', follow, true); window.removeEventListener('resize', follow)
+    }
+  }, [!!at])
+  const pick = fn => e => { e.stopPropagation(); setAt(null); fn() }
+  return (
+    <div className="row-menu" ref={ref} onClick={e => e.stopPropagation()}>
+      <button className="row-dots" aria-label="More actions" onClick={e => setAt(at ? null : place(e.currentTarget))}>···</button>
+      {at && createPortal(
+        <div className="menu-list row-menu-pop" role="menu" ref={pop}
+             style={{ position: 'fixed', top: at.top, bottom: at.bottom, right: at.right }} onClick={e => e.stopPropagation()}>
+          <button role="menuitem" className="danger" onClick={pick(onRemove)}>Remove product</button>
+        </div>, document.body)}
+    </div>
+  )
+}
+
+function ProductModal({ product, categories, onClose, onSaved }) {
+  const isNew = !product.id
+  const [f, setF] = useState({ ...EMPTY, ...product, cost: product.cost ?? '', sell: product.sell ?? '' })
+  const [busy, setBusy] = useState(false)
+  const [imgUrl, setImgUrl] = useState(product.image_url || '')
+  const src = useAuthImage(imgUrl)
+  const imgRef = useRef()
+  const [start] = useState(() => ({ ...EMPTY, ...product, cost: product.cost ?? '', sell: product.sell ?? '' }))
+  const set = k => e => setF(x => ({ ...x, [k]: e.target.value }))
+  const dirty = Object.keys(f).some(k => String(f[k] ?? '') !== String(start[k] ?? ''))
+
+  const save = async e => {
+    e?.preventDefault?.()
+    setBusy(true)
+    let ok = true
+    try {
+      const body = { ...f, cost: f.cost === '' ? null : Number(f.cost), sell: f.sell === '' ? null : Number(f.sell) }
+      const saved = isNew
+        ? await apiFetch('/products', { method: 'POST', body: JSON.stringify(body) })
+        : await apiFetch(`/products/${product.id}`, { method: 'PUT', body: JSON.stringify(body) })
+      showToast(isNew ? 'Product added' : 'Product saved', 'success')
+      onSaved(saved)
+    } catch (err) { showToast(err.message, 'error'); ok = false }
+    setBusy(false)
+    return ok
+  }
+  const { guard, modal: leaveModal } = useLeaveGuard({ dirty, onSave: save, what: isNew ? 'new product' : 'product' })
+  const close = guard(onClose)
+
+  const uploadPhoto = async file => {
+    if (!file || isNew) return
+    try {
+      const form = new FormData(); form.append('file', file)
+      const p = await apiFetch(`/products/${product.id}/image`, { method: 'POST', body: form })
+      setImgUrl(p.image_url + '?t=' + Date.now())
+      showToast('Photo saved', 'success')
+    } catch (err) { showToast(err.message, 'error') }
+  }
+
+  const archive = async () => {
+    if (!confirm('Remove this product from the list? Sets that use it keep it.')) return
+    await apiFetch(`/products/${product.id}`, { method: 'DELETE' })
+    showToast('Product removed', 'info'); onSaved(null)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && close()}>
+      {leaveModal}
+      <div className="modal" style={{ maxWidth: 640 }}>
+        <h2>{isNew ? 'Add product' : product.sku}</h2>
+        <form onSubmit={save}>
+          <div className="form-grid">
+            <div className="form-group"><label>Code</label><input className="form-control" value={f.sku} onChange={set('sku')} required /></div>
+            <div className="form-group"><label>Category</label>
+              <CategoryPicker value={f.category} options={categories}
+                              onChange={v => setF(x => ({ ...x, category: v }))} />
+            </div>
+          </div>
+          <div className="form-group"><label>Name</label><input className="form-control" value={f.name} onChange={set('name')} required /></div>
+          <div className="form-grid">
+            <div className="form-group"><label>Selling price <span className="muted">(from Cin7)</span></label><input className="form-control" type="number" step="0.01" value={f.sell} onChange={set('sell')} placeholder="not in yet" /></div>
+            <div className="form-group"><label>Unit</label><input className="form-control" value={f.unit} onChange={set('unit')} /></div>
+          </div>
+          <div className="form-grid">
+            <div className="form-group"><label>Type</label>
+              <select className="form-control" value={f.product_type} onChange={set('product_type')}>
+                {TYPE_ORDER.map(t => <option key={t || 'none'} value={t}>{t ? `${t} ${TYPE_NAMES[t]}` : 'Not set'}</option>)}
+              </select>
+            </div>
+            <div className="form-group"><label>Brand</label><input className="form-control" value={f.brand} onChange={set('brand')} /></div>
+          </div>
+          <div className="form-grid">
+            <div className="form-group"><label>Intec code <span className="muted">(if different)</span></label><input className="form-control" value={f.intec_code} onChange={set('intec_code')} /></div>
+            <div className="form-group"><label>Notes</label><input className="form-control" value={f.notes} onChange={set('notes')} /></div>
+          </div>
+          {!isNew && (
+            <div className="form-group">
+              <label>Photo</label>
+              <div className="photo-row">
+                <div className="photo-box">{src ? <img src={src} alt="" /> : <span className="muted">No photo</span>}</div>
+                <button type="button" className="btn btn-sm" onClick={() => imgRef.current.click()}>{imgUrl ? 'Replace photo' : 'Add photo'}</button>
+                <input ref={imgRef} type="file" accept="image/*" style={{ display: 'none' }}
+                       onChange={e => { uploadPhoto(e.target.files[0]); e.target.value = '' }} />
+              </div>
+            </div>
+          )}
+          {!isNew && <ProductDocs productId={product.id} />}
+          <div className="modal-actions">
+            {!isNew && <button type="button" className="btn btn-ghost danger" onClick={archive}>Remove</button>}
+            <div className="spacer" />
+            <button type="button" className="btn btn-ghost" onClick={close}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? <span className="spinner" /> : 'Save'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+
+/* Every category the office already uses, on one click, and a new one can just
+   be typed. A plain datalist was no use here: the browser sifts its own list by
+   what is already in the box, so a product sitting on Other was only ever
+   offered Other. */
+function CategoryPicker({ value, options, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [sifting, setSifting] = useState(false)   // true once they start typing
+  const ref = useRef()
+  useEffect(() => {
+    if (!open) return
+    const away = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const key = e => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) } }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key) }
+  }, [open])
+  const needle = value.trim().toLowerCase()
+  const list = sifting && needle ? options.filter(c => c.toLowerCase().includes(needle)) : options
+  const isNew = !!value.trim() && !options.some(c => c.toLowerCase() === needle)
+  const pick = c => { onChange(c); setOpen(false); setSifting(false) }
+  return (
+    <div className="combo" ref={ref}>
+      <input className="form-control" value={value} placeholder="e.g. Locks"
+             onFocus={e => { e.target.select(); setOpen(true); setSifting(false) }}
+             onChange={e => { onChange(e.target.value); setSifting(true); setOpen(true) }}
+             onKeyDown={e => { if (e.key === 'Enter' && open) { e.preventDefault(); pick(list[0] || value) } }} />
+      <button type="button" className="combo-open" tabIndex={-1} aria-label="Show categories"
+              onClick={() => { setOpen(o => !o); setSifting(false) }}>
+        <IconChevron size={16} />
+      </button>
+      {open && (list.length > 0 || isNew) && (
+        <div className="combo-list">
+          {list.map(c => (
+            <button type="button" key={c} className={c === value ? 'on' : ''} onClick={() => pick(c)}>{c}</button>
+          ))}
+          {isNew && <div className="combo-new">“{value.trim()}” is a new category. It is kept when you save.</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+/* Paste the rows out of Intec's Cost Summary grid: sell prices land on the product file. */
+function IntecPasteModal({ onClose, onDone }) {
+  const [text, setText] = useState('')
+  const [updateCost, setUpdateCost] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    try {
+      const r = await apiFetch('/products/import-intec-costs', { method: 'POST', body: JSON.stringify({ text, update_cost: updateCost }) })
+      showToast(`${r.rows} rows read: ${r.updated} products updated, ${r.added} added`, 'success')
+      await onDone()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy(false)
+  }
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 720 }}>
+        <h2>Sell prices from Intec</h2>
+        <p className="muted" style={{ marginBottom: 12 }}>
+          In Intec, open a job's Cost Summary, select all the rows, copy, and paste them here.
+          Each product's sell price is updated. Products not in the file yet are added.
+        </p>
+        <textarea className="form-control" rows={12} value={text} onChange={e => setText(e.target.value)}
+                  placeholder={'CH311\tEuro Profile Escutcheon 4mm Stainless steel\t21.00\t0.87\t49.43\t1.30\t0.00\t0.00\t1.30\t27.30\t33.08'}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, whiteSpace: 'pre' }} />
+        <label className="check" style={{ marginTop: 12 }}>
+          <input type="checkbox" checked={updateCost} onChange={e => setUpdateCost(e.target.checked)} />
+          Also overwrite costs with Intec's (normally leave off: Cin7 is the source of cost)
+        </label>
+        <div className="modal-actions">
+          <button className="btn btn-primary" onClick={submit} disabled={busy || !text.trim()}>{busy ? <span className="spinner" /> : 'Import prices'}</button>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+/* What Cin7 holds against what we have. Nothing is written until Apply. */
+function Cin7Modal({ r, busy, onApply, onPictures, onClose }) {
+  const n = (v, one, many) => `${v} ${v === 1 ? one : many}`
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <h2>{r.applied ? 'Synced from Cin7' : 'Sync from Cin7'}</h2>
+        <div className="total-row"><span>Products in Cin7</span><strong>{r.found}</strong></div>
+        <div className="total-row"><span>New here</span><strong>{r.new}</strong></div>
+        <div className="total-row"><span>Name, category or price changed</span><strong>{r.changed}</strong></div>
+        <div className="total-row"><span>Unchanged</span><strong>{r.unchanged}</strong></div>
+        <div className="total-row"><span>Deprecated in Cin7, left alone</span><strong>{r.deprecated}</strong></div>
+        <div className="total-row"><span>Pictures in Cin7 that we lack</span><strong>{r.pictures_we_lack}</strong></div>
+        <div className="total-row last"><span>Descriptions carrying a classification code</span><strong>{r.with_classification}</strong></div>
+        {r.sample_new.length > 0 && !r.applied && (
+          <p className="muted" style={{ margin: '14px 0 0', fontSize: 13 }}>New, for example: {r.sample_new.join(' · ')}</p>
+        )}
+        {!r.applied && <p style={{ margin: '14px 0 0' }}>Photos, Intec codes and notes already here are kept.</p>}
+        <div className="modal-actions">
+          {!r.applied && <button className="btn btn-primary" onClick={onApply} disabled={!!busy}>{busy === 'apply' ? <span className="spinner" /> : `Apply: ${n(r.new, 'new product', 'new products')}, ${n(r.changed, 'update', 'updates')}`}</button>}
+          {r.applied && r.pictures_we_lack > 0 && <button className="btn btn-primary" onClick={onPictures} disabled={!!busy}>{busy === 'pics' ? <span className="spinner" /> : `Fetch ${Math.min(r.pictures_we_lack, 150)} pictures`}</button>}
+          <button className="btn btn-ghost" onClick={onClose} disabled={!!busy}>{r.applied ? 'Done' : 'Cancel'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* The datasheets and certificates on one product, and a way to add one. */
+function ProductDocs({ productId }) {
+  const [docs, setDocs] = useState(null)
+  const [kind, setKind] = useState('datasheet')
+  const ref = useRef()
+  const load = () => apiFetch(`/products/${productId}/documents`).then(setDocs).catch(() => setDocs([]))
+  useEffect(() => { load() }, [productId])
+  const add = async file => {
+    if (!file) return
+    try {
+      const form = new FormData(); form.append('file', file); form.append('kind', kind)
+      await apiFetch(`/products/${productId}/documents`, { method: 'POST', body: form })
+      showToast(`${kind === 'datasheet' ? 'Datasheet' : 'Certificate'} added`, 'success'); await load()
+    } catch (err) { showToast(err.message, 'error') }
+  }
+  const drop = async d => {
+    try { await apiFetch(`/products/${productId}/documents/${d.id}`, { method: 'DELETE' }); await load() }
+    catch (err) { showToast(err.message, 'error') }
+  }
+  return (
+    <div className="form-group">
+      <label>Datasheets and certificates</label>
+      {docs === null ? <span className="spinner" /> : docs.length === 0 ? <p className="p-dash" style={{ margin: '0 0 8px' }}>None yet.</p> : (
+        <ul className="doc-list">
+          {docs.map(d => (
+            <li key={d.id}>
+              <span className={`kind-pill ${d.kind === 'certificate' ? 'doors' : 'devices'}`}>{d.kind}</span>
+              <button type="button" className="link-btn inline" onClick={() => openBlob(d.url).catch(e => showToast(e.message, 'error'))}>{d.title}</button>
+              <span className="p-meta">{d.pages ? `${d.pages} pp` : ''}{d.products.length > 1 ? ` · also on ${d.products.length - 1} other${d.products.length > 2 ? 's' : ''}` : ''}</span>
+              <button type="button" className="row-dots" title="Take off this product" onClick={() => drop(d)}>×</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="doc-add">
+        <select className="form-control" value={kind} onChange={e => setKind(e.target.value)} style={{ width: 150 }}>
+          <option value="datasheet">Datasheet</option>
+          <option value="certificate">Certificate</option>
+        </select>
+        <button type="button" className="btn btn-sm" onClick={() => ref.current.click()}>Add PDF</button>
+        <input ref={ref} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={e => { add(e.target.files[0]); e.target.value = '' }} />
+      </div>
+    </div>
+  )
+}
+
+/* The datasheet zip: first what would happen, then what did. */
+function DocReportModal({ r, busy, onlyMatched, onOnlyMatched, onImport, onClose, onMatch }) {
+  const check = r.dry_run
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal" style={{ maxWidth: 720 }}>
+        <h2>{check ? 'Check before importing' : 'Datasheets imported'}</h2>
+        {check && <p className="muted" style={{ margin: '-8px 0 12px' }}>Nothing has been stored yet.</p>}
+        {check && (
+          <label className="check doc-only" title="For a big mixed folder: anything that names none of your products is not kept">
+            <input type="checkbox" checked={onlyMatched} onChange={e => onOnlyMatched(e.target.checked)} disabled={busy} />
+            Only keep sheets that match a product
+          </label>
+        )}
+        <div className="total-row"><span>{check ? (r.only_matched ? 'Documents to keep' : 'Documents in the zip') : 'Documents kept'}</span><strong>{r.stored}</strong></div>
+        <div className="total-row"><span>Copies of one already kept, skipped</span><strong>{r.duplicates}</strong></div>
+        <div className="total-row"><span>{check ? 'Would go on products by their code' : 'Put on products by their code'}</span><strong>{r.attached}</strong></div>
+        <div className="total-row"><span>Products covered</span><strong>{r.links}</strong></div>
+        <div className="total-row"><span>Read as certificates</span><strong>{r.certificates}</strong></div>
+        {r.held > 0 && <div className="total-row"><span>Old packs, quotes or catalogues (they name many kinds of product)</span><strong>{r.held}</strong></div>}
+        {r.only_matched
+          ? <div className="total-row last"><span>{check ? 'Left out: they match no product' : 'Left out'}</span><strong>{r.left_out}</strong></div>
+          : <div className="total-row last"><span>No product found by code</span><strong>{r.unmatched}</strong></div>}
+        {check && r.placed.length > 0 && (
+          <>
+            <h3 className="doc-check-h">Would go on a product</h3>
+            <div className="doc-check">
+              {r.placed.map((x, i) => <div key={i}><span>{x.name}</span><strong>{x.skus.join(', ')}</strong></div>)}
+            </div>
+          </>
+        )}
+        {check && r.unplaced.length > 0 && (
+          <>
+            <h3 className="doc-check-h">{r.only_matched ? 'Left out' : 'No product by code: these go to Match datasheets'}</h3>
+            <div className="doc-check">
+              {r.unplaced.map((x, i) => <div key={i}><span>{x.name}</span><em>{x.pack ? 'old pack, quote or catalogue' : r.only_matched ? 'matches no product' : `${x.kind}${x.guess ? ` · best guess ${x.guess}` : ' · no guess'}`}</em></div>)}
+            </div>
+          </>
+        )}
+        <div className="modal-actions">
+          {check
+            ? <button className="btn btn-primary" onClick={onImport} disabled={busy || !r.stored}>{busy ? <span className="spinner" /> : `Import ${r.stored} document${r.stored !== 1 ? 's' : ''}`}</button>
+            : r.unmatched > 0 && <button className="btn btn-primary" onClick={onMatch}>Match them now</button>}
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>{check ? 'Cancel' : r.unmatched > 0 ? 'Later' : 'Done'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* What the zip did: matched, no product for this file, second picture for the same product. */
+function ImageReportModal({ r, onClose, onMatch }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 720 }}>
+        <h2>Images imported</h2>
+        <div className="total-row"><span>Pictures matched to a product</span><strong>{r.matched}</strong></div>
+        <div className="total-row"><span>Files with no matching product code</span><strong>{r.unmatched.length}</strong></div>
+        <div className="total-row last"><span>Duplicates (a second picture for the same product, skipped)</span><strong>{r.duplicates.length}</strong></div>
+        {r.unmatched.length > 0 && (
+          <p style={{ margin: '16px 0 0' }}>The {r.unmatched.length} unmatched pictures are kept. On the next screen the app guesses the product from the file name and you confirm each one.</p>
+        )}
+        {r.duplicates.length > 0 && (
+          <>
+            <h3 style={{ margin: '16px 0 6px', fontSize: 14 }}>Duplicates skipped</h3>
+            <pre className="report-list">{r.duplicates.map(d => `${d.sku}  ←  ${d.file}`).join('\n')}</pre>
+          </>
+        )}
+        <div className="modal-actions">
+          {r.unmatched.length > 0 && <button className="btn btn-primary" onClick={onMatch}>Match them now</button>}
+          <button className={r.unmatched.length > 0 ? 'btn btn-ghost' : 'btn btn-primary'} onClick={onClose}>{r.unmatched.length > 0 ? 'Later' : 'Done'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+/* 72px picture box. A product with no picture shows an upload box instead. */
+function ProdThumb({ url, onUpload }) {
+  const src = useAuthImage(url)
+  if (url) return <span className="prod-pic">{src ? <img src={src} alt="" /> : null}</span>
+  return (
+    <button type="button" className="prod-pic empty" title="Add photo"
+            onClick={e => { e.stopPropagation(); onUpload() }}>
+      <IconUpload size={21} />
+      <span>Upload</span>
+    </button>
+  )
+}
+
+/* Importing pictures, datasheets and prices, and matching what they left
+   waiting, all under one button so the page header stays quiet. */
+function ImportMenu({ groups, busy }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  useEffect(() => {
+    if (!open) return
+    const close = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+  return (
+    <div className="menu import-menu" ref={ref}>
+      <button className={`btn btn-line${open ? ' open' : ''}`} onClick={() => setOpen(o => !o)} disabled={!!busy} aria-haspopup="menu" aria-expanded={open}>
+        {busy ? <><span className="spinner" /> {busy}</> : <>
+          <IconLayers size={17} /> Import and match
+          <span className="caret" />
+        </>}
+      </button>
+      {open && (
+        <div className="menu-list im-list" role="menu">
+          {groups.map(g => (
+            <div key={g.title} className="im-group">
+              <div className="im-title">{g.title}</div>
+              {g.items.filter(it => it.count === undefined || it.count > 0).map(it => (
+                <button key={it.label} role="menuitem" onClick={() => { setOpen(false); it.onClick() }}>
+                  <span>{it.label}{it.note && <small>{it.note}</small>}</span>
+                  {it.count > 0 && <span className="im-count">{it.count} waiting</span>}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* Across every product: the same sheet filed twice, and sheets nothing backs
+   up (not their name, not a code printed in them, not a person). */
+function DocCheckModal({ onClose }) {
+  const [r, setR] = useState(null)
+  const [busy, setBusy] = useState('')
+  const load = () => apiFetch('/products/documents/check').then(setR).catch(err => { showToast(err.message, 'error'); onClose() })
+  useEffect(() => { load() }, [])
+  const send = async (body, key) => {
+    setBusy(key)
+    try { const x = await apiFetch('/products/documents/check', { method: 'POST', body: JSON.stringify(body) }); await load(); return x }
+    catch (err) { showToast(err.message, 'error') }
+    finally { setBusy('') }
+  }
+  const dropAll = async () => {
+    const drop = r.doubles.flatMap(x => x.drop.map(d => ({ product_id: x.product_id, document_id: d.document_id })))
+    const x = await send({ drop }, 'all')
+    if (x) showToast(`${x.removed} second cop${x.removed !== 1 ? 'ies' : 'y'} taken off`, 'success')
+  }
+  const one = (it, what) => {
+    const f = { product_id: it.product_id, document_id: it.document_id, to_product_id: it.move_to?.product_id ?? null }
+    return send({ [what]: [f] }, `${what}-${it.product_id}-${it.document_id}`)
+  }
+  const open = url => openBlob(url).catch(e => showToast(e.message, 'error'))
+  const copies = r ? r.doubles.reduce((n, x) => n + x.drop.length, 0) : 0
+  return (
+    <div className="modal-overlay" onMouseDown={e => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal doc-check-modal">
+        <h2>Check datasheets</h2>
+        {!r ? <p className="muted"><span className="spinner" /> Reading the sheets on every product…</p> : (<>
+          {r.doubles.length === 0 && r.doubtful.length === 0 && <p>Nothing to tidy. No product has the same sheet twice, and every sheet is backed by its name or a code printed in it.</p>}
+          {r.doubles.length > 0 && (
+            <section className="dc-sec">
+              <div className="dc-head">
+                <div><h3>The same sheet twice</h3><p className="muted">{r.doubles.length} product{r.doubles.length !== 1 ? 's have' : ' has'} a sheet filed twice. The fuller copy stays.</p></div>
+                <button className="btn btn-primary" onClick={dropAll} disabled={!!busy}>{busy === 'all' ? <span className="spinner" /> : `Take off ${copies} cop${copies !== 1 ? 'ies' : 'y'}`}</button>
+              </div>
+              {r.doubles.map(x => (
+                <div key={x.product_id} className="dc-row">
+                  <div className="dc-prod"><span className="doc-sku">{x.sku}</span><span className="dc-name">{x.name}</span></div>
+                  <div className="dc-docs">
+                    <div><span className="dc-tag keep">Stays</span><button className="link-btn inline dc-open" onClick={() => open(x.keep.url)}>{x.keep.title}</button></div>
+                    {x.drop.map(d => <div key={d.document_id}><span className="dc-tag drop">Goes</span><button className="link-btn inline dc-open" onClick={() => open(d.url)}>{d.title}</button></div>)}
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
+          {r.doubtful.length > 0 && (
+            <section className="dc-sec">
+              <div className="dc-head"><div><h3>Worth a look</h3><p className="muted">{r.doubtful.length} sheet{r.doubtful.length !== 1 ? 's' : ''} on a product that neither the file name nor anything printed in it points to. Open it and decide.</p></div></div>
+              {r.doubtful.map(it => {
+                const k = `${it.product_id}-${it.document_id}`
+                return (
+                  <div key={k} className="dc-row">
+                    <div className="dc-prod"><span className="doc-sku">{it.sku}</span><span className="dc-name">{it.name}</span></div>
+                    <div className="dc-docs">
+                      <div><button className="link-btn inline dc-open" onClick={() => open(it.url)}>{it.title}</button></div>
+                      <div className="dc-acts">
+                        {it.move_to && <button className="btn btn-soft btn-sm" disabled={!!busy} onClick={() => one(it, 'move').then(x => x && showToast(`Moved to ${it.move_to.sku}`, 'success'))} title={it.move_to.name}>Move to {it.move_to.sku}</button>}
+                        <button className="btn btn-line btn-sm" disabled={!!busy} onClick={() => one(it, 'remove').then(x => x && showToast(`Taken off ${it.sku}`, 'info'))}>Take off</button>
+                        <button className="btn btn-line btn-sm" disabled={!!busy} onClick={() => one(it, 'keep')}>It is right</button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </section>
+          )}
+        </>)}
+        <div className="modal-actions"><button className="btn btn-ghost" onClick={onClose} disabled={!!busy}>Close</button></div>
+      </div>
+    </div>
+  )
+}

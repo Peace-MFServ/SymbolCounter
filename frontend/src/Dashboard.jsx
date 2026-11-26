@@ -23,6 +23,8 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'jobs',
           <nav className="topnav">
             <a className={active === 'jobs' ? 'on' : ''} onClick={() => onNavigate('dashboard')}>Jobs</a>
             <a className={active === 'invites' ? 'on' : ''} onClick={() => onNavigate('invites')}>Architect links</a>
+            <a className={active === 'products' ? 'on' : ''} onClick={() => onNavigate('products')}>Products</a>
+            <a className={active === 'sets' ? 'on' : ''} onClick={() => onNavigate('sets')}>Sets</a>
           </nav>
         )}
         <div className="spacer" />
@@ -69,6 +71,7 @@ export const ago = iso => {
   return new Date(iso).toLocaleDateString('en-IE', { day: 'numeric', month: 'short' })
 }
 const stageText = p => {
+  if (p.kind === 'symbols') return { text: `${p.drawing_count || 0} drawing${p.drawing_count !== 1 ? 's' : ''}, ${p.verified_count || 0} checked`, cls: '' }
   if (p.stage === 'checked') return { text: `Checked${p.owner_name ? ` by ${p.owner_name}` : ''}`, cls: 'done' }
   if (p.source === 'portal' && !p.owner_id) return { text: 'Waiting', cls: 'wait' }
   if (p.source === 'portal') return { text: `${p.owner_name} has it`, cls: 'mine' }
@@ -99,7 +102,7 @@ export function Dashboard({ onNavigate }) {
     return !n ? projects : projects.filter(p => [p.name, p.client, p.site, p.quote_no, p.owner_name].filter(Boolean).join(' ').toLowerCase().includes(n))
   }, [projects, search])
 
-  const open = p => onNavigate('plan-reader', { id: p.id })
+  const open = p => onNavigate(p.kind === 'symbols' ? 'project' : 'plan-reader', { id: p.id })
   const take = async p => {
     try {
       const t = await apiFetch(`/projects/${p.id}/take`, { method: 'POST' })
@@ -195,8 +198,8 @@ export function Dashboard({ onNavigate }) {
               <div className="owner-card">
                 <div className="job-table-scroll">
                   <table className="job-table">
-                    <colgroup><col style={{ width: '44%' }} /><col style={{ width: '22%' }} /><col style={{ width: '14%' }} /><col /></colgroup>
-                    <thead><tr><th>Job</th><th>Where it is</th><th className="num">Doors confirmed</th><th className="num">Actions</th></tr></thead>
+                    <colgroup><col style={{ width: '38%' }} /><col style={{ width: '14%' }} /><col style={{ width: '22%' }} /><col style={{ width: '12%' }} /><col /></colgroup>
+                    <thead><tr><th>Job</th><th>Kind</th><th>Where it is</th><th className="num">Doors confirmed</th><th className="num">Actions</th></tr></thead>
                     <tbody>
                       {shown.map(p => {
                         const st = stageText(p)
@@ -206,8 +209,9 @@ export function Dashboard({ onNavigate }) {
                               <div className="job-name">{p.name}</div>
                               <div className="job-meta">{[p.source === 'portal' ? 'Sent in by the architect' : null, p.client, p.site, p.quote_no && `Quote ${p.quote_no}`].filter(Boolean).join(' · ') || 'No client or site set'}</div>
                             </td>
+                            <td><span className={`kind-pill ${p.kind === 'symbols' ? 'devices' : 'doors'}`}>{p.kind === 'symbols' ? 'Device count' : 'Doors'}</span></td>
                             <td><span className={`stage-pill ${st.cls}`}>{st.text}</span></td>
-                            <td className="num job-num">{p.door_count || <span className="muted">—</span>}</td>
+                            <td className="num job-num">{p.kind === 'symbols' ? <span className="muted">—</span> : p.door_count || <span className="muted">—</span>}</td>
                             <td className="num">
                               <RowMenu onOpen={() => open(p)} onDelete={canDelete(p) ? () => deleteProject(p) : null} />
                             </td>
@@ -225,13 +229,20 @@ export function Dashboard({ onNavigate }) {
             <button className="btn btn-primary btn-lg jobs-new" onClick={() => onNavigate('invites')}>
               <IconPlus size={16} /> Send an architect a link
             </button>
-            <button className="btn btn-lg jobs-new" onClick={() => setShowNew(true)}>New job from plans I have</button>
+            <button className="btn btn-lg jobs-new" onClick={() => setShowNew(true)}>New job</button>
             <div className="glance-card">
               <h3><IconBars size={18} /> At a glance</h3>
               <div className="glance-row"><span>To check</span><strong>{incoming.length}</strong></div>
               <div className="glance-row"><span>Not taken yet</span><strong>{waiting}</strong></div>
               <div className="glance-row"><span>Overdue</span><strong className={late ? 'warn-num' : ''}>{late}</strong></div>
               <div className="glance-row"><span>Jobs</span><strong>{projects.length}</strong></div>
+            </div>
+            <div className="glance-card">
+              <h3>Device counting</h3>
+              <div className="rail-links">
+                <a onClick={() => onNavigate('accuracy')}>Accuracy scoreboard</a>
+                <a onClick={() => onNavigate('templates')}>Template library</a>
+              </div>
             </div>
           </aside>
         </div>
@@ -301,19 +312,21 @@ export const place = (el, height = 120) => {
 }
 
 function NewProjectModal({ onClose, onCreated }) {
+  const [kind, setKind] = useState('doors')
+  const [firm, setFirm] = useState('')
   const [name, setName] = useState('')
   const [client, setClient] = useState('')
   const [site, setSite] = useState('')
   const [quote, setQuote] = useState('')
   const [busy, setBusy] = useState(false)
-  const typed = !!(name || client || site || quote)
+  const typed = !!(name || client || site || quote || firm)
 
   const submit = async e => {
     e?.preventDefault?.()
     setBusy(true)
     let ok = true
     try {
-      const p = await apiFetch('/projects', { method: 'POST', body: JSON.stringify({ name, client, site, quote_no: quote }) })
+      const p = await apiFetch('/projects', { method: 'POST', body: JSON.stringify({ name, client, site, quote_no: quote, kind, drawing_firm: firm }) })
       onCreated(p)
     } catch (err) { showToast(err.message, 'error'); ok = false }
     finally { setBusy(false) }
@@ -327,8 +340,18 @@ function NewProjectModal({ onClose, onCreated }) {
       {leaveModal}
       <div className="modal new-job-modal">
         <h2>New job</h2>
-        <p className="muted" style={{ margin: '6px 0 18px' }}>For plans you already have. You upload them on the next page.</p>
+        <p className="muted" style={{ margin: '6px 0 18px' }}>For plans or drawings you already have. You upload them on the next page.</p>
         <form onSubmit={submit}>
+          <div className="kind-pick two">
+            <button type="button" className={kind === 'doors' ? 'on' : ''} onClick={() => setKind('doors')}>
+              <strong>Doors from plans</strong>
+              <span>Floor plans in, every door read, checked and given its set.</span>
+            </button>
+            <button type="button" className={kind === 'symbols' ? 'on' : ''} onClick={() => setKind('symbols')}>
+              <strong>Device count</strong>
+              <span>Fire and security drawings in, symbol counts out.</span>
+            </button>
+          </div>
           <div className="form-group">
             <label>Project name *</label>
             <input className="form-control" placeholder="e.g. Ford Site, Cork" value={name} onChange={e => setName(e.target.value)} required autoFocus />
@@ -347,6 +370,12 @@ function NewProjectModal({ onClose, onCreated }) {
             <label>Site / address</label>
             <input className="form-control" placeholder="e.g. Centre Park Road, Cork" value={site} onChange={e => setSite(e.target.value)} />
           </div>
+          {kind === 'symbols' && (
+            <div className="form-group">
+              <label>Drawing firm <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(optional, improves detection for this firm's drawing style)</span></label>
+              <input className="form-control" placeholder="e.g. O'Mahony Pike, EDC Engineers" value={firm} onChange={e => setFirm(e.target.value)} />
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" className="btn btn-ghost" onClick={close}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? <span className="spinner" /> : 'Create job'}</button>

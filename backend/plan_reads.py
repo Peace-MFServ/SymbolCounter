@@ -95,10 +95,11 @@ def _reading(pid: int, rid: str, d: Path, meta: dict) -> dict:
 
 def with_job(db: Session, pid: int, r: dict) -> dict:
     """Mark doors whose reference is already confirmed on the job, and send the
-    job's confirmed doors so the page can show them."""
+    job's confirmed doors with their sets so the page can show and change them."""
+    from schedule import _effective_set_id
     job = {}
     for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
-        job[(d.ref or "").upper()] = {"id": d.id}
+        job[(d.ref or "").upper()] = {"id": d.id, "set_id": _effective_set_id(d)}
     for d in r["doors"]:
         d["on_job"] = d["ref"].upper() in job
     r["job_doors"] = job
@@ -296,10 +297,12 @@ class DoorIn(BaseModel):
     ref: str
     floor: str = ""
     note: str = ""
+    set_id: Optional[int] = None      # this door's own set; without one it takes the set given for them all
 
 
 class ApplyIn(BaseModel):
     doors: list[DoorIn] = []
+    set_id: Optional[int] = None
 
 
 @router.post("/projects/{pid}/plan-reads/{rid}/apply")
@@ -325,7 +328,13 @@ def remove_doors(pid: int, payload: ApplyIn, db: Session = Depends(get_db), cu=D
 
 def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str) -> dict:
     from jobs import edit_project
+    from schedule import _link_set, _usable_set
     p = edit_project(pid, db, cu)
+    # a library set or this job's own, never another job's
+    for sid in {payload.set_id} | {d.set_id for d in payload.doors[:5000]}:
+        if sid:
+            _usable_set(db, pid, sid)
+    used = set()
     have = {(x or "").upper() for (x,) in db.query(models.Door.ref).filter(models.Door.project_id == pid).all()}
     added, skipped = 0, []
     for dr in payload.doors[:5000]:
@@ -334,8 +343,15 @@ def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str) -> dict
             continue
         if ref.upper() in have:
             skipped.append(ref); continue
-        db.add(models.Door(project_id=pid, ref=ref, floor=dr.floor.strip()[:60], source=source, note=dr.note.strip()[:500]))
+        sid = dr.set_id or payload.set_id or None
+        db.add(models.Door(project_id=pid, ref=ref, floor=dr.floor.strip()[:60], set_id=sid, source=source,
+                           note=dr.note.strip()[:500]))
         have.add(ref.upper()); added += 1
+        if sid:
+            used.add(sid)
+    for sid in sorted(used):
+        _link_set(db, pid, sid)
+        db.flush()
     if added and p.owner_id is None:
         p.owner_id = cu.id                      # whoever confirms the doors of a job sent in has taken it
         if p.stage in ("", "new"):

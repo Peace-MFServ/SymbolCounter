@@ -42,7 +42,7 @@ def iso(dt: Optional[datetime]) -> Optional[str]:
 def own_project(pid: int, db: Session, cu) -> models.Project:
     """Anyone on the team can look at any job."""
     p = db.query(models.Project).filter(models.Project.id == pid).first()
-    if not p or (p.kind or "") == "symbols":
+    if not p:
         raise HTTPException(404, "Job not found")
     return p
 
@@ -61,9 +61,15 @@ def edit_project(pid: int, db: Session, cu) -> models.Project:
 class ProjectOut(BaseModel):
     id: int
     name: str
+    kind: str = "doors"              # doors: read from plans | symbols: device counting
     client: str = ""
     site: str = ""
+    description: str = ""
+    drawing_firm: str = ""
     quote_no: str = ""
+    drawing_count: int = 0           # device counting
+    verified_count: int = 0
+    approved_count: int = 0
     source: str = ""
     stage: str = ""
     brief: str = ""
@@ -111,8 +117,12 @@ def project_out(p: models.Project, db: Session, full: bool = True) -> ProjectOut
         contact = json.loads(p.contact) if p.contact else {}
     except ValueError:
         contact = {}
+    drawings = p.drawings if (p.kind or "symbols") == "symbols" else []
     return ProjectOut(
-        id=p.id, name=p.name, client=p.client or "", site=p.site or "", quote_no=p.quote_no or "",
+        id=p.id, name=p.name, kind=p.kind or "symbols", client=p.client or "", site=p.site or "",
+        description=p.description or "", drawing_firm=p.drawing_firm or "", quote_no=p.quote_no or "",
+        drawing_count=len(drawings), verified_count=sum(1 for d in drawings if d.status in ("verified", "approved")),
+        approved_count=sum(1 for d in drawings if d.status == "approved"),
         source=p.source or "", stage=p.stage or "", brief=(p.brief or "") if full else (p.brief or "")[:200],
         contact=contact, received_at=iso(p.received_at), due_at=iso(p.due_at), checked_at=iso(p.checked_at),
         plan_read=rid, draft=_draft(p.id, rid),
@@ -128,6 +138,8 @@ class ProjectIn(BaseModel):
     client: str = ""
     site: str = ""
     quote_no: str = ""
+    kind: str = "doors"
+    drawing_firm: str = ""
 
 
 def _clip(s: str, n: int) -> str:
@@ -136,8 +148,7 @@ def _clip(s: str, n: int) -> str:
 
 @router.get("/projects", response_model=list[ProjectOut])
 def list_projects(db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    ps = (db.query(models.Project).filter((models.Project.kind != "symbols") | (models.Project.kind.is_(None)))
-          .order_by(models.Project.id.desc()).all())
+    ps = db.query(models.Project).order_by(models.Project.id.desc()).all()
     return [project_out(p, db, full=False) for p in ps]
 
 
@@ -146,8 +157,11 @@ def create_project(payload: ProjectIn, db: Session = Depends(get_db), cu=Depends
     name = _clip(payload.name, 120)
     if not name:
         raise HTTPException(400, "Give the job a name")
+    if payload.kind not in ("doors", "symbols"):
+        raise HTTPException(400, "A job reads doors from plans, or counts devices")
     p = models.Project(name=name, client=_clip(payload.client, 120), site=_clip(payload.site, 200),
-                       quote_no=_clip(payload.quote_no, 40), kind="doors", owner_id=cu.id)
+                       quote_no=_clip(payload.quote_no, 40), kind=payload.kind,
+                       drawing_firm=_clip(payload.drawing_firm, 120), owner_id=cu.id)
     db.add(p); db.commit(); db.refresh(p)
     clear_job_folders(p.id)          # a job number used before must not inherit that job's plans
     return project_out(p, db)
@@ -165,6 +179,7 @@ def update_project(pid: int, payload: ProjectIn, db: Session = Depends(get_db), 
     if not name:
         raise HTTPException(400, "Give the job a name")
     p.name, p.client, p.site, p.quote_no = name, _clip(payload.client, 120), _clip(payload.site, 200), _clip(payload.quote_no, 40)
+    p.drawing_firm = _clip(payload.drawing_firm, 120)
     db.commit(); db.refresh(p)
     return project_out(p, db)
 
@@ -214,10 +229,15 @@ def mark_checked(pid: int, payload: CheckedIn, db: Session = Depends(get_db), cu
 def delete_project(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     p = edit_project(pid, db, cu)
     db.query(models.Invite).filter(models.Invite.project_id == pid).update({models.Invite.project_id: None})
+    folders = [d.filename for d in p.drawings if d.filename]       # device counting drawings, on disk
     purge_project_rows(db, pid)
+    db.expire(p)
     db.delete(p)
     db.commit()
     clear_job_folders(pid)
+    for f in folders:
+        if re.fullmatch(r"[a-f0-9]{32}", f):
+            shutil.rmtree(Path("uploads") / f, ignore_errors=True)
 
 
 def purge_project_rows(db: Session, pid: int):
@@ -234,6 +254,19 @@ def purge_project_rows(db: Session, pid: int):
                         db.execute(text(f'DELETE FROM "{t}" WHERE drawing_id=:d'), {"d": did})
                     else:
                         db.execute(text(f'UPDATE "{t}" SET drawing_id=NULL WHERE drawing_id=:d'), {"d": did})
+    if "hardware_sets" in cols:
+        # the job's own sets go with it: their products first, and anything copied from them lets go
+        ids = [r[0] for r in db.execute(text("SELECT id FROM hardware_sets WHERE project_id=:p"), {"p": pid}).fetchall()]
+        for sid in ids:
+            if "set_items" in cols:
+                db.execute(text("DELETE FROM set_items WHERE set_id=:s"), {"s": sid})
+            db.execute(text("UPDATE hardware_sets SET copied_from_id=NULL WHERE copied_from_id=:s"), {"s": sid})
+            if "project_sets" in cols:
+                db.execute(text("DELETE FROM project_sets WHERE set_id=:s"), {"s": sid})
+            if "doors" in cols:
+                db.execute(text("UPDATE doors SET set_id=NULL WHERE set_id=:s"), {"s": sid})
+            if "door_types" in cols:
+                db.execute(text("UPDATE door_types SET set_id=NULL WHERE set_id=:s"), {"s": sid})
     for t, cs in cols.items():
         if "source_project_id" in cs:
             db.execute(text(f'UPDATE "{t}" SET source_project_id=NULL WHERE source_project_id=:p'), {"p": pid})
@@ -263,11 +296,14 @@ def clear_job_folders(pid: int):
 # ── The doors confirmed ───────────────────────────────────────────────────────
 @router.get("/projects/{pid}/doors.xlsx")
 def doors_excel(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    """The doors confirmed on the job, as a spreadsheet to take into the CRM."""
+    """The doors confirmed on the job, with their sets, as a spreadsheet to take into the CRM."""
     import openpyxl
     from openpyxl.styles import Font, PatternFill
+    from schedule import _effective_set_id
     p = own_project(pid, db, cu)
     doors = db.query(models.Door).filter(models.Door.project_id == pid).all()
+    sets = {s.id: s for s in db.query(models.HardwareSet).filter(
+        models.HardwareSet.id.in_({sid for sid in (_effective_set_id(d) for d in doors) if sid})).all()}
     key = lambda d: [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", d.ref or "")]
     doors.sort(key=lambda d: ((d.floor or "").lower(), key(d)))
     wb = openpyxl.Workbook()
@@ -278,14 +314,16 @@ def doors_excel(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cur
     ws.append([" · ".join(x for x in (p.client, p.site) if x)])
     ws.append([f"{len(doors)} doors confirmed" + (f", checked by {p.owner.name}" if p.stage == "checked" and p.owner else "")])
     ws.append([])
-    ws.append(["Door", "Floor", "Note", "From"])
+    ws.append(["Door", "Floor", "Set", "Set name", "Note", "From"])
     head = ws.max_row
     for c in ws[head]:
         c.font = Font(bold=True, color="FFFFFF")
         c.fill = PatternFill("solid", fgColor="00387B")
     for d in doors:
-        ws.append([d.ref, d.floor, d.note, {"plans": "Floor plans", "schedule": "Door list"}.get(d.source or "", d.source or "")])
-    for col, w in zip("ABCD", (18, 18, 60, 14)):
+        s_ = sets.get(_effective_set_id(d))
+        ws.append([d.ref, d.floor, s_.code if s_ else "", s_.name if s_ else "", d.note,
+                   {"plans": "Floor plans", "schedule": "Door list"}.get(d.source or "", d.source or "")])
+    for col, w in zip("ABCDEF", (18, 18, 10, 34, 50, 14)):
         ws.column_dimensions[col].width = w
     ws.freeze_panes = ws.cell(row=head + 1, column=1)
     buf = io.BytesIO()
