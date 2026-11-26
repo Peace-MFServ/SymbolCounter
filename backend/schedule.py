@@ -967,6 +967,27 @@ def _usable_set(db: Session, pid: int, sid: int) -> models.HardwareSet:
     return x
 
 
+class ExcludeIn(BaseModel):
+    door_ids: list[int] = []
+    excluded: bool = True
+    reason: str = ""
+
+
+@router.post("/projects/{pid}/doors/exclude")
+def exclude_doors(pid: int, payload: ExcludeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Doors that stay on the job but are not ours to supply: by others, out of scope.
+    They have no set, no price and no quantity, and the schedule lists them."""
+    _edit_project(pid, db, cu)
+    ids = set(payload.door_ids[:5000])
+    doors = db.query(models.Door).filter(models.Door.project_id == pid, models.Door.id.in_(ids)).all() if ids else []
+    reason = " ".join((payload.reason or "").split())[:120]
+    for d in doors:
+        d.excluded = payload.excluded
+        d.excluded_reason = (reason or "Not in scope") if payload.excluded else ""
+    db.commit()
+    return {"doors": len(doors)}
+
+
 class AssignSetIn(BaseModel):
     door_ids: list[int] = []
     set_id: Optional[int] = None
@@ -1011,6 +1032,8 @@ def _set_or_404(sid: int, db: Session) -> models.HardwareSet:
 
 
 def _effective_set_id(d: models.Door) -> Optional[int]:
+    if getattr(d, "excluded", False):
+        return None
     if d.set_id:
         return d.set_id
     t = d.door_type
@@ -1042,7 +1065,7 @@ def get_job(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current
         eff = _effective_set_id(d)
         if eff:
             by_set.setdefault(eff, []).append(d)
-        elif not (d.door_type and d.door_type.status == "excluded"):
+        elif not d.excluded and not (d.door_type and d.door_type.status == "excluded"):
             no_set += 1
     linked = [ps.set_id for ps in db.query(models.ProjectSet).filter_by(project_id=pid).order_by(models.ProjectSet.sort_order).all()]
     order = linked + [sid for sid in by_set if sid not in linked]
@@ -1286,6 +1309,7 @@ class DoorOut(BaseModel):
     x: Optional[float] = None; y: Optional[float] = None
     set_id: Optional[int] = None; effective_set_id: Optional[int] = None; effective_set_code: str = ""
     source: str = "plan"; note: str = ""
+    excluded: bool = False; excluded_reason: str = ""; side: str = ""
 
 
 _FLOOR_ORDER = ["Basement", "Lower Ground", "Ground", "Mezzanine", "First", "Second", "Third", "Fourth",
@@ -1302,13 +1326,14 @@ def _floor_rank(f: str):
 
 
 def _door_out(d: models.Door, dwg_names: dict, set_codes: dict) -> DoorOut:
-    eff = d.set_id or (d.door_type.set_id if d.door_type else None)
+    eff = _effective_set_id(d)
     return DoorOut(
         id=d.id, ref=d.ref or "", floor=d.floor or "", handed=bool(d.handed),
         door_type_id=d.door_type_id, type_code=d.door_type.code if d.door_type else "",
         drawing_id=d.drawing_id, drawing=dwg_names.get(d.drawing_id, ""), page_number=d.page_number or 1,
         x=d.x, y=d.y, set_id=d.set_id, effective_set_id=eff, effective_set_code=set_codes.get(eff, ""),
         source=d.source or "plan", note=d.note or "",
+        excluded=bool(d.excluded), excluded_reason=d.excluded_reason or "", side=d.side or "",
     )
 
 

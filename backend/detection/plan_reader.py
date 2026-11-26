@@ -32,6 +32,7 @@ except ImportError:          # older installs
     import fitz
 
 from detection.floors import floor_from_name
+from detection.door_types import read_types
 
 MAX_LABEL = 18               # longer words are sentences, not tags
 NEAR_DOOR = 1.6              # a tag counts as at a door within this many door widths
@@ -663,6 +664,7 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
     (in the drawing key).
     """
     pages, labels, near, key_ids = [], [], {}, set()
+    door_types = {}          # ref -> type, side and fire rating, from a door types sheet
     geo_pages = 0
     problems = []
     legend_doors = set()
@@ -680,6 +682,20 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
                     "floor": _floor_of(page, name), "readable": len(words) >= 25}
             if not info["readable"]:
                 info["problem"] = "No text to read on this sheet: it looks like a scan or a picture. Ask for the plan exported from CAD."
+                pages.append(info)
+                continue
+            # a door types sheet lists doors by type; it is not a plan, and its numbers are not more doors
+            tsheet = read_types(page)
+            if tsheet:
+                m = page.rotation_matrix if page.rotation else None
+                for ref, t in tsheet["types"].items():
+                    bb = fitz.Rect(tsheet["where"][ref])
+                    door_types.setdefault(ref, {**t, "file": fno, "page": pno + 1, "rect": bb * m if m else bb})
+                n = len(tsheet["types"])
+                ext = sum(1 for t in tsheet["types"].values() if t["side"] == "external")
+                info["kind"] = "types"
+                info["info"] = (f"Door types sheet: {n} doors given their type here, {n - ext} internal and {ext} external. "
+                                "Its door numbers are not counted again as doors.")
                 pages.append(info)
                 continue
             ls = _labels(page, pno + 1, fno)
@@ -791,8 +807,40 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
         chosen = keys if keys else _auto_choose(fams, pages)
         if not keys:
             chosen += _companions(fams, chosen, {l["id"]: l for l in labels})
-    return _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems, by_shape=set(by_legend),
-                  extra_items=extra_items if by_legend else [])
+    out = _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems, by_shape=set(by_legend),
+                 extra_items=extra_items if by_legend else [])
+    return _with_types(out, door_types)
+
+
+def _with_types(r: dict, door_types: dict) -> dict:
+    """Each door takes its type, side and fire rating from the door types sheet. A door
+    the sheet lists that is on no plan is put to a person: never lost."""
+    if not door_types:
+        return r
+    r["door_types"] = {k: {x: v[x] for x in ("type", "side", "fire")} for k, v in door_types.items()}
+    found = set()
+    for d in r["doors"]:
+        t = door_types.get(d["ref"].split(" (")[0].upper())
+        if t:
+            d["dtype"], d["side"], d["fire"] = t["type"], t["side"], t["fire"]
+        found.add(d["ref"].split(" (")[0].upper())
+        if d.get("printed"):
+            found.add(d["printed"].upper())
+    for c in r["checks"]:
+        if c.get("ref"):
+            found.add(c["ref"].split(" (")[0].upper())
+    plans = any(p.get("readable") and p.get("kind") != "types" for p in r["pages"])
+    if plans:
+        for ref, t in sorted(door_types.items()):
+            if ref in found:
+                continue
+            rc = t["rect"]
+            r["checks"].append({"id": f"listed.{ref}", "kind": "listed", "ref": ref, "file": t["file"], "page": t["page"],
+                                "floor": "", "x": rc.x0, "y": rc.y0, "w": rc.width, "h": rc.height, "status": "amber",
+                                "dtype": t["type"], "side": t["side"], "fire": t["fire"],
+                                "reasons": [f"On the door types sheet ({t['type']}, {t['side']}) but not found on the plans"]})
+            r["totals"]["amber"] = r["totals"].get("amber", 0) + 1
+    return r
 
 
 def _lead(key: str) -> str:

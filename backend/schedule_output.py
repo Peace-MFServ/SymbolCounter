@@ -66,8 +66,13 @@ def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
 
     groups: dict[int, list] = {}
     no_set, excluded = [], 0
+    excluded_doors: dict[str, list] = {}
     for d in doors:
         t = types.get(d.door_type_id)
+        if getattr(d, "excluded", False):
+            excluded += 1
+            excluded_doors.setdefault(d.excluded_reason or "Not in scope", []).append(d.ref or "")
+            continue
         if d.set_id:
             eff = d.set_id
         elif t and t.status == "excluded":
@@ -134,6 +139,9 @@ def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
                                                 + ", ".join(sorted(photo_missing)[:8]) + (" …" if len(photo_missing) > 8 else "")})
     if not priced_ok and sets_out:
         checks.append({"level": "info", "text": "Some products have no cost yet (not landed in Cin7), so the priced version is off"})
+    if excluded_doors:
+        checks.append({"level": "info", "text": f"{excluded} door{'s' if excluded != 1 else ''} excluded and listed on the Notes page: "
+                                                + "; ".join(f"{len(refs)} {r.lower()}" for r, refs in sorted(excluded_doors.items()))})
     if sets_out and not checks:
         checks.append({"level": "ok", "text": "Every door has a set and every set has products"})
 
@@ -146,6 +154,7 @@ def build_schedule(db, project: models.Project, estimator: str = "") -> dict:
         "sets": sets_out, "summary": summary_rows,
         "doors_scheduled": sum(s["doors"] for s in sets_out), "doors_no_set": len(no_set),
         "doors_excluded": excluded, "doors_total": len(doors),
+        "excluded": [{"reason": r, "refs": sorted(refs, key=_ref_key)} for r, refs in sorted(excluded_doors.items())],
         "priced_ok": priced_ok and bool(sets_out), "total": total, "checks": checks,
         "item_count": sum(r["qty"] for r in summary_rows),
     }
@@ -421,6 +430,11 @@ class SchedulePDF(FPDF):
         """Ruled paper: what the estimator typed is written on the lines, the rest stay blank."""
         STEP = 8.0                                   # space between rules
         text = (self.data["project"].get("notes") or "").strip()
+        # doors on the drawings that this schedule does not cover, said first and plainly
+        gone = self.data.get("excluded") or []
+        if gone:
+            head = "\n".join(f"Excluded ({e['reason']}): {', '.join(e['refs'])}" for e in gone)
+            text = head + ("\n\n" + text if text else "")
         self.add_page()
         self.band("Notes")
 
@@ -533,6 +547,10 @@ def schedule_excel(data: dict, priced: bool = False, summary: bool = True) -> by
         for s in data["sets"]:
             for r in s["door_refs"]:
                 ws2.append([r["ref"], r["floor"], r["type_code"], "Yes" if r["handed"] else "", s["code"], s["name"]])
+        # doors on the drawings this schedule does not cover
+        for e in data.get("excluded") or []:
+            for ref in e["refs"]:
+                ws2.append([ref, "", "", "", "Excluded", e["reason"]])
         widths(ws2, [14, 14, 12, 8, 10, 40])
 
     # Product summary (optional, like prices)

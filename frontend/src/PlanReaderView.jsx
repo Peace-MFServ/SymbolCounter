@@ -20,7 +20,7 @@ const fmtSize = n => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `
 /* Read the doors off a job's floor plans. The tags in one style are found on
    every sheet; the sure ones are ready to confirm, the doubtful ones are listed
    for a person to look at on the plan, and then they are confirmed on the job. */
-export function PlanReaderView({ projectId, setId = null, onNavigate }) {
+export function PlanReaderView({ projectId, setId = null, newSet = null, onNavigate }) {
   const { user } = useAuth()
   const [job, setJob] = useState(null)
   const [rid, setRid] = useState(null)
@@ -67,6 +67,34 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     setChoice(s.choice || {}); setRefs(s.refs || {}); setFloors(s.floors || {}); setSetOf(s.setOf || {}); setTicked(new Set())
   }, [rid])
   useEffect(() => { if (rid) store.set(`planread:${rid}`, { choice, refs, floors, setOf }) }, [rid, choice, refs, floors, setOf])
+
+  // back from making a new set for this job: give it to the doors it was made for
+  const [doorsVer, setDoorsVer] = useState(0)
+  useEffect(() => {
+    if (!newSet) return
+    const k = `newset:${projectId}`
+    let st = null
+    try { st = JSON.parse(sessionStorage.getItem(k) || 'null') } catch { st = null }
+    if (!st) return
+    if (st.itemIds?.length && !rid) return              // wait for the plans to open
+    try { sessionStorage.removeItem(k) } catch { /* private window */ }
+    const sid = String(newSet)
+    if (st.itemIds?.length) setSetOf(m => { const o = { ...m }; for (const i of st.itemIds) o[i] = sid; return o })
+    if (st.target) setTarget(sid)
+    const n = (st.itemIds?.length || 0) + (st.doorIds?.length || 0)
+    const after = () => { loadJob(); setDoorsVer(v => v + 1); if (n) showToast(`New set given to ${n} door${n !== 1 ? 's' : ''}`, 'success') }
+    if (st.doorIds?.length) {
+      apiFetch(`/projects/${projectId}/doors/assign-set`, { method: 'POST', body: JSON.stringify({ door_ids: st.doorIds, set_id: Number(sid) }) })
+        .then(() => apiFetch(`/projects/${projectId}/plan-reads`)).then(d => { if (d?.id) setR(cur => (cur ? { ...cur, job_doors: d.job_doors } : cur)); after() })
+        .catch(err => showToast(err.message, 'error'))
+    } else after()
+  }, [newSet, rid])
+  const startNewSet = ({ items: xs = [], doorIds = [], target: forAll = false }) => {
+    const st = { doorIds: [...doorIds, ...xs.filter(x => x.on_job && x.door_id).map(x => x.door_id)],
+                 itemIds: xs.filter(x => !x.on_job).map(x => x.id), target: forAll }
+    try { sessionStorage.setItem(`newset:${projectId}`, JSON.stringify(st)) } catch { /* private window */ }
+    onNavigate('set', { id: 'new', projectId, fromDoors: true })
+  }
 
   const opened = data => {
     setR(data); setRid(data.id)
@@ -155,7 +183,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     return [...r.doors.map(d => ({ ...d, kind: 'door' })), ...r.checks].map(x => {
       const ref = (refs[x.id] ?? x.ref ?? '').trim()
       const j = ref ? jd[ref.toUpperCase()] : null
-      return { ...x, on_job: !!j, door_id: j?.id ?? null, job_set: j?.set_id ?? null }
+      return { ...x, on_job: !!j, door_id: j?.id ?? null, job_set: j?.set_id ?? null, excluded: !!j?.excluded, ex_reason: j?.reason || '' }
     })
   }, [r, refs])
   const refOf = x => (refs[x.id] ?? x.ref ?? '').trim()
@@ -176,8 +204,9 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
       const ref = refOf(x)
       if (!ref || seen.has(ref.toUpperCase())) continue
       seen.add(ref.toUpperCase())
-      out.push({ ref, floor: floorOf(x), set_id: Number(setOf[x.id] || target) || null,
-                 note: [x.type && x.type !== ref && `Type ${x.type}`, ...(x.also || [])].filter(Boolean).join(' · ') })
+      out.push({ ref, floor: floorOf(x), set_id: Number(setOf[x.id] || target) || null, side: x.side || '',
+                 note: [x.dtype, x.side && x.side[0].toUpperCase() + x.side.slice(1), x.fire,
+                        x.type && x.type !== ref && `Type ${x.type}`, ...(x.also || [])].filter(Boolean).join(' · ') })
     }
     return out
   }, [items, choice, refs, floors, setOf, target])
@@ -191,7 +220,9 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   // each door confirmed once, however many times its number is printed
   const jobItems = useMemo(() => { const seen = new Set(); return items.filter(x => x.on_job && !seen.has(x.door_id) && seen.add(x.door_id)) }, [items])
   const onJob = r ? Object.keys(r.job_doors || {}).length : (job?.door_count || 0)
+  const excludedN = Object.values(r?.job_doors || {}).filter(v => v.excluded).length
   const withSet = adding.filter(a => a.set_id).length + Object.values(r?.job_doors || {}).filter(v => v.set_id).length
+  const [excluding, setExcluding] = useState(null)     // the doors about to be excluded
   const bySheet = useMemo(() => {
     const m = {}
     for (const x of items) {
@@ -203,6 +234,16 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     return m
   }, [items, choice])
 
+  // doors the door types sheet sorted: external and internal, and each type
+  const sided = items.filter(x => x.side && (x.kind === 'door' || x.kind === 'listed') && !(x.status === 'out' && !x.on_job) && choice[x.id] !== 'drop')
+  const external = sided.filter(x => x.side === 'external')
+  const externalOut = external.length > 0 && external.every(x => x.on_job && x.excluded)
+  const typeGroups = useMemo(() => {
+    const g = {}
+    for (const x of sided) if (x.dtype) (g[x.dtype] ||= []).push(x)
+    return Object.entries(g).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+  }, [items, choice])
+  const leaveExternal = on => (on ? excludeThese(external.filter(x => !(x.on_job && x.excluded)), 'External, not in scope') : includeThese(external))
   const tick = (x, e, rows) => {
     const on = !ticked.has(x.id)
     const next = new Set(ticked)
@@ -230,6 +271,33 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
       await apiFetch(`/projects/${projectId}/doors/assign-set`, { method: 'POST', body: JSON.stringify({ door_ids: ids, set_id: sid ? Number(sid) : null }) })
       loadJob()
     } catch (err) { setR(cur => ({ ...cur, job_doors: was })); showToast(err.message, 'error') }
+  }
+  const excludeThese = async (xs, reason) => {
+    const pending = xs.filter(x => !x.on_job && refOf(x))
+    const confirmed = xs.filter(x => x.on_job && x.door_id && !x.excluded)
+    try {
+      if (pending.length) {
+        const res = await apiFetch(`/projects/${projectId}/plan-reads/${rid}/apply`, { method: 'POST',
+          body: JSON.stringify({ doors: pending.map(x => ({ ref: refOf(x), floor: floorOf(x), note: '', excluded: true, reason, side: x.side || '' })) }) })
+        setR(cur => ({ ...cur, job_doors: res.job_doors }))
+      }
+      if (confirmed.length) {
+        await apiFetch(`/projects/${projectId}/doors/exclude`, { method: 'POST', body: JSON.stringify({ door_ids: confirmed.map(x => x.door_id), excluded: true, reason }) })
+        const d = await apiFetch(`/projects/${projectId}/plan-reads`); if (d?.id) setR(cur => ({ ...cur, job_doors: d.job_doors }))
+      }
+      const n = pending.length + confirmed.length
+      showToast(`${n} door${n !== 1 ? 's' : ''} excluded: ${reason}`, 'info')
+      setTicked(new Set()); loadJob()
+    } catch (err) { showToast(err.message, 'error') }
+  }
+  const includeThese = async xs => {
+    const ids = xs.filter(x => x.on_job && x.excluded).map(x => x.door_id)
+    if (!ids.length) return
+    try {
+      await apiFetch(`/projects/${projectId}/doors/exclude`, { method: 'POST', body: JSON.stringify({ door_ids: ids, excluded: false }) })
+      const d = await apiFetch(`/projects/${projectId}/plan-reads`); if (d?.id) setR(cur => ({ ...cur, job_doors: d.job_doors }))
+      setTicked(new Set()); loadJob()
+    } catch (err) { showToast(err.message, 'error') }
   }
   const giveTicked = sid => {
     const n = ticked.size
@@ -333,7 +401,8 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   if (booting) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /><p className="muted" style={{ marginTop: 14 }}>Opening the plans</p></div></>
 
   // ── upload ────────────────────────────────────────────────────────────────
-  if (!r) {
+  const plansRead = r && r.pages.some(p => p.kind !== 'types')
+  if (!r || !plansRead) {
     const drop = {
       onDragOver: e => { e.preventDefault(); setDrag(true) },
       onDragLeave: () => setDrag(false),
@@ -347,7 +416,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
           {sentLists.length > 0 && (job?.door_count
             ? <SentLists lists={sentLists} onRead={readSentList} busy={busy} />
             : <SentLists lists={sentLists} onRead={readSentList} busy={busy} big />)}
-          {job?.door_count > 0 && <JobDoors key={job.door_count} projectId={projectId} setOptions={setOptions} canEdit={mine} onChanged={loadJob}
+          {job?.door_count > 0 && <JobDoors key={`${job.door_count}.${doorsVer}`} onNewSet={mine ? ids => startNewSet({ doorIds: ids }) : null} projectId={projectId} setOptions={setOptions} canEdit={mine} onChanged={loadJob}
                                             onDownload={download} onNext={() => onNavigate('cost', { id: projectId })} />}
           <div className="page-header">
             <div>
@@ -377,6 +446,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   const page = pageOf[sheet]
   // a sheet goes by its floor; two sheets of one floor (Part 2, Part 3) add what differs in their file names
   const sheetLabel = p => {
+    if (p.kind === 'types') return 'Door types'
     const fl = floorOf(p), bare = p.name.replace(/\.pdf$/i, '')
     if (!fl) return bare.length > 30 ? bare.slice(0, 29) + '…' : bare
     const same = pages.filter(x => floorOf(x) === fl && x.file !== p.file)
@@ -423,6 +493,8 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
       </header>
       {confirmModal}
       {adding1 && <AddDoorModal placed={adding1.x != null} floor={page ? floorOf(page) : ''} onAdd={addByHand} onClose={() => setAdding1(null)} />}
+      {excluding && <ExcludeModal count={excluding.length} onClose={() => setExcluding(null)}
+                                  onExclude={reason => { const xs = excluding; setExcluding(null); excludeThese(xs, reason) }} />}
       <div className="pr-split" ref={splitRef}>
         {/* Left half: the plan, edge to edge */}
         <section className="pr-pane pr-left">
@@ -433,12 +505,12 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
                 return (
                   <button key={k} className={`pr-sheet-tab${k === sheet ? ' on' : ''}${!p.readable ? ' bad' : ''}`} onClick={() => { setSheet(k); setFocus(null) }} title={p.name}>
                     <span className="pr-sheet-name">{sheetLabel(p)}{pages.filter(x => x.file === p.file).length > 1 ? ` · p${p.page}` : ''}</span>
-                    <span className="pr-sheet-n">{p.readable ? <>{c.green}{c.amber > 0 && <em> · {c.amber} to check</em>}</> : 'cannot be read'}</span>
+                    <span className="pr-sheet-n">{p.kind === 'types' ? 'sheet' : p.readable ? <>{c.green}{c.amber > 0 && <em> · {c.amber} to check</em>}</> : 'cannot be read'}</span>
                   </button>
                 )
               })}
             </div>
-            {page && (
+            {page && page.kind !== 'types' && (
               <label className="pr-floor-in">Floor
                 <input className="form-control" value={floorOf(page)} placeholder="e.g. Ground" onChange={e => setFloors(f => ({ ...f, [sheet]: e.target.value }))} />
               </label>
@@ -466,11 +538,17 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
           <div className="pr-pane-head">
             <div className="pr-counts-row">
             <div className="pr-counts">
-              <div className={onJob ? 'green' : ''}><strong>{onJob}</strong><span>Confirmed</span></div>
+              <div className={onJob - excludedN ? 'green' : ''}><strong>{onJob - excludedN}</strong><span>Confirmed</span></div>
               <div className={adding.length ? 'blue' : ''}><strong>{adding.length}</strong><span>To confirm</span></div>
               <div className={open.length ? 'amber' : ''}><strong>{open.length}</strong><span>Still to look at</span></div>
-              <div><strong>{withSet}<em>/{onJob + adding.length}</em></strong><span>Have a set</span></div>
+              <div><strong>{withSet}<em>/{onJob - excludedN + adding.length}</em></strong><span>Have a set</span></div>
+              {excludedN > 0 && <div className="muted-count"><strong>{excludedN}</strong><span>Excluded</span></div>}
             </div>
+            {external.length > 0 && mine && (
+              <label className="pr-extout" title="External doors stay on the job, greyed out, and are listed as excluded on the schedule">
+                <input type="checkbox" checked={externalOut} onChange={e => leaveExternal(e.target.checked)} /> Leave external doors out ({external.length})
+              </label>
+            )}
             {!fixing && <button className="link-btn inline pr-fix-link" onClick={() => setFixing(true)}>Not the door numbers?</button>}
             </div>
             {fixing && <div className="pr-style">
@@ -511,8 +589,11 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
                 <>
                   <strong>{ticked.size} door{ticked.size !== 1 ? 's' : ''} ticked</strong>
                   <span>Give {ticked.size === 1 ? 'it' : 'them'}</span>
-                  <SetPick value="" options={setOptions} blank="Choose a set..." onChange={giveTicked} always />
+                  <SetPick value="" options={setOptions} blank="Choose a set..." onChange={giveTicked} always
+                           onNew={mine ? () => startNewSet({ items: items.filter(x => ticked.has(x.id)) }) : null} />
                   <button className="link-btn inline" onClick={() => giveTicked('')}>Take set off</button>
+                  {mine && <button className="btn btn-sm" onClick={() => setExcluding(items.filter(x => ticked.has(x.id)))}>Exclude</button>}
+                  {mine && items.some(x => ticked.has(x.id) && x.excluded) && <button className="link-btn inline" onClick={() => includeThese(items.filter(x => ticked.has(x.id)))}>Include again</button>}
                   <button className="link-btn inline" onClick={() => setTicked(new Set())}>Untick all</button>
                 </>
               ) : (
@@ -520,6 +601,11 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
                   <span>Tick doors to give them one set together:</span>
                   <button className="chip-btn" onClick={() => tickThese(onSheet)}>This sheet</button>
                   <button className="chip-btn" onClick={() => tickThese(items)}>Every door</button>
+                  {sided.length > 0 && <>
+                    <button className="chip-btn" onClick={() => tickThese(sided.filter(x => x.side === 'internal'))}>Internal ({sided.filter(x => x.side === 'internal').length})</button>
+                    <button className="chip-btn" onClick={() => tickThese(external)}>External ({external.length})</button>
+                  </>}
+                  {typeGroups.map(([t, xs]) => <button key={t} className="chip-btn" onClick={() => tickThese(xs)}>{t} ({xs.length})</button>)}
                   <span className="muted">or pick a set on a door's own row</span>
                 </>
               )}
@@ -536,14 +622,17 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
                      onRef={v => setRefs(m => ({ ...m, [x.id]: v }))}
                      canSet={tickable(x)} ticked={ticked.has(x.id)} onTick={e => tick(x, e, listed)}
                      setValue={x.on_job ? String(x.job_set || '') : (setOf[x.id] || '')} setOptions={setOptions} fallback={x.on_job ? '' : target}
+                     onNewSet={mine ? () => startNewSet({ items: [x] }) : null}
                      onSet={v => (x.on_job ? saveJobSet([x], v) : setSetOf(m => ({ ...m, [x.id]: v })))}
-                     onRemove={() => removeByHand(x)} onUnconfirm={mine ? () => unconfirm(x) : null} />
+                     onRemove={() => removeByHand(x)} onUnconfirm={mine ? () => unconfirm(x) : null}
+                     onInclude={mine ? () => includeThese([x]) : null} />
               </React.Fragment>
             ))}
           </div>
           <div className="pr-foot">
             <label>Set for every door not given one above
-              <SetPick value={target} options={setOptions} blank="None: choose later" onChange={setTarget} always wide />
+              <SetPick value={target} options={setOptions} blank="None: choose later" onChange={setTarget} always wide
+                       onNew={mine ? () => startNewSet({ target: true }) : null} />
             </label>
             {!adding.length && onJob > 0 && <button className="btn" onClick={() => onNavigate('cost', { id: projectId })}>Next: prices</button>}
             <button className="btn btn-primary" onClick={apply} disabled={!adding.length || !!busy || !mine}>
@@ -617,12 +706,42 @@ function SheetNotes({ info, note, problem }) {
   )
 }
 
+/* Doors that are on the drawings but not ours to supply: why, said once for them all. */
+const EXCLUDE_REASONS = ['By others', 'External, not in scope', 'Existing door, no new ironmongery', 'Supplied with the door']
+function ExcludeModal({ count, onExclude, onClose }) {
+  const [reason, setReason] = useState('By others')
+  useEffect(() => {
+    const key = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', key)
+    return () => document.removeEventListener('keydown', key)
+  }, [])
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <form className="modal unsaved-modal" onSubmit={e => { e.preventDefault(); if (reason.trim()) onExclude(reason.trim()) }}>
+        <h2>Exclude {count} door{count !== 1 ? 's' : ''}</h2>
+        <p style={{ marginTop: 8 }}>They stay on the job, greyed out, with no set or price. The schedule lists them under Excluded on its Notes page.</p>
+        <div className="ex-chips">
+          {EXCLUDE_REASONS.map(r => <button type="button" key={r} className={`chip-btn${reason === r ? ' on' : ''}`} onClick={() => setReason(r)}>{r}</button>)}
+        </div>
+        <label className="pr-add-label">Reason
+          <input className="form-control" value={reason} onChange={e => setReason(e.target.value)} maxLength={120} autoFocus />
+        </label>
+        <div className="modal-actions">
+          <button className="btn btn-primary" type="submit" disabled={!reason.trim()}>Exclude {count} door{count !== 1 ? 's' : ''}</button>
+          <button className="btn" type="button" onClick={onClose}>Cancel</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 /* The doors confirmed on a job that has no plans to show them on: each with its
    set, ticked to give several one set, or taken off. */
-function JobDoors({ projectId, setOptions, canEdit, onChanged, onDownload, onNext }) {
+function JobDoors({ projectId, setOptions, canEdit, onChanged, onDownload, onNext, onNewSet }) {
   const [doors, setDoors] = useState(null)
   const [ticked, setTicked] = useState(() => new Set())
   const [q, setQ] = useState('')
+  const [excluding, setExcluding] = useState(null)
   const load = () => apiFetch(`/projects/${projectId}/doors`).then(setDoors).catch(err => showToast(err.message, 'error'))
   useEffect(() => { load() }, [projectId])
   if (!doors) return null
@@ -636,14 +755,31 @@ function JobDoors({ projectId, setOptions, canEdit, onChanged, onDownload, onNex
     try { await apiFetch(`/projects/${projectId}/doors/remove`, { method: 'POST', body: JSON.stringify({ doors: [{ ref: d.ref }] }) }); await load(); onChanged() }
     catch (err) { showToast(err.message, 'error') }
   }
-  const shown = doors.filter(d => !q.trim() || `${d.ref} ${d.floor} ${d.note}`.toLowerCase().includes(q.trim().toLowerCase()))
-  const noSet = doors.filter(d => !d.effective_set_id).length
+  const shown = doors.filter(d => !q.trim() || `${d.ref} ${d.floor} ${d.note} ${d.side}`.toLowerCase().includes(q.trim().toLowerCase()))
+  const ext = doors.filter(d => d.side === 'external')
+  const extOut = ext.length > 0 && ext.every(d => d.excluded)
+  const noSet = doors.filter(d => !d.effective_set_id && !d.excluded).length
+  const nExcluded = doors.filter(d => d.excluded).length
+  const exclude = async (ids, excluded, reason = '') => {
+    try {
+      await apiFetch(`/projects/${projectId}/doors/exclude`, { method: 'POST', body: JSON.stringify({ door_ids: ids, excluded, reason }) })
+      setTicked(new Set()); await load(); onChanged()
+    } catch (err) { showToast(err.message, 'error') }
+  }
   const allTicked = shown.length > 0 && shown.every(d => ticked.has(d.id))
   return (
     <section className="jd card-panel">
       <div className="jd-head">
         <h2>Doors on this job <span className="muted">{doors.length}</span></h2>
         <span className={noSet ? 'jd-noset' : 'jd-ok'}>{noSet ? `${noSet} without a set` : 'Every door has a set'}</span>
+        {nExcluded > 0 && <span className="muted">{nExcluded} excluded</span>}
+        {ext.length > 0 && canEdit && (
+          <label className="pr-extout">
+            <input type="checkbox" checked={extOut} onChange={e => (e.target.checked
+              ? exclude(ext.filter(d => !d.excluded).map(d => d.id), true, 'External, not in scope')
+              : exclude(ext.map(d => d.id), false))} /> Leave external doors out ({ext.length})
+          </label>
+        )}
         <span className="spacer" />
         <label className="adm-search jd-search"><IconSearch size={16} /><input placeholder="Find a door or note" value={q} onChange={e => setQ(e.target.value)} /></label>
         <button className="btn btn-sm" onClick={onDownload}>Download doors</button>
@@ -655,26 +791,34 @@ function JobDoors({ projectId, setOptions, canEdit, onChanged, onDownload, onNex
             <>
               <strong>{ticked.size} door{ticked.size !== 1 ? 's' : ''} ticked</strong>
               <span>Give {ticked.size === 1 ? 'it' : 'them'}</span>
-              <SetPick value="" options={setOptions} blank="Choose a set..." onChange={sid => give([...ticked], sid)} always />
+              <SetPick value="" options={setOptions} blank="Choose a set..." onChange={sid => give([...ticked], sid)} always
+                       onNew={onNewSet ? () => onNewSet([...ticked]) : null} />
               <button className="link-btn inline" onClick={() => give([...ticked], '')}>Take set off</button>
+              <button className="btn btn-sm" onClick={() => setExcluding([...ticked])}>Exclude</button>
+              {doors.some(d => ticked.has(d.id) && d.excluded) && <button className="link-btn inline" onClick={() => exclude([...ticked], false)}>Include again</button>}
               <button className="link-btn inline" onClick={() => setTicked(new Set())}>Untick all</button>
             </>
           ) : <span>Tick doors to give them one set together, or pick a set on a door's own row.</span>}
         </div>
       )}
+      {excluding && <ExcludeModal count={excluding.length} onClose={() => setExcluding(null)}
+                                  onExclude={reason => { const ids = excluding; setExcluding(null); exclude(ids, true, reason) }} />}
       <table className="ledger jd-table">
         <thead><tr>
           <th className="jd-tick">{canEdit && <input type="checkbox" checked={allTicked} onChange={() => setTicked(allTicked ? new Set() : new Set(shown.map(d => d.id)))} aria-label="Tick every door shown" />}</th>
           <th>Door</th><th>Floor</th><th>Note</th><th>Set</th><th /></tr></thead>
         <tbody>
           {shown.map(d => (
-            <tr key={d.id} className={ticked.has(d.id) ? 'ticked' : ''}>
+            <tr key={d.id} className={`${ticked.has(d.id) ? 'ticked' : ''}${d.excluded ? ' jd-excluded' : ''}`}>
               <td className="jd-tick">{canEdit && <input type="checkbox" checked={ticked.has(d.id)} onChange={() => setTicked(t => { const n = new Set(t); n.has(d.id) ? n.delete(d.id) : n.add(d.id); return n })} aria-label={`Tick ${d.ref}`} />}</td>
               <td className="jd-ref">{d.ref}</td>
               <td>{d.floor}</td>
               <td className="jd-note">{d.note}</td>
-              <td>{canEdit ? <SetPick value={String(d.effective_set_id || '')} options={setOptions} onChange={sid => give([d.id], sid)} /> : d.effective_set_code}</td>
-              <td className="jd-acts">{canEdit && <button className="btn btn-sm btn-ghost" onClick={() => remove(d)}>Remove</button>}</td>
+              <td>{d.excluded ? <span className="pr-excl">Excluded: {d.excluded_reason}</span>
+                : canEdit ? <SetPick value={String(d.effective_set_id || '')} options={setOptions} onChange={sid => give([d.id], sid)} onNew={onNewSet ? () => onNewSet([d.id]) : null} /> : d.effective_set_code}</td>
+              <td className="jd-acts">{canEdit && (d.excluded
+                ? <button className="btn btn-sm btn-ghost" onClick={() => exclude([d.id], false)}>Include</button>
+                : <button className="btn btn-sm btn-ghost" onClick={() => remove(d)}>Remove</button>)}</td>
             </tr>
           ))}
         </tbody>
@@ -705,23 +849,27 @@ function SentLists({ lists, onRead, busy, big = false, confirmed = 0, onDownload
 }
 
 function markState(x, choice, counts) {
+  if (x.on_job && x.excluded) return 'out'
   if (x.on_job) return 'green'
   if (x.kind === 'gap') return choice[x.id] === 'keep' ? 'green' : choice[x.id] === 'drop' ? 'out' : 'gap'
   if (x.status === 'amber' && !choice[x.id]) return 'amber'
   return counts(x) ? 'green' : 'out'
 }
 
-function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, ticked, onTick, setValue, setOptions, fallback, onSet, onRemove, onUnconfirm }) {
+function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, ticked, onTick, setValue, setOptions, fallback, onSet, onNewSet, onRemove, onUnconfirm, onInclude }) {
   const el = useRef()
   useEffect(() => { if (focus) el.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [focus])
   const amber = x.status === 'amber' && !x.on_job
   const why = x.on_job ? '' : (x.reasons || []).join('. ')
-  const keepLabel = x.kind === 'gap' ? 'Add it' : x.kind === 'untagged' ? 'Add' : x.status === 'out' ? 'Count it' : 'Keep'
-  const dropLabel = x.kind === 'gap' ? 'No door' : 'Not a door'
-  const state = x.on_job ? 'keep onjob' : amber ? (choice || 'open') : x.status === 'out' ? (choice === 'keep' ? 'keep' : 'drop') : (choice === 'drop' ? 'drop' : 'keep')
+  const keepLabel = x.kind === 'gap' || x.kind === 'listed' ? 'Add it' : x.kind === 'untagged' ? 'Add' : x.status === 'out' ? 'Count it' : 'Keep'
+  const dropLabel = x.kind === 'gap' || x.kind === 'listed' ? 'No door' : 'Not a door'
+  const state = x.on_job ? (x.excluded ? 'drop excluded' : 'keep onjob') : amber ? (choice || 'open') : x.status === 'out' ? (choice === 'keep' ? 'keep' : 'drop') : (choice === 'drop' ? 'drop' : 'keep')
   const numbered = x.kind !== 'untagged'
   // the door's type, where the plan gives one beside its number: B01.00.005 is an EDR251
-  const kind = x.type && !String(x.ref).startsWith(x.type) ? <span className="pr-type" title="Door type on the plan">{x.type}</span> : null
+  const kind = (x.type && !String(x.ref).startsWith(x.type)) || x.dtype
+    ? <span className="pr-type" title="What the drawings say about this door">
+        {[x.dtype, x.side && x.side[0].toUpperCase() + x.side.slice(1), x.fire, x.type && !String(x.ref).startsWith(x.type) && x.type].filter(Boolean).join(' · ')}
+      </span> : null
   return (
     <div ref={el} className={`pr-row ${state}${focus ? ' focus' : ''}${why || amber ? ' full' : ''}${ticked ? ' ticked' : ''}`} onClick={onShow}>
       {canSet
@@ -741,10 +889,13 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, t
       <div className="pr-why">
         {amber && <IconWarn size={13} />} {!numbered && <strong>Door with no tag. </strong>}{why}
       </div>
-      {canSet ? <SetPick value={setValue} options={setOptions} fallback={fallback} onChange={onSet} /> : <span />}
+      {x.excluded ? <span className="pr-excl" title={x.ex_reason}>Excluded: {x.ex_reason}</span>
+        : canSet ? <SetPick value={setValue} options={setOptions} fallback={fallback} onChange={onSet} onNew={onNewSet} /> : <span />}
       <div className="pr-acts" onClick={e => e.stopPropagation()}>
         {amber && <button className="btn btn-sm btn-soft pr-where" onClick={onShow} title="Move the plan to this door">Where is it</button>}
-        {x.on_job ? (
+        {x.on_job && x.excluded ? (
+          onInclude && <button className="btn btn-sm btn-ghost pr-leave" onClick={onInclude} title="Put this door back in scope">Include</button>
+        ) : x.on_job ? (
           <>
             <span className="pr-onjob" title="This door is confirmed on the job">Confirmed</span>
             {onUnconfirm && <button className="btn btn-sm btn-ghost pr-leave" onClick={onUnconfirm} title="Take this door off the job">Undo</button>}
@@ -801,7 +952,7 @@ function AddDoorModal({ placed, floor, onAdd, onClose }) {
 
 /* A door's set. The long list of sets is only built once the box is about to
    be used, so hundreds of doors do not each carry the whole library. */
-function SetPick({ value, options, onChange, fallback = '', blank = '', always = false, wide = false }) {
+function SetPick({ value, options, onChange, onNew = null, fallback = '', blank = '', always = false, wide = false }) {
   const [armed, setArmed] = useState(always)
   const cur = options.find(o => o.value === String(value || ''))
   const fb = options.find(o => o.value === String(fallback || ''))
@@ -810,8 +961,9 @@ function SetPick({ value, options, onChange, fallback = '', blank = '', always =
     <select className={`form-control pr-setpick${cur ? ' on' : ''}${wide ? ' wide' : ''}`} value={cur ? cur.value : ''}
             title={cur ? cur.label : fb ? `${fb.label} (the set for every door not given one)` : 'Give this door a set'}
             onMouseEnter={() => setArmed(true)} onFocus={() => setArmed(true)} onClick={e => e.stopPropagation()}
-            onChange={e => onChange(e.target.value)}>
+            onChange={e => (e.target.value === '__new' ? onNew && onNew() : onChange(e.target.value))}>
       <option value="">{blank || (fb ? `${fb.code} (all)` : 'Set...')}</option>
+      {onNew && armed && <option value="__new">+ New set for this job...</option>}
       {armed
         ? groups.map(g => <optgroup key={g} label={g}>{options.filter(o => o.group === g).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>)
         : cur && <option value={cur.value}>{cur.label}</option>}

@@ -99,7 +99,8 @@ def with_job(db: Session, pid: int, r: dict) -> dict:
     from schedule import _effective_set_id
     job = {}
     for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
-        job[(d.ref or "").upper()] = {"id": d.id, "set_id": _effective_set_id(d)}
+        job[(d.ref or "").upper()] = {"id": d.id, "set_id": _effective_set_id(d), "excluded": bool(d.excluded),
+                                      "reason": d.excluded_reason or "", "side": d.side or ""}
     for d in r["doors"]:
         d["on_job"] = d["ref"].upper() in job
     r["job_doors"] = job
@@ -298,6 +299,9 @@ class DoorIn(BaseModel):
     floor: str = ""
     note: str = ""
     set_id: Optional[int] = None      # this door's own set; without one it takes the set given for them all
+    excluded: bool = False            # on the job, but not ours to supply
+    reason: str = ""
+    side: str = ""                    # internal | external
 
 
 class ApplyIn(BaseModel):
@@ -326,6 +330,17 @@ def remove_doors(pid: int, payload: ApplyIn, db: Session = Depends(get_db), cu=D
     return {"removed": gone, "job_doors": with_job(db, pid, {"doors": []})["job_doors"]}
 
 
+def _job_door_types(pid: int) -> dict:
+    """The door types read off the job's door types sheet, if it sent one."""
+    rid = latest_reading(pid)
+    if not rid:
+        return {}
+    try:
+        return json.loads((ROOT / str(pid) / rid / "reading.json").read_text())["r"].get("door_types") or {}
+    except (ValueError, KeyError, OSError):
+        return {}
+
+
 def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str) -> dict:
     from jobs import edit_project
     from schedule import _link_set, _usable_set
@@ -335,6 +350,7 @@ def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str) -> dict
         if sid:
             _usable_set(db, pid, sid)
     used = set()
+    types = _job_door_types(pid)
     have = {(x or "").upper() for (x,) in db.query(models.Door.ref).filter(models.Door.project_id == pid).all()}
     added, skipped = 0, []
     for dr in payload.doors[:5000]:
@@ -343,9 +359,14 @@ def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str) -> dict
             continue
         if ref.upper() in have:
             skipped.append(ref); continue
-        sid = dr.set_id or payload.set_id or None
+        sid = None if dr.excluded else (dr.set_id or payload.set_id or None)
+        t = types.get(ref.upper(), {})
+        side = dr.side if dr.side in ("internal", "external") else t.get("side", "")
+        if t and not dr.note and source == "schedule":
+            dr.note = " · ".join(x for x in (t.get("type"), t.get("side", "").capitalize(), t.get("fire")) if x)
         db.add(models.Door(project_id=pid, ref=ref, floor=dr.floor.strip()[:60], set_id=sid, source=source,
-                           note=dr.note.strip()[:500]))
+                           note=dr.note.strip()[:500], side=side, excluded=dr.excluded,
+                           excluded_reason=(" ".join(dr.reason.split())[:120] or "Not in scope") if dr.excluded else ""))
         have.add(ref.upper()); added += 1
         if sid:
             used.add(sid)

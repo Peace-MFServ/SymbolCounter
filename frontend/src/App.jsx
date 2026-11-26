@@ -44,7 +44,7 @@ export default function App() {
 
   switch (view) {
     case 'plan-reader':
-      return <PlanReaderView key={params.id} projectId={params.id} setId={params.setId} onNavigate={navigate} />
+      return <PlanReaderView key={params.id} projectId={params.id} setId={params.setId} newSet={params.newSet} onNavigate={navigate} />
     case 'cost':
       return <CostSummaryView projectId={params.id} onNavigate={navigate} />
     case 'schedule':
@@ -70,7 +70,7 @@ export default function App() {
     case 'sets':
       return <SetsView onNavigate={navigate} />
     case 'set':
-      return <SetEditor id={params.id} projectId={params.projectId} onNavigate={navigate} />
+      return <SetEditor id={params.id} projectId={params.projectId} fromDoors={!!params.fromDoors} onNavigate={navigate} />
     default:
       return <Dashboard onNavigate={navigate} />
   }

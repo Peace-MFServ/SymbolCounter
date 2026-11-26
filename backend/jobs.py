@@ -362,6 +362,10 @@ def doors_excel(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_cur
         c.fill = PatternFill("solid", fgColor="00387B")
     for d in doors:
         s_ = sets.get(_effective_set_id(d))
+        if d.excluded:
+            ws.append([d.ref, d.floor, "Excluded", d.excluded_reason or "Not in scope", d.note,
+                       {"plans": "Floor plans", "schedule": "Door list"}.get(d.source or "", d.source or "")])
+            continue
         ws.append([d.ref, d.floor, s_.code if s_ else "", s_.name if s_ else "", d.note,
                    {"plans": "Floor plans", "schedule": "Door list"}.get(d.source or "", d.source or "")])
     for col, w in zip("ABCDEF", (18, 18, 10, 34, 50, 14)):

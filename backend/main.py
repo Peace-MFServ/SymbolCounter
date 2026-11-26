@@ -54,6 +54,7 @@ def _ensure_columns():
                      "source": "TEXT DEFAULT ''", "stage": "TEXT DEFAULT ''",
                      "brief": "TEXT DEFAULT ''", "contact": "TEXT DEFAULT ''", "received_at": "DATETIME",
                      "due_at": "DATETIME", "checked_at": "DATETIME"},
+        "doors": {"excluded": "BOOLEAN DEFAULT 0", "excluded_reason": "TEXT DEFAULT ''", "side": "TEXT DEFAULT ''"},
         "global_templates": {"threshold_override": "REAL"},
         "drawings": {"error_message": "TEXT"},
         "products": {"product_type": "TEXT DEFAULT ''", "brand": "TEXT DEFAULT ''"},

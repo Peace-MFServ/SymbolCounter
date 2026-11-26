@@ -2180,3 +2180,19 @@ body:has(.pr-full) { overflow: hidden; }
 .jd-table tr.ticked td { background: #EAF1FB; }
 .jd-table .pr-setpick { width: 220px; }
 .pr-bar .job-steps { margin-right: 4px; }
+
+/* doors excluded: on the job, not ours to supply */
+.pr-excl { display: inline-block; max-width: 100%; padding: 2px 8px; border-radius: 6px; background: #F3F6F9; border: 1px dashed #B8C2CC;
+  font-size: 12px; font-weight: 600; color: #59677A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-split .pr-row.excluded .pr-ref { text-decoration: line-through; color: var(--text3); }
+.pr-split .pr-row.excluded .pr-dot { background: #B8C2CC; }
+.pr-counts .muted-count strong { color: var(--text3); }
+.jd-table tr.jd-excluded td { background: #FAFBFC; color: var(--text3); }
+.jd-table tr.jd-excluded .jd-ref { text-decoration: line-through; }
+.ex-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 10px; }
+
+/* doors the door types sheet sorted */
+.pr-extout { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 1px solid var(--card-border); border-radius: 8px;
+  font-size: 13px; font-weight: 600; color: var(--text2); background: #fff; cursor: pointer; white-space: nowrap; }
+.pr-extout input { width: 15px; height: 15px; accent-color: var(--accent); }
+.pr-extout:has(input:checked) { border-color: var(--accent); background: #EEF3FA; color: var(--accent); }

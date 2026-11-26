@@ -346,6 +346,9 @@ class Door(Base):
     y             = Column(Float, nullable=True)
     set_id        = Column(Integer, ForeignKey("hardware_sets.id"), nullable=True)  # per-door override
     source        = Column(String, default="plan")          # plan | schedule | manual
+    excluded      = Column(Boolean, default=False)          # on the job, but not ours: by others, out of scope
+    excluded_reason = Column(String, default="")
+    side          = Column(String, default="")              # internal | external, where the drawings say
     note          = Column(String, default="")
     door_type     = relationship("DoorType", back_populates="doors")
 

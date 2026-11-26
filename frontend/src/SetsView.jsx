@@ -309,7 +309,7 @@ function SetsSkeleton() {
 }
 
 /* ── One set, grouped the Intec way: hinges, closers, locks, handles, signage, protection, accessories ── */
-export function SetEditor({ id, projectId, onNavigate }) {
+export function SetEditor({ id, projectId, fromDoors = false, onNavigate }) {
   const isNew = id === 'new'
   const [set, setSet]       = useState(null)
   const [code, setCode]     = useState('')
@@ -401,7 +401,9 @@ export function SetEditor({ id, projectId, onNavigate }) {
       const s = isNew ? await apiFetch(projectId ? `/projects/${projectId}/sets` : '/sets', { method: 'POST', body: JSON.stringify(body) })
                       : await apiFetch(`/sets/${id}`, { method: 'PUT', body: JSON.stringify(body) })
       showToast('Set saved', 'success'); setDirty(false)
-      if (isNew) onNavigate('set', { id: s.id, projectId }); else setSet(x => ({ ...x, ...s, used_on: x.used_on }))
+      // made from a job's doors: straight back to them, with the new set given to the doors it was made for
+      if (isNew && fromDoors && projectId) onNavigate('plan-reader', { id: projectId, newSet: s.id })
+      else if (isNew) onNavigate('set', { id: s.id, projectId }); else setSet(x => ({ ...x, ...s, used_on: x.used_on }))
     } catch (err) { showToast(err.message, 'error'); ok = false }
     setBusy(false)
     return ok
@@ -467,7 +469,7 @@ export function SetEditor({ id, projectId, onNavigate }) {
           <div className="spacer" />
           <div className="actions">
             <button className="btn btn-ghost" onClick={goBack}>{projectId ? 'Back to job' : 'Back to sets'}</button>
-            <button className="btn btn-primary" onClick={save} disabled={busy || readOnly}>{busy ? <span className="spinner" /> : dirty || isNew ? 'Save set' : 'Saved'}</button>
+            <button className="btn btn-primary" onClick={save} disabled={busy || readOnly}>{busy ? <span className="spinner" /> : isNew && fromDoors ? 'Save and give to the doors' : dirty || isNew ? 'Save set' : 'Saved'}</button>
           </div>
         </div>
 
