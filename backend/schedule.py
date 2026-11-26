@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -1275,4 +1275,392 @@ async def import_sets_json(file: UploadFile = File(...), db: Session = Depends(g
     db.commit()
     return {"products_added": prod_added, "sets_added": sets_added, "sets_updated": sets_updated}
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+# The doors on a job, the prices, and the schedule made from them
+# ═════════════════════════════════════════════════════════════════════════════
+class DoorOut(BaseModel):
+    id: int; ref: str; floor: str; handed: bool = False
+    door_type_id: Optional[int] = None; type_code: str = ""
+    drawing_id: Optional[int] = None; drawing: str = ""; page_number: int = 1
+    x: Optional[float] = None; y: Optional[float] = None
+    set_id: Optional[int] = None; effective_set_id: Optional[int] = None; effective_set_code: str = ""
+    source: str = "plan"; note: str = ""
+
+
+_FLOOR_ORDER = ["Basement", "Lower Ground", "Ground", "Mezzanine", "First", "Second", "Third", "Fourth",
+                "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth", "Penthouse", "Roof"]
+
+
+def _floor_rank(f: str):
+    if f in _FLOOR_ORDER:
+        return (0, _FLOOR_ORDER.index(f), f)
+    m = re.match(r"Level (\d+)", f or "")
+    if m:
+        return (1, int(m.group(1)), f)
+    return (2, 0, f or "")
+
+
+def _door_out(d: models.Door, dwg_names: dict, set_codes: dict) -> DoorOut:
+    eff = d.set_id or (d.door_type.set_id if d.door_type else None)
+    return DoorOut(
+        id=d.id, ref=d.ref or "", floor=d.floor or "", handed=bool(d.handed),
+        door_type_id=d.door_type_id, type_code=d.door_type.code if d.door_type else "",
+        drawing_id=d.drawing_id, drawing=dwg_names.get(d.drawing_id, ""), page_number=d.page_number or 1,
+        x=d.x, y=d.y, set_id=d.set_id, effective_set_id=eff, effective_set_code=set_codes.get(eff, ""),
+        source=d.source or "plan", note=d.note or "",
+    )
+
+
+
+@router.get("/projects/{pid}/doors", response_model=list[DoorOut])
+def list_doors(pid: int, type_id: Optional[int] = None, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    _own_project(pid, db, cu)
+    q = db.query(models.Door).filter(models.Door.project_id == pid)
+    if type_id is not None:
+        q = q.filter(models.Door.door_type_id == (type_id or None))
+    doors = q.all()
+    dwg_names = {d.id: (d.level or d.original_name) for d in db.query(models.Drawing).filter(models.Drawing.project_id == pid).all()}
+    set_codes = {s.id: s.code for s in db.query(models.HardwareSet).all()}
+    doors.sort(key=lambda d: (_floor_rank(d.floor or ""), d.ref or ""))
+    return [_door_out(d, dwg_names, set_codes) for d in doors]
+
+
+from schedule_output import build_schedule, schedule_pdf, schedule_excel, picking_list_pdf  # noqa: E402
+
+
+def _safe_name(project: models.Project, suffix: str) -> str:
+    base = re.sub(r"[^\w\s\-]", "", project.name or "schedule").strip().replace(" ", "_") or "schedule"
+    return f"{project.quote_no + '_' if project.quote_no else ''}{base}_{suffix}"
+
+
+@router.get("/projects/{pid}/schedule")
+def get_schedule(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """The schedule as data: sets with their doors and products, the product summary, and the checks."""
+    p = _own_project(pid, db, cu)
+    data = build_schedule(db, p, estimator=cu.name)
+    for s in data["sets"]:
+        for it in s["items"]:
+            it["image_url"] = f"/api/files/products/{Path(it['image_path']).name}" if it["image_path"] else ""
+            it.pop("image_path", None)
+    for r in data["summary"]:
+        r["image_url"] = f"/api/files/products/{Path(r['image_path']).name}" if r.get("image_path") else ""
+        r.pop("image_path", None)
+    data["can_edit"] = not p.owner_id or p.owner_id == cu.id
+    return data
+
+
+class NotesIn(BaseModel):
+    notes: str = ""
+
+
+@router.put("/projects/{pid}/notes")
+def save_job_notes(pid: int, payload: NotesIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """The note the estimator types on the schedule screen; it prints on the Notes page."""
+    p = _edit_project(pid, db, cu)
+    p.notes = (payload.notes or "").strip()[:8000]
+    db.commit()
+    return {"notes": p.notes}
+
+
+@router.get("/projects/{pid}/schedule/pdf")
+def schedule_pdf_download(pid: int, priced: bool = False, summary: bool = True, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _own_project(pid, db, cu)
+    data = build_schedule(db, p, estimator=cu.name)
+    if priced and not data["priced_ok"]:
+        raise HTTPException(409, "Not every product on the schedule has a sell price")
+    pdf = schedule_pdf(data, priced=priced, summary=summary)
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Schedule" + ("_Priced" if priced else ""))}.pdf"'})
+
+
+@router.get("/projects/{pid}/schedule/excel")
+def schedule_excel_download(pid: int, priced: bool = False, summary: bool = True, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _own_project(pid, db, cu)
+    data = build_schedule(db, p, estimator=cu.name)
+    xlsx = schedule_excel(data, priced=priced and data["priced_ok"], summary=summary)
+    return Response(xlsx, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Schedule")}.xlsx"'})
+
+
+@router.get("/projects/{pid}/schedule/picking")
+def picking_list_download(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _own_project(pid, db, cu)
+    data = build_schedule(db, p, estimator=cu.name)
+    pdf = picking_list_pdf(data)
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_safe_name(p, "Picking_List")}.pdf"'})
+
+
+
+# ── Prices on the job ─────────────────────────────────────────────────────────
+def _job_quantities(db: Session, pid: int) -> dict[int, float]:
+    """Total quantity of each product across the job: per-door qty x doors, over every set on the job."""
+    doors = db.query(models.Door).filter(models.Door.project_id == pid).all()
+    by_set: dict[int, int] = {}
+    for d in doors:
+        eff = _effective_set_id(d)
+        if eff:
+            by_set[eff] = by_set.get(eff, 0) + 1
+    for ps in db.query(models.ProjectSet).filter_by(project_id=pid).all():
+        by_set.setdefault(ps.set_id, 0)
+    qty: dict[int, float] = {}
+    for sid, n in by_set.items():
+        s = db.query(models.HardwareSet).get(sid)
+        if not s or s.archived:
+            continue
+        for it in s.items:
+            qty[it.product_id] = qty.get(it.product_id, 0) + it.qty * n
+    return qty
+
+
+def job_price_lines(db: Session, pid: int) -> list[dict]:
+    """One line per product on the job with the numbers Intec shows on the Cost Summary."""
+    qty = _job_quantities(db, pid)
+    overrides = {jp.product_id: jp for jp in db.query(models.JobPrice).filter_by(project_id=pid).all()}
+    rows = []
+    for product_id, q in qty.items():
+        p = db.query(models.Product).get(product_id)
+        if not p:
+            continue
+        jp = overrides.get(product_id)
+        cost = jp.cost if (jp and jp.cost is not None) else (p.cost or 0.0)
+        sell = jp.sell if (jp and jp.sell is not None) else (p.sell if p.sell else cost)
+        da = (jp.disc_a or 0.0) if jp else 0.0
+        db_ = (jp.disc_b or 0.0) if jp else 0.0
+        actual = sell * (1 - da / 100) * (1 - db_ / 100)
+        markup = ((sell - cost) / cost * 100) if cost else 100.0
+        margin = ((actual - cost) / actual * 100) if actual else 0.0
+        rows.append({
+            "product_id": p.id, "sku": p.sku, "name": p.name, "qty": q,
+            "cost": round(cost, 2), "markup": round(markup, 2), "sell": round(sell, 2),
+            "disc_a": da, "disc_b": db_, "actual": round(actual, 2),
+            "line_value": round(q * actual, 2), "margin": round(margin, 2),
+            "cost_edited": bool(jp and jp.cost is not None), "sell_edited": bool(jp and jp.sell is not None),
+            "product_cost": p.cost, "product_sell": p.sell,
+        })
+    rows.sort(key=lambda r: r["sku"].upper())
+    return rows
+
+
+def _cost_totals(rows: list[dict]) -> dict:
+    cost_total = sum(r["qty"] * r["cost"] for r in rows)
+    line_total = sum(r["line_value"] for r in rows)
+    return {"cost_total": round(cost_total, 2), "line_total": round(line_total, 2),
+            "markup": round((line_total - cost_total) / cost_total * 100, 2) if cost_total else 0.0,
+            "margin": round((line_total - cost_total) / line_total * 100, 2) if line_total else 0.0,
+            "lines": len(rows), "unpriced": sum(1 for r in rows if not r["cost"]), "no_qty": sum(1 for r in rows if not r["qty"])}
+
+
+class CostLineIn(BaseModel):
+    cost: Optional[float] = None; sell: Optional[float] = None; markup: Optional[float] = None
+    disc_a: Optional[float] = None; disc_b: Optional[float] = None
+
+
+class DiscountIn(BaseModel):
+    which: str = "a"; value: float = 0.0
+
+
+@router.get("/projects/{pid}/cost-summary")
+def cost_summary(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    p = _own_project(pid, db, cu)
+    rows = job_price_lines(db, pid)
+    return {"project_id": pid, "name": p.name, "quote_no": p.quote_no or "", "rows": rows, "totals": _cost_totals(rows),
+            "can_edit": not p.owner_id or p.owner_id == cu.id}
+
+
+@router.put("/projects/{pid}/cost-summary/{product_id}")
+def set_cost_line(pid: int, product_id: int, payload: CostLineIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Change one cell. Cost, sell and discounts are stored; a markup is turned into a sell price."""
+    _edit_project(pid, db, cu)
+    prod = db.query(models.Product).get(product_id)
+    if not prod:
+        raise HTTPException(404, "Product not found")
+    jp = db.query(models.JobPrice).filter_by(project_id=pid, product_id=product_id).first()
+    if not jp:
+        jp = models.JobPrice(project_id=pid, product_id=product_id, disc_a=0.0, disc_b=0.0); db.add(jp)
+    if payload.cost is not None:
+        jp.cost = max(0.0, payload.cost)
+    if payload.markup is not None:
+        cost = jp.cost if jp.cost is not None else (prod.cost or 0.0)
+        jp.sell = round(cost * (1 + payload.markup / 100), 2)
+    if payload.sell is not None:
+        jp.sell = max(0.0, payload.sell)
+    if payload.disc_a is not None:
+        jp.disc_a = min(100.0, max(0.0, payload.disc_a))
+    if payload.disc_b is not None:
+        jp.disc_b = min(100.0, max(0.0, payload.disc_b))
+    db.commit()
+    rows = job_price_lines(db, pid)
+    return {"row": next((r for r in rows if r["product_id"] == product_id), None), "totals": _cost_totals(rows)}
+
+
+@router.post("/projects/{pid}/cost-summary/discount")
+def set_discount_all(pid: int, payload: DiscountIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Intec's 'Set' button under Disc. A / Disc. B: the same discount on every line."""
+    _edit_project(pid, db, cu)
+    field = "disc_a" if payload.which != "b" else "disc_b"
+    value = min(100.0, max(0.0, payload.value))
+    for product_id in _job_quantities(db, pid):
+        jp = db.query(models.JobPrice).filter_by(project_id=pid, product_id=product_id).first()
+        if not jp:
+            jp = models.JobPrice(project_id=pid, product_id=product_id, disc_a=0.0, disc_b=0.0); db.add(jp)
+        setattr(jp, field, value)
+    db.commit()
+    rows = job_price_lines(db, pid)
+    return {"rows": rows, "totals": _cost_totals(rows)}
+
+
+@router.post("/projects/{pid}/cost-summary/reset")
+def reset_job_prices(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Intec's 'Update Prices': drop every edit on this job and go back to the product file."""
+    _edit_project(pid, db, cu)
+    db.query(models.JobPrice).filter_by(project_id=pid).delete(synchronize_session=False)
+    db.commit()
+    rows = job_price_lines(db, pid)
+    return {"rows": rows, "totals": _cost_totals(rows)}
+
+
+# ── Changing products across the job, or on one door ──────────────────────────
+def _apply_op(db: Session, s: models.HardwareSet, kind: str, product_id: int, new_id: Optional[int], qty: Optional[int]) -> bool:
+    """One change to a set's products. Replacing with a product already in the
+    set adds the quantities together."""
+    item = next((it for it in s.items if it.product_id == product_id), None)
+    if kind == "add":
+        if not db.query(models.Product).get(product_id):
+            raise HTTPException(404, "Product not found")
+        if item:
+            item.qty += max(1, qty or 1)
+        else:
+            s.items.append(models.SetItem(product_id=product_id, qty=max(1, qty or 1), sort_order=len(s.items)))
+        return True
+    if not item:
+        return False
+    if kind == "remove":
+        s.items.remove(item); db.delete(item)
+    elif kind == "qty":
+        item.qty = max(1, int(qty or 1))
+    elif kind == "replace":
+        if not new_id or not db.query(models.Product).get(new_id):
+            raise HTTPException(404, "Product not found")
+        other = next((it for it in s.items if it.product_id == new_id), None)
+        if other:
+            other.qty += item.qty; s.items.remove(item); db.delete(item)
+        else:
+            item.product_id = new_id
+    else:
+        raise HTTPException(400, "Unknown change")
+    return True
+
+
+def _doors_by_set(db: Session, pid: int) -> dict:
+    out: dict[int, list] = {}
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        e = _effective_set_id(d)
+        if e:
+            out.setdefault(e, []).append(d)
+    return out
+
+
+class ReplaceOnJobIn(BaseModel):
+    product_id: int; new_product_id: int; apply: bool = False
+
+
+@router.post("/projects/{pid}/replace-product")
+def replace_on_job(pid: int, payload: ReplaceOnJobIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """One product swapped for another on every set on this job, quantities
+    kept. Without apply, says what would change. Library sets get a copy for
+    this job first, so the library and other jobs are not touched."""
+    _edit_project(pid, db, cu)
+    old, new = db.query(models.Product).get(payload.product_id), db.query(models.Product).get(payload.new_product_id)
+    if not old or not new:
+        raise HTTPException(404, "Product not found")
+    if old.id == new.id:
+        raise HTTPException(400, "Pick a different product")
+    by_set = _doors_by_set(db, pid)
+    hit = [db.query(models.HardwareSet).get(sid) for sid in _job_set_ids(db, pid)]
+    hit = [x for x in hit if x and not x.archived and any(it.product_id == old.id for it in x.items)]
+    report = {"sets": [x.code for x in hit], "doors": sum(len(by_set.get(x.id, [])) for x in hit),
+              "library_sets": sum(1 for x in hit if x.project_id is None),
+              "old": {"sku": old.sku, "name": old.name}, "new": {"sku": new.sku, "name": new.name}, "applied": False}
+    if not payload.apply:
+        return report
+    for x in hit:
+        target = _copy_for_job(db, pid, x, cu) if x.project_id is None else x
+        _apply_op(db, target, "replace", old.id, new.id, None)
+    db.commit()
+    report["applied"] = True
+    return report
+
+
+class DoorChangeIn(BaseModel):
+    scope: str = "set"               # set: every door on the door's set; door: this door only
+    kind: str                        # replace | qty | remove | add
+    product_id: int
+    new_product_id: Optional[int] = None
+    qty: Optional[int] = None
+
+
+def _split_code(db: Session, pid: int, base: str) -> str:
+    """MF 04A, MF 04B ...: the next free letter after a set's code on this job."""
+    ids = _job_set_ids(db, pid)
+    taken = {c for (c,) in db.query(models.HardwareSet.code).filter(models.HardwareSet.id.in_(ids)).all()} if ids else set()
+    root = re.sub(r"[A-Z]$", "", base.strip()) if re.search(r"\d[A-Z]$", base.strip()) else base.strip()
+    for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        if f"{root}{ch}" not in taken:
+            return f"{root}{ch}"
+    return f"{root}-{len(taken) + 1}"
+
+
+@router.post("/projects/{pid}/doors/{did}/change")
+def change_door_products(pid: int, did: int, payload: DoorChangeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """A change to the products on one door. scope=set changes every door on
+    that door's set on this job; scope=door gives the door its own copy of the
+    set (MF 04A) and changes only that. A library set is never changed here."""
+    _edit_project(pid, db, cu)
+    d = db.query(models.Door).get(did)
+    if not d or d.project_id != pid:
+        raise HTTPException(404, "Door not found")
+    sid = _effective_set_id(d)
+    if not sid:
+        raise HTTPException(400, "This door has no set yet")
+    src = _set_or_404(sid, db)
+    others = [x for x in _doors_by_set(db, pid).get(sid, []) if x.id != d.id]
+    if payload.scope == "door" and others:
+        s = models.HardwareSet(code=_split_code(db, pid, src.code), name=src.name, description=src.description,
+                               fire_rated=src.fire_rated, notes=src.notes, copied_from_id=src.id,
+                               created_by_id=cu.id, project_id=pid)
+        db.add(s); db.flush()
+        for i, it in enumerate(src.items):
+            s.items.append(models.SetItem(product_id=it.product_id, qty=it.qty, sort_order=i))
+        d.set_id = s.id
+        _link_set(db, pid, s.id)
+        db.flush()
+        target, doors = s, 1
+    else:
+        target = _copy_for_job(db, pid, src, cu) if src.project_id is None else src
+        doors = len(others) + 1
+    if not _apply_op(db, target, payload.kind, payload.product_id, payload.new_product_id, payload.qty):
+        raise HTTPException(404, "That product is not on this door")
+    db.commit()
+    return {"set_id": target.id, "code": target.code, "doors": doors}
+
+
+class SetChangeIn(BaseModel):
+    kind: str; product_id: int; new_product_id: Optional[int] = None; qty: Optional[int] = None
+
+
+@router.post("/projects/{pid}/sets/{sid}/change")
+def change_set_products(pid: int, sid: int, payload: SetChangeIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """A change to a set's products from a summary page: on this job only. A
+    library set gets this job's own copy first."""
+    _edit_project(pid, db, cu)
+    src = _set_or_404(sid, db)
+    if src.project_id not in (None, pid):
+        raise HTTPException(400, "That set belongs to another job")
+    target = _copy_for_job(db, pid, src, cu) if src.project_id is None else src
+    if not _apply_op(db, target, payload.kind, payload.product_id, payload.new_product_id, payload.qty):
+        raise HTTPException(404, "That product is not in this set")
+    db.commit()
+    return {"set_id": target.id, "code": target.code}
 

@@ -2151,3 +2151,32 @@ body:has(.pr-full) { overflow: hidden; }
 .pr-lists-done .link-btn { margin-left: 6px; }
 .dl-size { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .in-listed { color: var(--accent) !important; }
+
+/* the three steps of a door job */
+.job-steps { display: inline-flex; border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; background: #fff; flex-shrink: 0; }
+.job-steps button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px; border: 0; border-right: 1px solid var(--card-border); background: transparent;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--text2); cursor: pointer; white-space: nowrap; }
+.job-steps button:last-child { border-right: 0; }
+.job-steps button:hover:not(.on) { background: var(--bg3); color: var(--accent); }
+.job-steps button.on { background: #EEF3FA; color: var(--accent); cursor: default; }
+.job-step-n { display: inline-flex; align-items: center; justify-content: center; width: 19px; height: 19px; border-radius: 50%; background: var(--bg4); font-size: 11px; color: var(--text2); }
+.job-steps button.on .job-step-n { background: var(--accent); color: #fff; }
+.job-steps.compact button { padding: 5px 10px; font-size: 12.5px; }
+
+/* the doors on a job with no plans to show them on */
+.jd { margin-bottom: 28px; padding: 0; overflow: hidden; }
+.jd-head { display: flex; align-items: center; gap: 14px; padding: 14px 16px; flex-wrap: wrap; }
+.jd-head h2 { font-size: 17px; }
+.jd-noset { font-size: 13px; font-weight: 600; color: var(--warn); }
+.jd-ok { font-size: 13px; font-weight: 600; color: #1F7A33; }
+.jd-search.adm-search { width: 220px; height: 34px; }
+.jd-table { border: 0; border-radius: 0; box-shadow: none; border-top: 1px solid var(--card-border); }
+.jd-table td { vertical-align: middle; padding-top: 6px; padding-bottom: 6px; }
+.jd-tick { width: 36px; }
+.jd-tick input { width: 15px; height: 15px; accent-color: var(--accent); }
+.jd-ref { font-weight: 700; white-space: nowrap; }
+.jd-note { font-size: 12.5px; color: var(--text2); max-width: 420px; }
+.jd-acts { text-align: right; }
+.jd-table tr.ticked td { background: #EAF1FB; }
+.jd-table .pr-setpick { width: 220px; }
+.pr-bar .job-steps { margin-right: 4px; }

@@ -11,6 +11,8 @@ import { ProductsView } from './ProductsView'
 import { SetsView, SetEditor } from './SetsView'
 import { MatchImagesView } from './MatchImagesView'
 import { MatchDocumentsView } from './MatchDocumentsView'
+import { ScheduleView } from './ScheduleView'
+import { CostSummaryView } from './CostSummaryView'
 
 export default function App() {
   const { user, loading } = useAuth()
@@ -43,6 +45,10 @@ export default function App() {
   switch (view) {
     case 'plan-reader':
       return <PlanReaderView key={params.id} projectId={params.id} setId={params.setId} onNavigate={navigate} />
+    case 'cost':
+      return <CostSummaryView projectId={params.id} onNavigate={navigate} />
+    case 'schedule':
+      return <ScheduleView projectId={params.id} onNavigate={navigate} />
     case 'invites':
       return <InvitesView onNavigate={navigate} />
     // device counting

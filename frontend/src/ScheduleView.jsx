@@ -1,0 +1,280 @@
+import React, { useState, useEffect, useRef } from 'react'
+import { apiFetch, downloadBlob, openBlob } from './api'
+import { showToast } from './toast'
+import { Topbar } from './Dashboard'
+import { JobSteps } from './JobSteps'
+import { IconZoom, IconImage } from './icons'
+import { useLeaveGuard } from './unsaved'
+import { useAuthImage } from './TemplatesView'
+
+const money = v => (v == null ? '' : v.toLocaleString('en-IE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+
+export function ScheduleView({ projectId, onNavigate }) {
+  const [data,   setData]   = useState(null)
+  const [job,    setJob]    = useState(null)      // editable job details
+  const [busy,   setBusy]   = useState('')
+  const [priced, setPriced] = useState(false)
+  const [summary, setSummary] = useState(true)
+  const [notes,  setNotes]  = useState(null)     // what is being typed
+  const [saved,  setSaved]  = useState('')       // what the server has
+
+  const load = async () => {
+    const [d, p] = await Promise.all([apiFetch(`/projects/${projectId}/schedule`), apiFetch(`/projects/${projectId}`)])
+    setData(d)
+    setSaved(d.project.notes || '')
+    setNotes(n => (n === null ? (d.project.notes || '') : n))   // keep what they are typing
+    setJob({ name: p.name, client: p.client || '', site: p.site || '', description: p.description || '',
+             drawing_firm: p.drawing_firm || '', quote_no: p.quote_no || '', rep: p.rep || '', kind: p.kind || 'symbols' })
+  }
+  useEffect(() => { load() }, [projectId])
+
+  const saveJob = async () => {
+    setBusy('job')
+    let ok = true
+    try { await apiFetch(`/projects/${projectId}`, { method: 'PUT', body: JSON.stringify(job) }); showToast('Job details saved', 'success'); await load() }
+    catch (err) { showToast(err.message, 'error'); ok = false }
+    setBusy('')
+    return ok
+  }
+  const saveNotes = async () => {
+    setBusy('notes')
+    let ok = true
+    try {
+      const r = await apiFetch(`/projects/${projectId}/notes`, { method: 'PUT', body: JSON.stringify({ notes }) })
+      setSaved(r.notes); setNotes(r.notes); showToast('Notes saved', 'success')
+    } catch (err) { showToast(err.message, 'error'); ok = false }
+    setBusy('')
+    return ok
+  }
+
+  const download = async (kind, withCerts = false) => {
+    setBusy(kind)
+    const stem = `${job.quote_no ? job.quote_no + '_' : ''}${job.name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_')}`
+    try {
+      if (kind === 'pdf')     await downloadBlob(`/projects/${projectId}/schedule/pdf?priced=${priced}&summary=${summary}`, `${stem}_Schedule${priced ? '_Priced' : ''}.pdf`)
+      if (kind === 'excel')   await downloadBlob(`/projects/${projectId}/schedule/excel?priced=${priced}&summary=${summary}`, `${stem}_Schedule.xlsx`)
+      if (kind === 'picking') await downloadBlob(`/projects/${projectId}/schedule/picking`, `${stem}_Picking_List.pdf`)
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy('')
+  }
+
+  const notesDirty = notes !== null && notes !== saved
+  const { guard, modal: leaveModal } = useLeaveGuard({ dirty: notesDirty, onSave: saveNotes, what: 'notes' })
+  const goNav = guard(onNavigate)
+
+  const crumbs = [{ label: 'Jobs', onClick: () => goNav('dashboard') },
+                  { label: job?.name || '…', onClick: () => goNav('plan-reader', { id: projectId }) },
+                  { label: 'Schedule' }]
+  const steps = <JobSteps projectId={projectId} at="schedule" onNavigate={goNav} />
+  if (!data || !job) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={steps} /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div></>
+
+  const nothing = data.sets.length === 0
+  const warn = data.checks.filter(c => c.level === 'warn').length
+
+  return (
+    <>
+      <Topbar crumbs={crumbs} onNavigate={goNav} crumbsRight={steps} />
+      {leaveModal}
+      <div className="page-wrap">
+        <div className="page-header">
+          <div>
+            <h1>Schedule</h1>
+            <p className="lede">
+              {nothing ? 'Nothing to schedule until the doors have their sets.'
+                : data.project.sets_only
+                  ? `${data.sets.length} set${data.sets.length !== 1 ? 's' : ''}, ${data.doors_scheduled} in all, ${data.item_count} items.`
+                  : `${data.doors_scheduled} doors across ${data.sets.length} set${data.sets.length !== 1 ? 's' : ''}, ${data.item_count} items.`}
+              {data.doors_excluded > 0 && ` ${data.doors_excluded} doors by others left off.`}
+            </p>
+          </div>
+          <div className="spacer" />
+          <div className="sched-actions">
+            {!nothing && (
+              <>
+              <div className="actions">
+                <button className="btn" onClick={() => download('excel')} disabled={!!busy}>{busy === 'excel' ? <span className="spinner" /> : 'Download Excel'}</button>
+                <button className="btn btn-primary" onClick={() => download('pdf')} disabled={!!busy}>{busy === 'pdf' ? <span className="spinner" /> : 'Download schedule PDF'}</button>
+              </div>
+              <div className="sched-opts">
+                <span className="opt-label">Schedule PDF and Excel:</span>
+                <label className="check" title={data.priced_ok ? '' : 'Some products have no cost in Cin7 yet'}>
+                  <input type="checkbox" checked={priced} disabled={!data.priced_ok} onChange={e => setPriced(e.target.checked)} /> With prices
+                </label>
+                <label className="check">
+                  <input type="checkbox" checked={summary} onChange={e => setSummary(e.target.checked)} /> Product summary page
+                </label>
+              </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="split">
+          <div>
+            {nothing ? (
+              <div className="empty-state">
+                <h2>No sets on the doors yet.</h2>
+                <p>Give each door its set first, then the schedule is made from them.</p>
+                <button className="btn btn-primary" onClick={() => goNav('plan-reader', { id: projectId })}>Go to the doors</button>
+              </div>
+            ) : data.sets.map(s => <SetCard key={s.id} s={s} priced={priced} setsOnly={data.project.sets_only} onNavigate={goNav} onPhoto={load} projectId={projectId} />)}
+
+            {!nothing && summary && (
+              <div className="sched-set">
+                <div className="sched-set-head">
+                  <h2>Product summary</h2>
+                  <span className="muted">{data.summary.length} products · {data.item_count} items</span>
+                </div>
+                <table className="ledger sched-items">
+                  <thead><tr><th>Code</th><th>Product</th><th style={{ textAlign: 'right' }}>Qty</th><th>Unit</th>{priced && <><th style={{ textAlign: 'right' }}>Price</th><th style={{ textAlign: 'right' }}>Value</th></>}</tr></thead>
+                  <tbody>
+                    {data.summary.map(r => (
+                      <tr key={r.sku}><td className="mono">{r.sku}</td><td>{r.name}</td><td className="qty-cell">{r.qty}</td><td className="muted">{r.unit}</td>
+                        {priced && <><td className="num-cell">{money(r.price)}</td><td className="num-cell">{money(r.value)}</td></>}</tr>
+                    ))}
+                  </tbody>
+                  {priced && <tfoot><tr><td colSpan={5} style={{ textAlign: 'right', fontWeight: 600 }}>Total</td><td className="num-cell" style={{ fontWeight: 600 }}>{money(data.total)}</td></tr></tfoot>}
+                </table>
+              </div>
+            )}
+          </div>
+
+          <aside>
+            <div className={`rail-panel${warn ? ' warn' : ''}`}>
+              <h3>Checks</h3>
+              {data.checks.length === 0 ? <p className="muted">Nothing to check yet.</p> : (
+                <ul className="check-list">
+                  {data.checks.map((c, i) => <li key={i} className={c.level}>{c.text}</li>)}
+                </ul>
+              )}
+              {data.doors_no_set > 0 && <button className="link-btn" onClick={() => goNav('plan-reader', { id: projectId })}>Back to the doors</button>}
+            </div>
+
+            <div className="rail-panel" style={{ marginTop: 20 }}>
+              <h3>Notes</h3>
+              <textarea className="form-control notes-box" rows={7} value={notes ?? ''} disabled={data.can_edit === false}
+                        placeholder={data.can_edit === false ? 'Only the job owner can change the notes.' : 'Add notes to this job'}
+                        onChange={e => setNotes(e.target.value)} />
+              {data.can_edit !== false && (
+                <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={saveNotes} disabled={busy === 'notes' || !notesDirty}>
+                  {busy === 'notes' ? <span className="spinner" /> : notesDirty ? 'Save notes' : 'Saved'}
+                </button>
+              )}
+            </div>
+
+            <div className="rail-panel" style={{ marginTop: 20 }}>
+              <h3>Job details</h3>
+              <div className="form-group"><label>Quote no</label><input className="form-control" value={job.quote_no} onChange={e => setJob({ ...job, quote_no: e.target.value })} /></div>
+              <div className="form-group"><label>Client</label><input className="form-control" value={job.client} onChange={e => setJob({ ...job, client: e.target.value })} /></div>
+              <div className="form-group"><label>Site</label><input className="form-control" value={job.site} onChange={e => setJob({ ...job, site: e.target.value })} /></div>
+              <div className="form-group"><label>Rep</label><input className="form-control" value={job.rep} onChange={e => setJob({ ...job, rep: e.target.value })} /></div>
+              <div className="total-row" style={{ borderBottom: 0 }}><span>Estimator</span><strong>{data.project.estimator}</strong></div>
+              <div className="total-row" style={{ borderBottom: 0 }}><span>Date</span><strong>{data.project.date}</strong></div>
+              <div className="total-row" style={{ borderBottom: 0 }}><span>Revision</span><strong>{data.project.revision}</strong></div>
+              <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={saveJob} disabled={busy === 'job'}>{busy === 'job' ? <span className="spinner" /> : 'Save details'}</button>
+            </div>
+
+            {!nothing && (
+              <div className="rail-panel" style={{ marginTop: 20 }}>
+                <h3>Totals</h3>
+                {data.project.sets_only
+                  ? <div className="total-row"><span>Quantity</span><strong>{data.doors_scheduled}</strong></div>
+                  : <div className="total-row"><span>Doors scheduled</span><strong>{data.doors_scheduled}<span className="muted" style={{ fontWeight: 400 }}> / {data.doors_total}</span></strong></div>}
+                <div className="total-row"><span>Sets</span><strong>{data.sets.length}</strong></div>
+                <div className="total-row"><span>Product lines</span><strong>{data.summary.length}</strong></div>
+                <div className="total-row" style={{ borderBottom: 0 }}><span>Items</span><strong>{data.item_count}</strong></div>
+                {data.priced_ok && <div className="total-row" style={{ borderBottom: 0 }}><span>Total price</span><strong>{money(data.total)}</strong></div>}
+              </div>
+            )}
+          </aside>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function SetCard({ s, priced, setsOnly, onNavigate, onPhoto, projectId }) {
+  const [showDoors, setShowDoors] = useState(false)
+  return (
+    <div className="sched-set">
+      <div className="sched-set-head">
+        <h2><span className="set-ref">{s.code}</span> {s.name}</h2>
+        <span className="muted">{setsOnly ? `Qty ${s.doors}` : `${s.doors} door${s.doors !== 1 ? 's' : ''}`}{priced ? ` @ ${money(s.per_door)} = ${money(s.value)}` : ''}</span>
+        <button className="btn btn-ghost btn-sm" onClick={() => onNavigate('set', { id: s.id, projectId })}>Edit set</button>
+      </div>
+      <table className="ledger sched-items">
+        <thead><tr><th className="col-code">Code</th><th className="col-name">Product</th><th className="col-photo">Photo</th><th className="col-qty" style={{ textAlign: 'right' }}>Qty</th><th className="col-unit">Unit</th>{priced && <><th style={{ textAlign: 'right' }}>Price</th><th style={{ textAlign: 'right' }}>Value</th></>}</tr></thead>
+        <tbody>
+          {s.items.map(it => (
+            <tr key={it.sku}>
+              <td className="mono">{it.sku}</td><td>{it.name}</td>
+              <td><Thumb url={it.image_url} productId={it.product_id} sku={it.sku} name={it.name} onChanged={onPhoto} /></td>
+              <td className="qty-cell">{it.qty}</td><td className="muted">{it.unit}</td>
+              {priced && <><td className="num-cell">{money(it.price)}</td><td className="num-cell">{money(it.value)}</td></>}
+            </tr>
+          ))}
+          {s.items.length === 0 && <tr><td colSpan={priced ? 7 : 5} className="muted" style={{ padding: 16 }}>This set has no products yet.</td></tr>}
+        </tbody>
+      </table>
+      {!setsOnly && <div className="door-refs">
+        <button className="link-btn" onClick={() => setShowDoors(v => !v)}>{showDoors ? 'Hide door references' : 'Door references'}</button>
+        {showDoors && <div className="door-ref-list">{s.door_refs.map(r => <span key={r.ref} className="mono">{r.ref}{r.handed ? 'h' : ''}</span>)}</div>}
+      </div>}
+    </div>
+  )
+}
+
+/* The product's picture in a fixed box. Click to see it large. With no picture,
+   the same box offers to add one from the estimator's PC; it is saved on the
+   product, so every job shows it from then on. */
+function Thumb({ url, productId, sku, name, onChanged }) {
+  const src = useAuthImage(url)
+  const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  const upload = async file => {
+    if (!file || !productId) return
+    setBusy(true)
+    try {
+      const form = new FormData(); form.append('file', file)
+      await apiFetch(`/products/${productId}/image`, { method: 'POST', body: form })
+      showToast('Picture saved on the product', 'success'); onChanged && await onChanged()
+    } catch (err) { showToast(err.message, 'error') }
+    setBusy(false)
+  }
+  if (!url) return (
+    <>
+      <button className="thumb thumb-empty" onClick={() => ref.current.click()} disabled={busy} title="Add a picture for this product">
+        {busy ? <span className="spinner" /> : <><IconImage size={20} /><span>Add photo</span></>}
+      </button>
+      <input ref={ref} type="file" accept=".png,.jpg,.jpeg,.webp,.gif" style={{ display: 'none' }} onChange={e => { upload(e.target.files[0]); e.target.value = '' }} />
+    </>
+  )
+  return (
+    <>
+      <button className="thumb" onClick={() => setOpen(true)} title="See it larger">
+        {src && <img src={src} alt="" />}
+        <span className="thumb-zoom"><IconZoom size={14} /></span>
+      </button>
+      {open && <Lightbox src={src} sku={sku} name={name} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+function Lightbox({ src, sku, name, onClose }) {
+  useEffect(() => {
+    const key = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', key); return () => document.removeEventListener('keydown', key)
+  }, [onClose])
+  return (
+    <div className="lightbox" onClick={onClose}>
+      <div className="lightbox-card" onClick={e => e.stopPropagation()}>
+        <div className="lightbox-img">{src && <img src={src} alt={name} />}</div>
+        <div className="lightbox-cap"><span className="mono">{sku}</span><span>{name}</span></div>
+        <button className="btn btn-ghost btn-sm lightbox-close" onClick={onClose}>Close</button>
+      </div>
+    </div>
+  )
+}
+
+/* The products on this job with no datasheet, each with its own Add PDF. */

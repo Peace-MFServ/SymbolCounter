@@ -67,6 +67,7 @@ class ProjectOut(BaseModel):
     description: str = ""
     drawing_firm: str = ""
     quote_no: str = ""
+    rep: str = ""
     drawing_count: int = 0           # device counting
     verified_count: int = 0
     approved_count: int = 0
@@ -129,7 +130,7 @@ def project_out(p: models.Project, db: Session, full: bool = True) -> ProjectOut
     drawings = p.drawings if (p.kind or "symbols") == "symbols" else []
     return ProjectOut(
         id=p.id, name=p.name, kind=p.kind or "symbols", client=p.client or "", site=p.site or "",
-        description=p.description or "", drawing_firm=p.drawing_firm or "", quote_no=p.quote_no or "",
+        description=p.description or "", drawing_firm=p.drawing_firm or "", quote_no=p.quote_no or "", rep=p.rep or "",
         drawing_count=len(drawings), verified_count=sum(1 for d in drawings if d.status in ("verified", "approved")),
         approved_count=sum(1 for d in drawings if d.status == "approved"),
         source=p.source or "", stage=p.stage or "", brief=(p.brief or "") if full else (p.brief or "")[:200],
@@ -149,6 +150,7 @@ class ProjectIn(BaseModel):
     quote_no: str = ""
     kind: str = "doors"
     drawing_firm: str = ""
+    rep: str = ""
 
 
 def _clip(s: str, n: int) -> str:
@@ -188,7 +190,7 @@ def update_project(pid: int, payload: ProjectIn, db: Session = Depends(get_db), 
     if not name:
         raise HTTPException(400, "Give the job a name")
     p.name, p.client, p.site, p.quote_no = name, _clip(payload.client, 120), _clip(payload.site, 200), _clip(payload.quote_no, 40)
-    p.drawing_firm = _clip(payload.drawing_firm, 120)
+    p.drawing_firm, p.rep = _clip(payload.drawing_firm, 120), _clip(payload.rep, 80)
     db.commit(); db.refresh(p)
     return project_out(p, db)
 

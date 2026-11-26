@@ -5,6 +5,7 @@ import { Topbar, clockOf } from './Dashboard'
 import logo from './assets/mf-logo.jpeg'
 import { useAuth } from './auth'
 import { useConfirm } from './confirm'
+import { JobSteps } from './JobSteps'
 import { IconUpload, IconCheck, IconWarn, IconSearch, IconLeft, IconPlus, IconFile } from './icons'
 
 const refKey = r => (r || '').split(/(\d+)/).map(t => (/^\d+$/.test(t) ? t.padStart(8, '0') : t.toLowerCase())).join('')
@@ -189,7 +190,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   const tickable = x => x.on_job || (!(x.status === 'out' && choice[x.id] !== 'keep') && choice[x.id] !== 'drop')
   // each door confirmed once, however many times its number is printed
   const jobItems = useMemo(() => { const seen = new Set(); return items.filter(x => x.on_job && !seen.has(x.door_id) && seen.add(x.door_id)) }, [items])
-  const onJob = Object.keys(r?.job_doors || {}).length
+  const onJob = r ? Object.keys(r.job_doors || {}).length : (job?.door_count || 0)
   const withSet = adding.filter(a => a.set_id).length + Object.values(r?.job_doors || {}).filter(v => v.set_id).length
   const bySheet = useMemo(() => {
     const m = {}
@@ -341,10 +342,13 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     return (
       <>
         <Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={
-          <>{job?.source === 'portal' && <BriefButton job={job} onRead={readSentList} busy={busy} />}<button className="btn btn-ghost back-jobs" onClick={() => onNavigate('dashboard')}><IconLeft size={16} /> Back to jobs</button>{jobButtons}</>} />
+          <>{job?.source === 'portal' && <BriefButton job={job} onRead={readSentList} busy={busy} />}<JobSteps projectId={projectId} at="doors" onNavigate={onNavigate} />{jobButtons}</>} />
         <div className="page-wrap pr-start" {...drop}>
-          {sentLists.length > 0 && <SentLists lists={sentLists} onRead={readSentList} busy={busy} big confirmed={job?.door_count || 0}
-                                              onDownload={job?.door_count ? download : null} />}
+          {sentLists.length > 0 && (job?.door_count
+            ? <SentLists lists={sentLists} onRead={readSentList} busy={busy} />
+            : <SentLists lists={sentLists} onRead={readSentList} busy={busy} big />)}
+          {job?.door_count > 0 && <JobDoors key={job.door_count} projectId={projectId} setOptions={setOptions} canEdit={mine} onChanged={loadJob}
+                                            onDownload={download} onNext={() => onNavigate('cost', { id: projectId })} />}
           <div className="page-header">
             <div>
               <h1>{sentLists.length ? 'Or read the doors from the plans' : 'Read the doors from the plans'}</h1>
@@ -411,6 +415,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
         {job?.source === 'portal' && <BriefButton job={job} onRead={readSentList} busy={busy} />}
         {theirs && <span className="pr-bar-theirs">{theirs} has this job</span>}
         <span className="spacer" />
+        <JobSteps projectId={projectId} at="doors" onNavigate={onNavigate} compact />
         <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xlsm,.csv" multiple style={{ display: 'none' }} onChange={e => { upload(e.target.files); e.target.value = '' }} />
         {mine && <button className="btn btn-sm" onClick={() => fileRef.current.click()} disabled={!!busy}>{busy === 'upload' ? <><span className="spinner" /> Reading...</> : 'Add plans'}</button>}
         <button className="btn btn-sm" onClick={download} disabled={!onJob} title="The confirmed doors as a spreadsheet, with their sets">Download doors</button>
@@ -540,6 +545,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
             <label>Set for every door not given one above
               <SetPick value={target} options={setOptions} blank="None: choose later" onChange={setTarget} always wide />
             </label>
+            {!adding.length && onJob > 0 && <button className="btn" onClick={() => onNavigate('cost', { id: projectId })}>Next: prices</button>}
             <button className="btn btn-primary" onClick={apply} disabled={!adding.length || !!busy || !mine}>
               {busy === 'apply' ? <span className="spinner" /> : adding.length ? `Confirm ${adding.length} door${adding.length !== 1 ? 's' : ''}` : onJob ? 'All confirmed' : 'No doors to confirm'}
             </button>
@@ -608,6 +614,72 @@ function SheetNotes({ info, note, problem }) {
       {warn && <IconWarn size={13} />}
       <span>{text.join(' ')}</span>
     </div>
+  )
+}
+
+/* The doors confirmed on a job that has no plans to show them on: each with its
+   set, ticked to give several one set, or taken off. */
+function JobDoors({ projectId, setOptions, canEdit, onChanged, onDownload, onNext }) {
+  const [doors, setDoors] = useState(null)
+  const [ticked, setTicked] = useState(() => new Set())
+  const [q, setQ] = useState('')
+  const load = () => apiFetch(`/projects/${projectId}/doors`).then(setDoors).catch(err => showToast(err.message, 'error'))
+  useEffect(() => { load() }, [projectId])
+  if (!doors) return null
+  const give = async (ids, sid) => {
+    try {
+      await apiFetch(`/projects/${projectId}/doors/assign-set`, { method: 'POST', body: JSON.stringify({ door_ids: ids, set_id: sid ? Number(sid) : null }) })
+      setTicked(new Set()); await load(); onChanged()
+    } catch (err) { showToast(err.message, 'error') }
+  }
+  const remove = async d => {
+    try { await apiFetch(`/projects/${projectId}/doors/remove`, { method: 'POST', body: JSON.stringify({ doors: [{ ref: d.ref }] }) }); await load(); onChanged() }
+    catch (err) { showToast(err.message, 'error') }
+  }
+  const shown = doors.filter(d => !q.trim() || `${d.ref} ${d.floor} ${d.note}`.toLowerCase().includes(q.trim().toLowerCase()))
+  const noSet = doors.filter(d => !d.effective_set_id).length
+  const allTicked = shown.length > 0 && shown.every(d => ticked.has(d.id))
+  return (
+    <section className="jd card-panel">
+      <div className="jd-head">
+        <h2>Doors on this job <span className="muted">{doors.length}</span></h2>
+        <span className={noSet ? 'jd-noset' : 'jd-ok'}>{noSet ? `${noSet} without a set` : 'Every door has a set'}</span>
+        <span className="spacer" />
+        <label className="adm-search jd-search"><IconSearch size={16} /><input placeholder="Find a door or note" value={q} onChange={e => setQ(e.target.value)} /></label>
+        <button className="btn btn-sm" onClick={onDownload}>Download doors</button>
+        <button className="btn btn-sm btn-primary" onClick={onNext} disabled={noSet > 0} title={noSet ? 'Give every door a set first' : ''}>Next: prices</button>
+      </div>
+      {canEdit && (
+        <div className={`pr-bulk${ticked.size ? ' on' : ''}`}>
+          {ticked.size ? (
+            <>
+              <strong>{ticked.size} door{ticked.size !== 1 ? 's' : ''} ticked</strong>
+              <span>Give {ticked.size === 1 ? 'it' : 'them'}</span>
+              <SetPick value="" options={setOptions} blank="Choose a set..." onChange={sid => give([...ticked], sid)} always />
+              <button className="link-btn inline" onClick={() => give([...ticked], '')}>Take set off</button>
+              <button className="link-btn inline" onClick={() => setTicked(new Set())}>Untick all</button>
+            </>
+          ) : <span>Tick doors to give them one set together, or pick a set on a door's own row.</span>}
+        </div>
+      )}
+      <table className="ledger jd-table">
+        <thead><tr>
+          <th className="jd-tick">{canEdit && <input type="checkbox" checked={allTicked} onChange={() => setTicked(allTicked ? new Set() : new Set(shown.map(d => d.id)))} aria-label="Tick every door shown" />}</th>
+          <th>Door</th><th>Floor</th><th>Note</th><th>Set</th><th /></tr></thead>
+        <tbody>
+          {shown.map(d => (
+            <tr key={d.id} className={ticked.has(d.id) ? 'ticked' : ''}>
+              <td className="jd-tick">{canEdit && <input type="checkbox" checked={ticked.has(d.id)} onChange={() => setTicked(t => { const n = new Set(t); n.has(d.id) ? n.delete(d.id) : n.add(d.id); return n })} aria-label={`Tick ${d.ref}`} />}</td>
+              <td className="jd-ref">{d.ref}</td>
+              <td>{d.floor}</td>
+              <td className="jd-note">{d.note}</td>
+              <td>{canEdit ? <SetPick value={String(d.effective_set_id || '')} options={setOptions} onChange={sid => give([d.id], sid)} /> : d.effective_set_code}</td>
+              <td className="jd-acts">{canEdit && <button className="btn btn-sm btn-ghost" onClick={() => remove(d)}>Remove</button>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   )
 }
 
