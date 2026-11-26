@@ -312,6 +312,8 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     if (left.length && !await ask({ title: 'Mark it checked anyway?', body: `${left.join('. ')}.`, confirm: 'Mark checked' })) return
     jobAct('checked', { done: true })
   }
+  // door schedules the architect sent with the job, each with its place in the files sent
+  const sentLists = (job?.files || []).map((f, i) => ({ ...f, i })).filter(f => f.kind !== 'pdf')
   const mine = !job?.owner_id || job.owner_id === user?.id
   const theirs = job && !mine ? job.owner_name : ''
   const jobButtons = job && (
@@ -341,9 +343,11 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
         <Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={
           <>{job?.source === 'portal' && <BriefButton job={job} onRead={readSentList} busy={busy} />}<button className="btn btn-ghost back-jobs" onClick={() => onNavigate('dashboard')}><IconLeft size={16} /> Back to jobs</button>{jobButtons}</>} />
         <div className="page-wrap pr-start" {...drop}>
+          {sentLists.length > 0 && <SentLists lists={sentLists} onRead={readSentList} busy={busy} big confirmed={job?.door_count || 0}
+                                              onDownload={job?.door_count ? download : null} />}
           <div className="page-header">
             <div>
-              <h1>Read the doors from the plans</h1>
+              <h1>{sentLists.length ? 'Or read the doors from the plans' : 'Read the doors from the plans'}</h1>
               <p className="lede">Upload the architect's floor plans as exported from CAD, or their door list as a spreadsheet. The door numbers are read whatever style the architect uses. You look over the few that are not certain, then confirm them.</p>
             </div>
           </div>
@@ -485,6 +489,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
               </div>
             </div>}
             {r.problems.map(p => <div key={p.file} className="pr-sheet-note"><strong>{p.name}</strong> {p.problem}</div>)}
+            {sentLists.length > 0 && <SentLists lists={sentLists} onRead={readSentList} busy={busy} />}
             <div className="pr-listbar">
               <div className="pr-tabs">
                 <button className={tab === 'check' ? 'on' : ''} onClick={() => setTab('check')}>To look at <span>{open.length}</span></button>
@@ -602,6 +607,27 @@ function SheetNotes({ info, note, problem }) {
     <div className={`pr-notes${warn ? ' warn' : ''}${open ? ' open' : ''}`} onClick={() => setOpen(!open)} title={open ? 'Show less' : 'Show all'}>
       {warn && <IconWarn size={13} />}
       <span>{text.join(' ')}</span>
+    </div>
+  )
+}
+
+/* The architect's door schedule: the most direct way to the doors, so it is offered first. */
+function SentLists({ lists, onRead, busy, big = false, confirmed = 0, onDownload = null }) {
+  return (
+    <div className={`pr-lists${big ? ' big' : ''}`}>
+      {big && <h2>The architect sent a door schedule</h2>}
+      {lists.map(f => (
+        <div key={f.i} className="pr-list-file">
+          <IconFile size={16} />
+          <span className="pr-list-name">{f.name}</span>
+          <span className="muted">{f.doors ? `${f.doors} door${f.doors !== 1 ? 's' : ''} in it` : 'no door numbers found in it'}</span>
+          <button className={`btn btn-sm ${big ? 'btn-primary' : 'btn-soft'}`} disabled={!!busy} onClick={() => onRead(f.i)}>Read the doors in it</button>
+        </div>
+      ))}
+      {big && confirmed > 0 && (
+        <p className="pr-lists-done"><IconCheck size={15} /> {confirmed} door{confirmed !== 1 ? 's' : ''} confirmed on this job.
+          {onDownload && <button className="link-btn inline" onClick={onDownload}>Download doors</button>}</p>
+      )}
     </div>
   )
 }
@@ -887,7 +913,7 @@ function DoorListReview({ data, projectId, crumbs, onNavigate, onBack, onDone, t
       if (!ref || seen.has(ref.toUpperCase())) continue
       seen.add(ref.toUpperCase())
       out.push({ ref, floor: val(d, 'floor').trim(),
-                 note: [d.room && `Room ${d.room}`, d.fire && `Fire ${d.fire}`, d.type, d.description].filter(Boolean).join(' · ') })
+                 note: [d.room && `Room ${d.room}`, d.size && `Size ${d.size}`, d.fire && `Fire ${d.fire}`, d.type, d.description].filter(Boolean).join(' · ') })
     }
     return out
   }, [doors, pick, edit])
@@ -900,6 +926,7 @@ function DoorListReview({ data, projectId, crumbs, onNavigate, onBack, onDone, t
     `door numbers from "${cols.door}"`,
     cols.floor ? `floor from "${cols.floor}"` : doors.some(d => d.floor) ? 'floor from the headings in the sheet' : 'no floor in the sheet',
     cols.room && `room from "${cols.room}"`,
+    cols.size && `size from "${cols.size}"`,
     cols.fire && `fire rating from "${cols.fire}"`,
   ].filter(Boolean).join(', ')
 
@@ -949,7 +976,7 @@ function DoorListReview({ data, projectId, crumbs, onNavigate, onBack, onDone, t
             {tab === 'check' && toCheck.length === 0 && <p className="muted pr-empty"><IconCheck size={16} /> Nothing to look at. Every row read cleanly.</p>}
             {shown.length > 0 && (
               <table className="ledger dl-table">
-                <thead><tr><th className="dl-tick">Confirm</th><th>Door</th><th>Floor</th><th>Room</th><th>Fire rating</th><th>Row</th><th></th></tr></thead>
+                <thead><tr><th className="dl-tick">Confirm</th><th>Door</th><th>Floor</th><th>Room</th><th>Size</th><th>Fire rating</th><th>Row</th><th></th></tr></thead>
                 <tbody>
                   {shown.slice(0, 1500).map(d => {
                     const inn = isIn(d), undecided = d.status === 'amber' && !d.on_job && pick[d.id] === undefined
@@ -960,6 +987,7 @@ function DoorListReview({ data, projectId, crumbs, onNavigate, onBack, onDone, t
                         <td><input className="form-control dl-in dl-ref" value={val(d, 'ref')} onChange={e => set(d, 'ref', e.target.value)} disabled={d.on_job} /></td>
                         <td><input className="form-control dl-in" value={val(d, 'floor')} placeholder="Floor" onChange={e => set(d, 'floor', e.target.value)} disabled={d.on_job} /></td>
                         <td className="dl-room">{d.room}</td>
+                        <td className="dl-size">{d.size}</td>
                         <td>{d.fire}</td>
                         <td className="muted dl-row">{d.row}</td>
                         <td className="dl-why">
@@ -984,7 +1012,7 @@ function DoorListReview({ data, projectId, crumbs, onNavigate, onBack, onDone, t
               <label>Set for these doors
                 <SetPick value={target} options={setOptions} blank="None: choose later" onChange={setTarget} always wide />
               </label>
-              <p className="muted dl-note">Room and fire rating go into each door's note.</p>
+              <p className="muted dl-note">Room, size and fire rating go into each door's note.</p>
               {theirs && <p className="muted dl-note">{theirs} has this job. Only they can confirm doors on it.</p>}
               <button className="btn btn-primary wide" onClick={apply} disabled={!adding.length || busy || !!theirs}>
                 {busy ? <span className="spinner" /> : `Confirm ${adding.length} door${adding.length !== 1 ? 's' : ''}`}

@@ -159,7 +159,8 @@ export function Dashboard({ onNavigate }) {
                               <td className="muted">{ago(p.received_at)}</td>
                               <td>{c && <span className={`in-clock ${c.cls}`}>{c.text}</span>}</td>
                               <td className="num job-num">
-                                {p.draft?.green != null ? <>{p.draft.green}{p.draft.amber > 0 && <span className="of"> {p.draft.amber} to look at</span>}
+                                {p.draft?.listed > 0 && p.draft?.green == null ? <>{p.draft.listed}<span className="of in-listed"> in the door schedule</span></>
+                                  : p.draft?.green != null ? <>{p.draft.green}{p.draft.amber > 0 && <span className="of"> {p.draft.amber} to look at</span>}{p.draft.listed > 0 && <span className="of in-listed"> {p.draft.listed} in the door schedule</span>}
                                   {p.draft.unreadable > 0 && <span className="of"> {p.draft.unreadable} sheet{p.draft.unreadable !== 1 ? 's' : ''} cannot be read</span>}</> : <span className="muted">Reading...</span>}
                               </td>
                               <td className="num" onClick={e => e.stopPropagation()}>

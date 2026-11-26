@@ -308,7 +308,7 @@ def _me(inv: models.Invite) -> dict:
 
 
 def _file_out(f: dict) -> dict:
-    return {k: f.get(k) for k in ("id", "name", "size", "kind", "pages", "unreadable", "note")}
+    return {k: f.get(k) for k in ("id", "name", "size", "kind", "pages", "unreadable", "note", "doors")}
 
 
 @router.get("/me")
@@ -433,8 +433,20 @@ async def send_file(request: Request, file: UploadFile = File(...), inv: models.
         note = (f"{which} {'has' if len(unreadable) == 1 and pages > 1 else 'have'} no text to read: "
                 f"{'it looks' if len(unreadable) == 1 and pages > 1 else 'they look'} like a scan or a picture. "
                 "If these are floor plans, please upload the PDF exported from CAD.")
+    doors = None
+    if kind in ("xlsx", "csv"):
+        # opened safely above; now read for its doors, so the architect sees it was the right file
+        from detection.door_list import read_door_list
+        try:
+            got = await run_in_threadpool(read_door_list, name, dest.read_bytes())
+            doors = len(got.get("doors") or [])
+        except Exception:
+            doors = 0
+        if not doors:
+            note = ("No list of door numbers was found in this spreadsheet. If it is the door schedule, check it has a "
+                    "column headed Door No. (or Door Ref, Tag, Mark).")
     entry = {"id": fid, "name": name, "file": dest.name, "size": size, "kind": kind, "pages": pages,
-             "unreadable": unreadable, "note": note}
+             "unreadable": unreadable, "note": note, "doors": doors}
     with _files_lock:
         files = _list(inv.id)
         files.append(entry)
@@ -484,13 +496,14 @@ def send(payload: SendIn, request: Request, db: Session = Depends(get_db), inv: 
     if len(brief) < BRIEF_MIN:
         raise HTTPException(400, f"Tell us a little more about the project in the brief (at least {BRIEF_MIN} characters)")
     if not payload.agree:
-        raise HTTPException(400, f"Tick to confirm the plans are as the {TURNAROUND_HOURS} hour terms ask")
+        raise HTTPException(400, f"Tick to confirm the plans or schedule are as the {TURNAROUND_HOURS} hour terms ask")
     files = _list(inv.id)
     pdfs = [f for f in files if f["kind"] == "pdf"]
-    if not pdfs:
-        raise HTTPException(400, "Upload the floor plans as PDF")
-    if all(len(f.get("unreadable") or []) == f.get("pages") for f in pdfs):
-        raise HTTPException(400, "None of the PDFs has text that can be read: they look like scans. Upload the PDFs exported from CAD.")
+    lists = [f for f in files if f["kind"] in ("xlsx", "csv") and f.get("doors")]
+    if not pdfs and not lists:
+        raise HTTPException(400, "Upload the floor plans as PDF, or the door schedule as Excel")
+    if not lists and all(len(f.get("unreadable") or []) == f.get("pages") for f in pdfs):
+        raise HTTPException(400, "None of the PDFs has text that can be read: they look like scans. Upload the PDFs exported from CAD, or the door schedule as Excel.")
 
     now = utcnow()
     contact = {"company": _clip(payload.company, 120), "name": _clip(payload.name, 120), "email": str(payload.email)[:160],
@@ -512,7 +525,7 @@ def send(payload: SendIn, request: Request, db: Session = Depends(get_db), inv: 
         dest = f"{i}.{f['kind']}"
         shutil.copyfile(src, keep / dest)
         index.append({"name": f["name"], "file": dest, "size": f["size"], "kind": f["kind"], "pages": f.get("pages"),
-                      "unreadable": f.get("unreadable") or []})
+                      "unreadable": f.get("unreadable") or [], "doors": f.get("doors")})
     (keep / "index.json").write_text(json.dumps(index))
     inv.status, inv.sent_at, inv.project_id = "sent", now, pid
     db.commit()
@@ -521,6 +534,8 @@ def send(payload: SendIn, request: Request, db: Session = Depends(get_db), inv: 
     # the plans are read now, so the draft is waiting when someone opens the job
     from plan_reads import new_reading, read_now
     plans = [(f["name"], (keep / f["file"]).read_bytes()) for f in index if f["kind"] == "pdf"]
+    if not plans:
+        return {"ref": f"MF-{pid:05d}", "turnaround_hours": TURNAROUND_HOURS}     # a door schedule only
     rid, _, _ = new_reading(pid, plans, None)
 
     def work():

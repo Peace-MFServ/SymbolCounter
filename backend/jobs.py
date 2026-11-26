@@ -88,6 +88,15 @@ class ProjectOut(BaseModel):
 
 
 def _draft(pid: int, rid: str) -> dict:
+    """What was read from what the architect sent: doors on the plans, and doors in a door schedule."""
+    listed = sum(f.get("doors") or 0 for f in job_files(pid) if f.get("kind") in ("xlsx", "csv"))
+    out = _plans_draft(pid, rid)
+    if listed:
+        out["listed"] = listed
+    return out
+
+
+def _plans_draft(pid: int, rid: str) -> dict:
     from plan_reads import ROOT
     kept = ROOT / str(pid) / rid / "reading.json"
     if not rid or not kept.exists():
@@ -127,7 +136,7 @@ def project_out(p: models.Project, db: Session, full: bool = True) -> ProjectOut
         contact=contact, received_at=iso(p.received_at), due_at=iso(p.due_at), checked_at=iso(p.checked_at),
         plan_read=rid, draft=_draft(p.id, rid),
         door_count=db.query(models.Door).filter(models.Door.project_id == p.id).count(),
-        files=[{k: f.get(k) for k in ("name", "size", "kind", "pages", "unreadable")} for f in job_files(p.id)] if full else [],
+        files=[{k: f.get(k) for k in ("name", "size", "kind", "pages", "unreadable", "doors")} for f in job_files(p.id)] if full else [],
         owner_id=p.owner_id, owner_name=p.owner.name if p.owner else "",
         created_at=iso(p.created_at), updated_at=iso(p.updated_at or p.created_at))
 

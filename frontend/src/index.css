@@ -2138,3 +2138,16 @@ body:has(.pr-full) { overflow: hidden; }
 }
 .inv-send { flex-wrap: wrap; }
 .inv-send a.btn { text-decoration: none; }
+
+/* the architect's door schedule, offered first */
+.pr-lists { display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; padding: 8px 10px; border: 1px solid #D5E2F3; border-radius: 8px; background: #F3F7FD; }
+.pr-lists.big { padding: 18px 20px; margin-bottom: 26px; gap: 10px; background: #fff; border-color: var(--card-border); box-shadow: var(--shadow-card); }
+.pr-lists.big h2 { font-size: 17px; margin-bottom: 2px; }
+.pr-list-file { display: flex; align-items: center; gap: 10px; font-size: 13.5px; min-width: 0; }
+.pr-list-file svg { color: var(--accent); flex-shrink: 0; }
+.pr-list-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-list-file .btn { margin-left: auto; flex-shrink: 0; }
+.pr-lists-done { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: #1F7A33; }
+.pr-lists-done .link-btn { margin-left: 6px; }
+.dl-size { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.in-listed { color: var(--accent) !important; }

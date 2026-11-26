@@ -171,11 +171,12 @@ function FormStep({ token, session, me, setMe, onEnded, onSent }) {
   }
 
   const pdfs = me.files.filter(x => x.kind === 'pdf')
+  const lists = me.files.filter(x => x.kind !== 'pdf' && x.doors > 0)
   const uploading = queue.some(x => !x.err)
   const missing = [
     !f.company.trim() && 'your company', !f.name.trim() && 'your name', !/^\S+@\S+\.\S+$/.test(f.email.trim()) && 'your email',
     f.phone.replace(/\D/g, '').length < 6 && 'a phone number', !f.project.trim() && 'the project name', !f.site.trim() && 'the site address',
-    !pdfs.length && 'the floor plans', f.brief.trim().length < BRIEF_MIN && 'the brief', !f.agree && 'the tick at the end',
+    !pdfs.length && !lists.length && 'the floor plans or door schedule', f.brief.trim().length < BRIEF_MIN && 'the brief', !f.agree && 'the tick at the end',
   ].filter(Boolean)
   const send = async e => {
     e.preventDefault()
@@ -212,15 +213,15 @@ function FormStep({ token, session, me, setMe, onEnded, onSent }) {
       </section>
 
       <section className="pt-card">
-        <h2><span className="pt-step">3</span> Floor plans</h2>
-        <p className="pt-help">Every floor, as PDFs exported from CAD, with every door labelled. A door list as Excel (.xlsx) or .csv is welcome too. Scans and pictures of plans cannot be read.</p>
+        <h2><span className="pt-step">3</span> Floor plans and door schedule</h2>
+        <p className="pt-help">Every floor, as PDFs exported from CAD, with every door labelled. If you have the door schedule as Excel (.xlsx) or .csv, add it too: it is the quickest way for us, and on its own it is enough. Scans and pictures of plans cannot be read.</p>
         <input ref={pick} type="file" multiple accept=".pdf,.xlsx,.xlsm,.csv" style={{ display: 'none' }} onChange={e => { add(e.target.files); e.target.value = '' }} />
         <div className={`pt-drop${drag ? ' over' : ''}`} onClick={() => pick.current.click()}
              onDragOver={e => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
              onDrop={e => { e.preventDefault(); setDrag(false); add(e.dataTransfer.files) }}>
           <IconUpload size={26} />
           <strong>Drop the files here, or click to choose them</strong>
-          <span>PDF, .xlsx or .csv, up to {me.limits.file_mb} MB each</span>
+          <span>Plans as PDF, door schedule as .xlsx or .csv, up to {me.limits.file_mb} MB each</span>
         </div>
         {(me.files.length > 0 || queue.length > 0) && (
           <ul className="pt-files">
@@ -230,8 +231,8 @@ function FormStep({ token, session, me, setMe, onEnded, onSent }) {
                 <div className="pt-file-main">
                   <span className="pt-file-name">{x.name}</span>
                   <span className="pt-file-meta">
-                    {fmtSize(x.size)} · {x.kind === 'pdf' ? `${x.pages} sheet${x.pages !== 1 ? 's' : ''}` : 'door list'}
-                    {!x.note && x.kind === 'pdf' && <span className="pt-good"> · <IconCheck size={13} /> can be read</span>}
+                    {fmtSize(x.size)} · {x.kind === 'pdf' ? `${x.pages} sheet${x.pages !== 1 ? 's' : ''}` : x.doors ? `door schedule, ${x.doors} door${x.doors !== 1 ? 's' : ''}` : 'spreadsheet'}
+                    {!x.note && (x.kind === 'pdf' || x.doors > 0) && <span className="pt-good"> · <IconCheck size={13} /> can be read</span>}
                   </span>
                   {x.note && <span className="pt-file-note"><IconWarn size={13} /> {x.note}</span>}
                 </div>
@@ -266,7 +267,7 @@ function FormStep({ token, session, me, setMe, onEnded, onSent }) {
       <section className="pt-card pt-send">
         <label className="pt-agree">
           <input type="checkbox" checked={f.agree} onChange={set('agree')} />
-          <span>These are floor plans exported from CAD, with every door labelled. I understand the {me.turnaround_hours} hour turnaround depends on this.</span>
+          <span>These are floor plans exported from CAD with every door labelled, or a door schedule listing every door. I understand the {me.turnaround_hours} hour turnaround depends on this.</span>
         </label>
         {err && <p className="pt-err"><IconWarn size={14} /> {err}</p>}
         <div className="pt-send-row">

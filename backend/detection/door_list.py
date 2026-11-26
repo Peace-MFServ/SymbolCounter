@@ -27,6 +27,7 @@ _HEADS = {
     "room": re.compile(r"^(room|location|space|area)(\s*(no\.?|nr\.?|number|name|ref\.?|reference|description))?$|^(from|to)\s*(room)?$", re.I),
     "fire": re.compile(r"^(fire|fire\s*rating|fire\s*resistance|fr|fd\s*rating|fire\s*door)(\s*\(.*\))?$", re.I),
     "type": re.compile(r"^(door\s*)?(type|style)(\s*(no\.?|ref\.?|code))?$", re.I),
+    "size": re.compile(r"^(door\s*|leaf\s*|opening\s*|structural\s*)?(size|dims?\.?|dimensions?)(\s*\(?(h\s*x\s*w|w\s*x\s*h|mm)\)?)?$|^(h\s*x\s*w|w\s*x\s*h)$", re.I),
     "description": re.compile(r"^(description|desc\.?|door\s*description|comments?|notes?|remarks?)$", re.I),
 }
 _OTHER_TABLE = re.compile(r"^(window|rooflight|roof\s*light|screen|glazing|louvre|hatch)s?\s*(no\.?|nr\.?|number|ref\.?|reference|tag|mark|id)?$", re.I)
@@ -181,7 +182,7 @@ def read_door_list(name: str, data: bytes) -> dict:
                               for j, header_of in fire_cols if j < len(row) and row[j])
         fl = get("floor")
         door = {"id": f"r{i + 1}", "row": i + 1, "ref": v, "floor": (_floor_from(fl) or fl) if fl else floor, "room": get("room"),
-                "fire": fire, "type": get("type"), "description": get("description"),
+                "fire": fire, "type": get("type"), "size": get("size"), "description": get("description"),
                 "status": "green", "reasons": []}
         if not _looks_like_ref(v, by_head):
             # no number in it: a lift door "D-E-LIFT" is kept for a look, a heading or a note is not
