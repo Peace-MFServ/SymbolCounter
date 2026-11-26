@@ -65,9 +65,9 @@ function AuthHero() {
   return (
     <section className="auth-hero">
       <div className="auth-brand"><img src={logo} alt="MF Services" /></div>
-      <h1>Door Schedules</h1>
+      <h1>Door Reader</h1>
       <div className="auth-rule" />
-      <p>Standard sets, doors and schedule documents for every job.</p>
+      <p>Architects' floor plans in, every door read and checked.</p>
     </section>
   )
 }

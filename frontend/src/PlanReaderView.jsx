@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
-import { apiFetch } from './api'
+import { apiFetch, useAuthImage, downloadBlob } from './api'
 import { showToast } from './toast'
-import { Topbar } from './Dashboard'
-import { useAuthImage } from './TemplatesView'
+import { Topbar, clockOf } from './Dashboard'
+import { useAuth } from './auth'
 import { useConfirm } from './confirm'
-import { IconUpload, IconCheck, IconWarn, IconSearch, IconLeft, IconPlus } from './icons'
+import { IconUpload, IconCheck, IconWarn, IconSearch, IconLeft, IconPlus, IconFile } from './icons'
 
 const refKey = r => (r || '').split(/(\d+)/).map(t => (/^\d+$/.test(t) ? t.padStart(8, '0') : t.toLowerCase())).join('')
 const sheetKey = x => `${x.file}.${x.page}`
@@ -12,15 +12,17 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k) || 'null') } catch { return null } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch { /* private window */ } },
 }
+const fmtSize = n => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
 
 /* Read the doors off a job's floor plans. The tags in one style are found on
-   every sheet; the sure ones go straight on, the doubtful ones are listed for
-   a person to look at on the plan, and then they are added to the job. */
-export function PlanReaderView({ projectId, setId = null, onNavigate }) {
+   every sheet; the sure ones are ready to confirm, the doubtful ones are listed
+   for a person to look at on the plan, and then they are confirmed on the job. */
+export function PlanReaderView({ projectId, onNavigate }) {
+  const { user } = useAuth()
   const [job, setJob] = useState(null)
   const [rid, setRid] = useState(null)
   const [r, setR] = useState(null)              // the reading
-  const [busy, setBusy] = useState('')          // 'upload' | 'style' | 'apply'
+  const [busy, setBusy] = useState('')          // 'upload' | 'style' | 'apply' | 'job'
   const [booting, setBooting] = useState(true)  // looking for the job's plans as last read
   const [drag, setDrag] = useState(false)
   const [sheet, setSheet] = useState(null)      // "file.page" shown
@@ -32,16 +34,13 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   const [choice, setChoice] = useState({})      // id -> 'keep' | 'drop'
   const [refs, setRefs] = useState({})          // id -> corrected reference
   const [floors, setFloors] = useState({})      // "file.page" -> floor name
-  const [target, setTarget] = useState(setId ? String(setId) : '')
   const [list, setList] = useState(null)        // a door list read from a spreadsheet
-  const [setOf, setSetOf] = useState({})        // id -> the set given to that door here
-  const [ticked, setTicked] = useState(() => new Set())   // doors ticked to be given one set together
-  const lastTick = useRef(null)
   const [placing, setPlacing] = useState(false)  // adding a door by hand: waiting for a click on the plan
   const [adding1, setAdding1] = useState(null)   // the door being added by hand: { file, page, x, y } (x, y null if it is on no sheet)
   const [fixing, setFixing] = useState(false)   // the wrong labels were read: show what else could be the door numbers
+  const [briefOpen, setBriefOpen] = useState(false)
   const fileRef = useRef()
-  const loadJob = () => apiFetch(`/projects/${projectId}/job`).then(setJob).catch(err => showToast(err.message, 'error'))
+  const loadJob = () => apiFetch(`/projects/${projectId}`).then(setJob).catch(err => showToast(err.message, 'error'))
   const splitRef = useRef()
   const [splitH, setSplitH] = useState(0)
   const { ask, modal: confirmModal } = useConfirm()
@@ -50,7 +49,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     fit()
     window.addEventListener('resize', fit)
     return () => window.removeEventListener('resize', fit)
-  }, [r, list])
+  }, [r, list, job, briefOpen])
 
   useEffect(() => {
     loadJob()
@@ -62,9 +61,9 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
   useEffect(() => {
     if (!rid) return
     const s = store.get(`planread:${rid}`) || {}
-    setChoice(s.choice || {}); setRefs(s.refs || {}); setFloors(s.floors || {}); setSetOf(s.setOf || {}); setTicked(new Set())
+    setChoice(s.choice || {}); setRefs(s.refs || {}); setFloors(s.floors || {})
   }, [rid])
-  useEffect(() => { if (rid) store.set(`planread:${rid}`, { choice, refs, floors, setOf }) }, [rid, choice, refs, floors, setOf])
+  useEffect(() => { if (rid) store.set(`planread:${rid}`, { choice, refs, floors }) }, [rid, choice, refs, floors])
 
   const opened = data => {
     setR(data); setRid(data.id)
@@ -92,7 +91,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
       return
     }
     const pdfs = all.filter(f => /\.pdf$/i.test(f.name))
-    if (!pdfs.length) { showToast('Choose the floor plans as PDF, or the door schedule as Excel (.xlsx) or .csv', 'error'); return }
+    if (!pdfs.length) { showToast('Choose the floor plans as PDF, or the door list as Excel (.xlsx) or .csv', 'error'); return }
     const fd = new FormData()
     pdfs.forEach(f => fd.append('files', f))
     setBusy('upload')
@@ -105,10 +104,20 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
         showToast(`${pdfs.length} plan${pdfs.length !== 1 ? 's' : ''} added and read`, 'success')
       } else {
         opened(await apiFetch(`/projects/${projectId}/plan-reads`, { method: 'POST', body: fd }))
-        setChoice({}); setRefs({}); setFloors({}); setSetOf({}); setTicked(new Set())
+        setChoice({}); setRefs({}); setFloors({})
       }
+      loadJob()
     }
     catch (err) { showToast(err.message, 'error') }
+    finally { setBusy('') }
+  }
+  const readSentList = async i => {
+    setBusy('upload')
+    try {
+      const res = await apiFetch(`/projects/${projectId}/files/${i}/door-list`, { method: 'POST' })
+      if (res.problem) { showToast(res.problem, 'error'); return }
+      setList(res)
+    } catch (err) { showToast(err.message, 'error') }
     finally { setBusy('') }
   }
   const chooseStyles = async keys => {
@@ -125,6 +134,14 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     apiFetch(`/projects/${projectId}/plan-reads/${rid}/labels?file=${f}&page=${p}`).then(setLabels).catch(() => setLabels([]))
   }, [picking, sheet, rid, projectId])
 
+  // the job itself: take it, mark it checked
+  const jobAct = async (path, body) => {
+    setBusy('job')
+    try { setJob(await apiFetch(`/projects/${projectId}/${path}`, { method: 'POST', body: body ? JSON.stringify(body) : undefined })) }
+    catch (err) { showToast(err.message, 'error'); loadJob() }
+    finally { setBusy('') }
+  }
+
   // ── what the reading comes to ─────────────────────────────────────────────
   const pages = r?.pages || []
   const pageOf = useMemo(() => Object.fromEntries(pages.map(p => [sheetKey(p), p])), [pages])
@@ -135,7 +152,7 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     return [...r.doors.map(d => ({ ...d, kind: 'door' })), ...r.checks].map(x => {
       const ref = (refs[x.id] ?? x.ref ?? '').trim()
       const j = ref ? jd[ref.toUpperCase()] : null
-      return { ...x, on_job: !!j, door_id: j?.id ?? null, job_set: j?.set_id ?? null }
+      return { ...x, on_job: !!j, door_id: j?.id ?? null }
     })
   }, [r, refs])
   const refOf = x => (refs[x.id] ?? x.ref ?? '').trim()
@@ -156,22 +173,13 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
       const ref = refOf(x)
       if (!ref || seen.has(ref.toUpperCase())) continue
       seen.add(ref.toUpperCase())
-      out.push({ ref, floor: floorOf(x), set_id: Number(setOf[x.id] || target) || null,
-                 note: [x.type && x.type !== ref && `Type ${x.type}`, ...(x.also || [])].filter(Boolean).join(' · ') })
+      out.push({ ref, floor: floorOf(x), note: [x.type && x.type !== ref && `Type ${x.type}`, ...(x.also || [])].filter(Boolean).join(' · ') })
     }
     return out
-  }, [items, choice, refs, floors, setOf, target])
-  // the sets a door can be given: the job's own first, then the library
-  const setOptions = useMemo(() => [
-    ...(job?.sets || []).map(js => ({ value: String(js.set.id), code: js.set.code, label: `${js.set.code} · ${js.set.name}`, group: 'On this job' })),
-    ...(job?.library || []).map(x => ({ value: String(x.id), code: x.code, label: `${x.code} · ${x.name}`, group: 'Set library' })),
-  ], [job])
-  const setCode = x => setOptions.find(o => o.value === String(x.on_job ? (x.job_set || '') : (setOf[x.id] || target || '')))?.code || ''
-  const tickable = x => x.on_job || (!(x.status === 'out' && choice[x.id] !== 'keep') && choice[x.id] !== 'drop')
-  // each door on the job once, however many times its number is printed
+  }, [items, choice, refs, floors])
+  // each door confirmed once, however many times its number is printed
   const jobItems = useMemo(() => { const seen = new Set(); return items.filter(x => x.on_job && !seen.has(x.door_id) && seen.add(x.door_id)) }, [items])
-  const onJob = jobItems.length
-  const withSet = adding.filter(a => a.set_id).length + jobItems.filter(x => x.job_set).length
+  const onJob = Object.keys(r?.job_doors || {}).length
   const bySheet = useMemo(() => {
     const m = {}
     for (const x of items) {
@@ -183,46 +191,9 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     return m
   }, [items, choice])
 
-  const tick = (x, e, rows) => {
-    const on = !ticked.has(x.id)
-    const next = new Set(ticked)
-    // shift-click ticks the run from the last door ticked to this one
-    const from = lastTick.current != null && rows ? rows.findIndex(r => r.id === lastTick.current) : -1
-    const to = rows ? rows.findIndex(r => r.id === x.id) : -1
-    const run = e?.shiftKey && from >= 0 && to >= 0 ? rows.slice(Math.min(from, to), Math.max(from, to) + 1).filter(tickable) : [x]
-    for (const d of run) on ? next.add(d.id) : next.delete(d.id)
-    lastTick.current = x.id
-    setTicked(next)
-  }
-  const tickThese = xs => {
-    const able = xs.filter(tickable)
-    const all = able.length > 0 && able.every(x => ticked.has(x.id))
-    const next = new Set(ticked)
-    for (const x of able) all ? next.delete(x.id) : next.add(x.id)
-    setTicked(next)
-  }
-  const saveJobSet = async (xs, sid) => {
-    const ids = [...new Set(xs.map(x => x.door_id).filter(Boolean))]
-    if (!ids.length) return
-    const was = r.job_doors
-    setR(cur => ({ ...cur, job_doors: Object.fromEntries(Object.entries(cur.job_doors).map(([k, v]) => [k, ids.includes(v.id) ? { ...v, set_id: sid ? Number(sid) : null } : v])) }))
-    try {
-      await apiFetch(`/projects/${projectId}/doors/assign-set`, { method: 'POST', body: JSON.stringify({ door_ids: ids, set_id: sid ? Number(sid) : null }) })
-      loadJob()
-    } catch (err) { setR(cur => ({ ...cur, job_doors: was })); showToast(err.message, 'error') }
-  }
-  const giveTicked = sid => {
-    const n = ticked.size
-    const picked = items.filter(x => ticked.has(x.id))
-    saveJobSet(picked.filter(x => x.on_job), sid)
-    setSetOf(m => { const o = { ...m }; for (const x of picked) if (!x.on_job) o[x.id] = sid; return o })
-    const name = setOptions.find(o => o.value === sid)?.code
-    showToast(sid ? `${n} door${n !== 1 ? 's' : ''} given ${name}` : `Set taken off ${n} door${n !== 1 ? 's' : ''}`, 'success')
-    setTicked(new Set())
-  }
   const addByHand = async ref => {
     const at = adding1
-    // already read off the plans, or on the job: show it, do not add it twice
+    // already read off the plans, or confirmed: show it, do not add it twice
     const same = items.find(x => refOf(x).toUpperCase() === ref.toUpperCase() && (x.on_job || counts(x) || x.status === 'amber'))
     if (same) {
       showToast(`${refOf(same)} is already in the list`, 'info')
@@ -234,12 +205,18 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
         body: JSON.stringify({ ref, file: at.file, page: at.page, x: at.x, y: at.y }) })
       setR(data); setAdding1(null); setPlacing(false); setTab('all')
       if (at.x != null) setFocus(data.added)
-      showToast(`${ref} added. It goes on the job with the others.`, 'success')
+      showToast(`${ref} added. Confirm it with the others.`, 'success')
     } catch (err) { showToast(err.message, 'error') }
   }
   const removeByHand = async x => {
     try { setR(await apiFetch(`/projects/${projectId}/plan-reads/${rid}/manual/${x.id}`, { method: 'DELETE' })) }
     catch (err) { showToast(err.message, 'error') }
+  }
+  const unconfirm = async x => {
+    try {
+      const res = await apiFetch(`/projects/${projectId}/doors/remove`, { method: 'POST', body: JSON.stringify({ doors: [{ ref: refOf(x) }] }) })
+      setR(cur => ({ ...cur, job_doors: res.job_doors })); loadJob()
+    } catch (err) { showToast(err.message, 'error') }
   }
   const lefty = x => (!x.on_job && x.status === 'out' && choice[x.id] !== 'keep' ? 1 : 0)
   const show = x => { setSheet(sheetKey(x)); if (x.x != null) setFocus(x.id) }
@@ -257,31 +234,52 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     if (!adding.length) return
     if (open.length && !await ask({
       title: `${open.length} still to look at`,
-      body: `${open.length === 1 ? 'It is' : 'They are'} left off for now; you can come back and add ${open.length === 1 ? 'it' : 'them'} later. The other ${adding.length} go on the job.`,
-      confirm: `Add ${adding.length} door${adding.length !== 1 ? 's' : ''}`,
+      body: `${open.length === 1 ? 'It is' : 'They are'} left for now; you can come back and confirm ${open.length === 1 ? 'it' : 'them'} later. The other ${adding.length} are confirmed.`,
+      confirm: `Confirm ${adding.length} door${adding.length !== 1 ? 's' : ''}`,
     })) return
     setBusy('apply')
     try {
-      const res = await apiFetch(`/projects/${projectId}/plan-reads/${rid}/apply`, { method: 'POST',
-        body: JSON.stringify({ doors: adding, set_id: target ? Number(target) : null }) })
-      showToast(`${res.added} door${res.added !== 1 ? 's' : ''} added to ${res.project}${res.skipped.length ? `, ${res.skipped.length} already on it` : ''}`, 'success')
-      // stay here: the doors are on the job now, and their sets can be given in All doors
+      const res = await apiFetch(`/projects/${projectId}/plan-reads/${rid}/apply`, { method: 'POST', body: JSON.stringify({ doors: adding }) })
+      showToast(`${res.added} door${res.added !== 1 ? 's' : ''} confirmed${res.skipped.length ? `, ${res.skipped.length} already were` : ''}`, 'success')
       setR(cur => ({ ...cur, job_doors: res.job_doors }))
-      setTicked(new Set()); setTab('all'); loadJob()
+      setTab('all'); loadJob()
     } catch (err) { showToast(err.message, 'error') }
     finally { setBusy('') }
   }
+  const download = () => downloadBlob(`/projects/${projectId}/doors.xlsx`, `${(job?.name || 'job').replace(/[^\w .-]+/g, '')} doors.xlsx`)
+    .catch(err => showToast(err.message, 'error'))
 
   const crumbs = [
     { label: 'Jobs', onClick: () => onNavigate('dashboard') },
-    { label: job?.name || '…', onClick: () => onNavigate('job', { id: projectId }) },
-    { label: 'Read doors' },
+    { label: job?.name || '…' },
   ]
+  // checked means every door was looked at: say what has not been, before it is marked
+  const unreadable = (r?.pages || []).filter(p => !p.readable)
+  const markChecked = async () => {
+    const left = [
+      open.length && `${open.length} door${open.length !== 1 ? 's are' : ' is'} still to look at`,
+      adding.length && `${adding.length} door${adding.length !== 1 ? 's' : ''} read off the plans ${adding.length !== 1 ? 'are' : 'is'} not confirmed yet`,
+      unreadable.length && `${unreadable.length} sheet${unreadable.length !== 1 ? 's' : ''} could not be read (${unreadable.map(p => p.name).join(', ')}), so any doors on ${unreadable.length !== 1 ? 'them' : 'it'} are not in the list`,
+    ].filter(Boolean)
+    if (left.length && !await ask({ title: 'Mark it checked anyway?', body: `${left.join('. ')}.`, confirm: 'Mark checked' })) return
+    jobAct('checked', { done: true })
+  }
+  const mine = !job?.owner_id || job.owner_id === user?.id
+  const theirs = job && !mine ? job.owner_name : ''
+  const jobButtons = job && (
+    job.source === 'portal' && !job.owner_id
+      ? <button className="btn btn-primary" onClick={() => jobAct('take')} disabled={!!busy}>Take it</button>
+      : job.stage === 'checked'
+        ? <>{mine && <button className="btn btn-ghost" onClick={() => jobAct('checked', { done: false })} disabled={!!busy}>Reopen</button>}<span className="stage-pill done">Checked{job.owner_name ? ` by ${job.owner_name}` : ''}</span></>
+        : mine && <button className="btn btn-primary" onClick={markChecked} disabled={!!busy || !onJob}
+                          title={onJob ? 'Every door on this job has been looked over' : 'Confirm the doors first'}>Mark checked</button>
+  )
+  const brief = job && job.source === 'portal' && <SentIn job={job} open={briefOpen} setOpen={setBriefOpen} onRead={readSentList} busy={busy} theirs={theirs} />
 
-  if (list) return <DoorListReview data={list} projectId={projectId} job={job} target={target} setTarget={setTarget}
-                                   crumbs={crumbs} onNavigate={onNavigate} onAnother={() => setList(null)} />
+  if (list) return <DoorListReview data={list} projectId={projectId} crumbs={crumbs} onNavigate={onNavigate} onBack={() => setList(null)} theirs={theirs}
+                                   onDone={res => { setList(null); if (r) setR(cur => ({ ...cur, job_doors: res.job_doors })); loadJob() }} />
 
-  if (booting) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /></div></>
+  if (booting) return <><Topbar crumbs={crumbs} onNavigate={onNavigate} /><div style={{ textAlign: 'center', padding: 80 }}><span className="spinner spinner-lg" /><p className="muted" style={{ marginTop: 14 }}>Opening the plans</p></div></>
 
   // ── upload ────────────────────────────────────────────────────────────────
   if (!r) {
@@ -293,12 +291,13 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     return (
       <>
         <Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={
-          <button className="btn btn-ghost back-jobs" onClick={() => onNavigate('job', { id: projectId })}><IconLeft size={16} /> Back to job</button>} />
+          <><button className="btn btn-ghost back-jobs" onClick={() => onNavigate('dashboard')}><IconLeft size={16} /> Back to jobs</button>{jobButtons}</>} />
+        {brief}
         <div className="page-wrap pr-start" {...drop}>
           <div className="page-header">
             <div>
-              <h1>Read doors from plans or a schedule</h1>
-              <p className="lede">Upload the architect's floor plans as exported from CAD, or their door schedule as a spreadsheet. The door numbers are read whatever style the architect uses. You look over the few that are not certain, then add them to the job.</p>
+              <h1>Read the doors from the plans</h1>
+              <p className="lede">Upload the architect's floor plans as exported from CAD, or their door list as a spreadsheet. The door numbers are read whatever style the architect uses. You look over the few that are not certain, then confirm them.</p>
             </div>
           </div>
           <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xlsm,.csv" multiple style={{ display: 'none' }} onChange={e => { upload(e.target.files); e.target.value = '' }} />
@@ -308,8 +307,8 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
             ) : (
               <>
                 <IconUpload size={28} />
-                <h2>Drop the floor plans or the door schedule here</h2>
-                <p>Floor plans as PDF, every floor at once. Or the door schedule as Excel (.xlsx) or .csv. Plans that are scans or pictures cannot be read; ask for the CAD export or the spreadsheet.</p>
+                <h2>Drop the floor plans or the door list here</h2>
+                <p>Floor plans as PDF, every floor at once. Or the door list as Excel (.xlsx) or .csv. Plans that are scans or pictures cannot be read; ask for the CAD export or the spreadsheet.</p>
                 <button className="btn btn-primary" onClick={e => { e.stopPropagation(); fileRef.current.click() }}>Choose files</button>
               </>
             )}
@@ -329,7 +328,6 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     if (!same.length) return fl
     const words = bare.split(/[\s_]+/)
     const others = new Set(same.flatMap(x => x.name.replace(/\.pdf$/i, '').split(/[\s_]+/)))
-    // the last word that is this file's alone, with the word before it: "Part 2"
     const i = words.map((w, j) => (!others.has(w) && w !== '-' ? j : -1)).filter(j => j >= 0).pop()
     const own = i === undefined ? '' : `${i > 0 && /^[A-Za-z]+$/.test(words[i - 1]) ? words[i - 1] + ' ' : ''}${words[i]}`
     return `${fl} · ${(own || bare).slice(0, 18)}`
@@ -344,7 +342,6 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
     .filter(x => !q.trim() || `${refOf(x)} ${x.printed || ''} ${floorOf(x)}`.toLowerCase().includes(q.trim().toLowerCase()))
     .sort((a, b) => tab === 'check' ? 0 : (lefty(a) - lefty(b)) || refKey(refOf(a)).localeCompare(refKey(refOf(b))))
   const firstOut = tab === 'all' ? listed.findIndex(lefty) : -1
-  const sets = job?.sets || []
 
   return (
     <>
@@ -352,12 +349,14 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
         <>
           <button className="btn btn-ghost back-jobs" onClick={() => onNavigate('dashboard')}><IconLeft size={16} /> Back to jobs</button>
           <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xlsm,.csv" multiple style={{ display: 'none' }} onChange={e => { upload(e.target.files); e.target.value = '' }} />
-          <button className="btn" onClick={() => fileRef.current.click()} disabled={!!busy}>{busy === 'upload' ? <><span className="spinner" /> Reading...</> : 'Add more plans'}</button>
-          <button className="btn" onClick={() => onNavigate('door-summary', { id: projectId })} disabled={!onJob}>Door summary</button>
-          <button className="btn btn-primary" onClick={() => onNavigate('job', { id: projectId })}>Sets and schedule</button>
+          {mine && <button className="btn" onClick={() => fileRef.current.click()} disabled={!!busy}>{busy === 'upload' ? <><span className="spinner" /> Reading...</> : 'Add more plans'}</button>}
+          <button className="btn" onClick={download} disabled={!onJob} title="The confirmed doors as a spreadsheet">Download doors</button>
+          {jobButtons}
         </>
       } />
       {confirmModal}
+      {brief}
+      {!brief && theirs && <div className="pr-theirs">{theirs} has this job. You can look, but only they can change it.</div>}
       {adding1 && <AddDoorModal placed={adding1.x != null} floor={page ? floorOf(page) : ''} onAdd={addByHand} onClose={() => setAdding1(null)} />}
       <div className="pr-split" ref={splitRef} style={splitH ? { height: splitH } : undefined}>
         {/* Left half: the plan */}
@@ -393,16 +392,16 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
             )}
           </div>
           {page && <Sheet key={sheet} projectId={projectId} rid={rid} page={page} items={onSheet} focus={focus}
-                          stateOf={x => markState(x, choice, counts)} ticked={ticked} setCode={setCode}
-                          onPick={(x, e) => { if (e?.shiftKey && tickable(x)) { tick(x); return } setFocus(x.id); setTab(x.status === 'amber' ? 'check' : 'all') }}
+                          stateOf={x => markState(x, choice, counts)}
+                          onPick={x => { setFocus(x.id); setTab(x.status === 'amber' && !x.on_job ? 'check' : 'all') }}
                           labels={picking ? labels : null} onLabel={l => chooseStyles([l.key])}
                           placing={placing} onPlace={pt => setAdding1({ file: page.file, page: page.page, ...pt })} />}
           <div className="pr-legend">
-            <span><i className="m green" /> Read, going on the job</span>
+            <span><i className="m green" /> A door: read, or confirmed</span>
             <span><i className="m amber" /> To look at</span>
             <span><i className="m gap" /> Number missing</span>
             <span><i className="m out" /> Left out</span>
-            <span className="pr-legend-tip">Ctrl + scroll zooms · Shift + click ticks a door</span>
+            <span className="pr-legend-tip">Ctrl + scroll zooms · drag to move</span>
           </div>
         </section>
 
@@ -411,10 +410,9 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
           <div className="pr-pane-head">
             <div className="pr-counts-row">
             <div className="pr-counts">
-              <div><strong>{onJob}</strong><span>On the job</span></div>
-              <div className={adding.length ? 'blue' : ''}><strong>{adding.length}</strong><span>To add</span></div>
+              <div className={onJob ? 'green' : ''}><strong>{onJob}</strong><span>Confirmed</span></div>
+              <div className={adding.length ? 'blue' : ''}><strong>{adding.length}</strong><span>To confirm</span></div>
               <div className={open.length ? 'amber' : ''}><strong>{open.length}</strong><span>Still to look at</span></div>
-              <div><strong>{withSet}<em>/{onJob + adding.length}</em></strong><span>Have a set</span></div>
             </div>
             {!fixing && <button className="link-btn inline pr-fix-link" onClick={() => setFixing(true)}>Not the door numbers?</button>}
             </div>
@@ -449,53 +447,76 @@ export function PlanReaderView({ projectId, setId = null, onNavigate }) {
               <label className="adm-search pr-search"><IconSearch size={16} /><input placeholder="Find a door or floor" value={q} onChange={e => setQ(e.target.value)} /></label>
             </div>
           </div>
-          {(tab === 'all' || ticked.size > 0) && (
-            <div className={`pr-bulk${ticked.size ? ' on' : ''}`}>
-              {ticked.size ? (
-                <>
-                  <strong>{ticked.size} door{ticked.size !== 1 ? 's' : ''} ticked</strong>
-                  <span>Give {ticked.size === 1 ? 'it' : 'them'}</span>
-                  <SetPick value="" options={setOptions} blank="Choose a set..." onChange={giveTicked} always />
-                  <button className="link-btn inline" onClick={() => giveTicked('')}>Take set off</button>
-                  <button className="link-btn inline" onClick={() => setTicked(new Set())}>Untick all</button>
-                </>
-              ) : (
-                <>
-                  <span>Tick doors to give them one set together:</span>
-                  <button className="chip-btn" onClick={() => tickThese(onSheet)}>This sheet</button>
-                  <button className="chip-btn" onClick={() => tickThese(items)}>Every door</button>
-                  <span className="muted">or pick a set on a door's own row</span>
-                </>
-              )}
-            </div>
-          )}
           <div className={`pr-list${tab === 'all' ? ' two' : ''}`}>
             {tab === 'check' && toCheck.length === 0 && <p className="muted pr-empty"><IconCheck size={16} /> Nothing to look at. Every door was read cleanly.</p>}
-            {listed.length > 0 && tab === 'check' && <div className="pr-row pr-row-head"><span /><span /><span>Door</span><span>Floor</span><span>Note</span><span>Set</span><span /></div>}
+            {listed.length > 0 && tab === 'check' && <div className="pr-row pr-row-head"><span /><span>Door</span><span>Floor</span><span>Note</span><span /></div>}
             {listed.slice(0, 600).map((x, i) => (
               <React.Fragment key={x.id}>
                 {i === firstOut && <div className="pr-list-head">Left out ({listed.length - firstOut})</div>}
                 <Row x={x} focus={focus === x.id} choice={choice[x.id]} ref_={refs[x.id] ?? x.ref ?? ''}
                      floor={floorOf(x)} onShow={() => show(x)} onChoose={c => decide(x, c)}
                      onRef={v => setRefs(m => ({ ...m, [x.id]: v }))}
-                     canSet={tickable(x)} ticked={ticked.has(x.id)} onTick={e => tick(x, e, listed)}
-                     setValue={x.on_job ? String(x.job_set || '') : (setOf[x.id] || '')} setOptions={setOptions} fallback={x.on_job ? '' : target}
-                     onSet={v => (x.on_job ? saveJobSet([x], v) : setSetOf(m => ({ ...m, [x.id]: v })))}
-                     onRemove={() => removeByHand(x)} />
+                     onRemove={() => removeByHand(x)} onUnconfirm={mine ? () => unconfirm(x) : null} />
               </React.Fragment>
             ))}
           </div>
           <div className="pr-foot">
-            <label>Set for every door not given one above
-              <SetPick value={target} options={setOptions} blank="None: choose later" onChange={setTarget} always wide />
-            </label>
-            <button className="btn btn-primary" onClick={apply} disabled={!adding.length || !!busy}>
-              {busy === 'apply' ? <span className="spinner" /> : adding.length ? `Add ${adding.length} door${adding.length !== 1 ? 's' : ''} to the job` : onJob ? 'Every door is on the job' : 'No doors to add'}
+            <span className="muted pr-foot-note">
+              {open.length ? `${open.length} still to look at. They stay here until you decide.` : onJob && !adding.length ? 'Every door read is confirmed.' : 'Doors you confirm are kept on the job.'}
+            </span>
+            <button className="btn btn-primary" onClick={apply} disabled={!adding.length || !!busy || !mine}>
+              {busy === 'apply' ? <span className="spinner" /> : adding.length ? `Confirm ${adding.length} door${adding.length !== 1 ? 's' : ''}` : onJob ? 'All confirmed' : 'No doors to confirm'}
             </button>
           </div>
         </section>
       </div>
     </>
+  )
+}
+
+/* What the architect sent with the job: who, the clock, the brief and the files as sent. */
+function SentIn({ job, open, setOpen, onRead, busy, theirs }) {
+  const c = job.contact || {}
+  const clock = clockOf(job)
+  const files = job.files || []
+  const scans = files.filter(f => f.kind === 'pdf' && f.unreadable?.length)
+  return (
+    <div className={`pr-sent${open ? ' open' : ''}`}>
+      <div className="pr-sent-line">
+        <span className="pr-sent-who"><strong>{c.name || 'The architect'}</strong>{c.company ? `, ${c.company}` : ''}</span>
+        {c.email && <a href={`mailto:${c.email}`}>{c.email}</a>}
+        {c.phone && <a href={`tel:${c.phone.replace(/\s+/g, '')}`}>{c.phone}</a>}
+        {clock && <span className={`in-clock ${clock.cls}`}>{clock.text}</span>}
+        {theirs && <span className="muted">{theirs} has this job</span>}
+        {scans.length > 0 && !open && <span className="pr-sent-scan"><IconWarn size={13} /> {scans.length} file{scans.length !== 1 ? 's have' : ' has'} sheets that cannot be read</span>}
+        <span className="spacer" />
+        <button className="link-btn inline" onClick={() => setOpen(!open)}>{open ? 'Hide the brief' : `Brief and files (${files.length})`}</button>
+      </div>
+      {!open && <p className="pr-sent-brief clip">{job.brief}</p>}
+      {open && (
+        <div className="pr-sent-body">
+          <div>
+            <h3>Brief</h3>
+            <p className="pr-sent-brief">{job.brief}</p>
+          </div>
+          <div>
+            <h3>Files sent</h3>
+            <ul className="pr-sent-files">
+              {files.map((f, i) => (
+                <li key={i}>
+                  <IconFile size={15} />
+                  <span className="pr-sent-fname">{f.name}</span>
+                  <span className="muted">{fmtSize(f.size)}</span>
+                  <button className="link-btn inline" onClick={() => downloadBlob(`/projects/${job.id}/files/${i}`, f.name).catch(err => showToast(err.message, 'error'))}>Download</button>
+                  {f.kind !== 'pdf' && <button className="link-btn inline" disabled={!!busy} onClick={() => onRead(i)}>Read the doors in it</button>}
+                </li>
+              ))}
+            </ul>
+            {scans.length > 0 && <p className="pr-sent-warn"><IconWarn size={13} /> {scans.map(f => f.name).join(', ')}: some sheets have no text and look like scans. Doors on those sheets cannot be read; ask the architect for the CAD export.</p>}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -506,7 +527,7 @@ function markState(x, choice, counts) {
   return counts(x) ? 'green' : 'out'
 }
 
-function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, ticked, onTick, setValue, setOptions, fallback, onSet, onRemove }) {
+function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, onRemove, onUnconfirm }) {
   const el = useRef()
   useEffect(() => { if (focus) el.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [focus])
   const amber = x.status === 'amber' && !x.on_job
@@ -518,10 +539,7 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, t
   // the door's type, where the plan gives one beside its number: B01.00.005 is an EDR251
   const kind = x.type && !String(x.ref).startsWith(x.type) ? <span className="pr-type" title="Door type on the plan">{x.type}</span> : null
   return (
-    <div ref={el} className={`pr-row ${state}${focus ? ' focus' : ''}${why || amber ? ' full' : ''}${ticked ? ' ticked' : ''}`} onClick={onShow}>
-      {canSet
-        ? <input type="checkbox" className="pr-tick" checked={ticked} onChange={() => {}} onClick={e => { e.stopPropagation(); onTick(e) }} aria-label={`Tick ${x.ref || 'this door'}`} />
-        : <span />}
+    <div ref={el} className={`pr-row ${state}${focus ? ' focus' : ''}${why || amber ? ' full' : ''}`} onClick={onShow}>
       <span className="pr-dot" />
       <div className="pr-c-ref">
         {x.on_job
@@ -536,10 +554,14 @@ function Row({ x, focus, choice, ref_, floor, onShow, onChoose, onRef, canSet, t
       <div className="pr-why">
         {amber && <IconWarn size={13} />} {!numbered && <strong>Door with no tag. </strong>}{why}
       </div>
-      {canSet ? <SetPick value={setValue} options={setOptions} fallback={fallback} onChange={onSet} /> : <span />}
       <div className="pr-acts" onClick={e => e.stopPropagation()}>
-        {amber && !x.on_job && <button className="btn btn-sm btn-soft pr-where" onClick={onShow} title="Move the plan to this door">Where is it</button>}
-        {x.on_job ? <span className="pr-onjob" title="This door is on the job">On job</span> : (amber || x.status === 'out') ? (
+        {amber && <button className="btn btn-sm btn-soft pr-where" onClick={onShow} title="Move the plan to this door">Where is it</button>}
+        {x.on_job ? (
+          <>
+            <span className="pr-onjob" title="This door is confirmed on the job">Confirmed</span>
+            {onUnconfirm && <button className="btn btn-sm btn-ghost pr-leave" onClick={onUnconfirm} title="Take this door off the job">Undo</button>}
+          </>
+        ) : (amber || x.status === 'out') ? (
           <>
             <button className={`btn btn-sm ${choice === 'keep' ? 'btn-primary' : ''}`} onClick={() => onChoose('keep')}
                     disabled={!numbered && !ref_.trim()}>{keepLabel}</button>
@@ -588,29 +610,10 @@ function AddDoorModal({ placed, floor, onAdd, onClose }) {
   )
 }
 
-/* A door's set. The long list of sets is only built once the box is about to
-   be used, so hundreds of doors do not each carry the whole library. */
-function SetPick({ value, options, onChange, fallback = '', blank = '', always = false, wide = false }) {
-  const [armed, setArmed] = useState(always)
-  const cur = options.find(o => o.value === String(value || ''))
-  const fb = options.find(o => o.value === String(fallback || ''))
-  const groups = [...new Set(options.map(o => o.group))]
-  return (
-    <select className={`form-control pr-setpick${cur ? ' on' : ''}${wide ? ' wide' : ''}`} value={cur ? cur.value : ''}
-            title={cur ? cur.label : fb ? `${fb.label} (the set for every door not given one)` : 'Give this door a set'}
-            onMouseEnter={() => setArmed(true)} onFocus={() => setArmed(true)} onClick={e => e.stopPropagation()}
-            onChange={e => onChange(e.target.value)}>
-      <option value="">{blank || (fb ? `${fb.code} (all)` : 'Set...')}</option>
-      {armed
-        ? groups.map(g => <optgroup key={g} label={g}>{options.filter(o => o.group === g).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>)
-        : cur && <option value={cur.value}>{cur.label}</option>}
-    </select>
-  )
-}
 
 /* One sheet: the plan as a picture with a mark on every tag. Scroll to move
    about, Ctrl and scroll (or the buttons) to zoom, drag to pan. */
-function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, onLabel, ticked, setCode, placing, onPlace }) {
+function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, onLabel, placing, onPlace }) {
   const src = useAuthImage(`/api/projects/${projectId}/plan-reads/${rid}/sheet/${page.file}/${page.page}`)
   const box = useRef()
   const canvas = useRef()
@@ -713,10 +716,9 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
         <div ref={canvas} className={`pr-canvas${zoom >= 2.5 ? ' near' : ''}`} style={{ width: base ? `${Math.round(base * zoom)}px` : `${zoom * 100}%` }}>
           {src ? <img src={src} alt={page.name} draggable={false} onLoad={() => setLoaded(true)} /> : <div className="pr-loading" style={{ aspectRatio: `${W} / ${H}` }}><span className="spinner spinner-lg" /></div>}
           {src && !labels && items.filter(x => x.x != null).map(x => (
-            <button key={x.id} className={`pr-mark ${stateOf(x)}${x.kind === 'untagged' ? ' swing' : ''}${focus === x.id ? ' focus' : ''}${ticked?.has(x.id) ? ' ticked' : ''}`}
-                    data-kind={x.kind} style={mark(x)} title={`${x.ref || (x.reasons || [])[0]}${setCode?.(x) ? ` · ${setCode(x)}` : ''}`} onClick={e => onPick(x, e)}>
+            <button key={x.id} className={`pr-mark ${stateOf(x)}${x.kind === 'untagged' ? ' swing' : ''}${focus === x.id ? ' focus' : ''}`}
+                    data-kind={x.kind} style={mark(x)} title={x.ref || (x.reasons || [])[0]} onClick={e => onPick(x, e)}>
               {x.src === 'manual' && <span className="pr-mark-ref">{x.ref}</span>}
-              {stateOf(x) === 'green' && setCode?.(x) && <span className="pr-mark-set">{setCode(x)}</span>}
             </button>
           ))}
           {src && labels && labels.map(l => (
@@ -728,10 +730,11 @@ function Sheet({ projectId, rid, page, items, focus, stateOf, onPick, labels, on
   )
 }
 
+
 /* A door list from the architect's spreadsheet: every row as read, the doubtful
-   ones to look at, each door's number and floor correctable, then onto the job. */
-function DoorListReview({ data, projectId, job, target, setTarget, crumbs, onNavigate, onAnother }) {
-  const [pick, setPick] = useState({})      // id -> true (add) | false (leave out)
+   ones to look at, each door's number and floor correctable, then confirmed. */
+function DoorListReview({ data, projectId, crumbs, onNavigate, onBack, onDone, theirs }) {
+  const [pick, setPick] = useState({})      // id -> true (confirm) | false (leave out)
   const [edit, setEdit] = useState({})      // id -> { ref, floor }
   const [tab, setTab] = useState(() => data.doors.some(d => d.status === 'amber' && !d.on_job) ? 'check' : 'all')
   const [q, setQ] = useState('')
@@ -770,34 +773,29 @@ function DoorListReview({ data, projectId, job, target, setTarget, crumbs, onNav
     if (!adding.length) return
     if (open.length && !await ask({
       title: `${open.length} still to look at`,
-      body: `${open.length === 1 ? 'It is' : 'They are'} left off for now. The other ${adding.length} go on the job.`,
-      confirm: `Add ${adding.length} door${adding.length !== 1 ? 's' : ''}`,
+      body: `${open.length === 1 ? 'It is' : 'They are'} left out for now. The other ${adding.length} are confirmed.`,
+      confirm: `Confirm ${adding.length} door${adding.length !== 1 ? 's' : ''}`,
     })) return
     setBusy(true)
     try {
-      const res = await apiFetch(`/projects/${projectId}/door-list/apply`, { method: 'POST',
-        body: JSON.stringify({ doors: adding, set_id: target ? Number(target) : null }) })
-      showToast(`${res.added} door${res.added !== 1 ? 's' : ''} added to ${res.project}${res.skipped.length ? `, ${res.skipped.length} already on it` : ''}`, 'success')
-      onNavigate('door-summary', { id: projectId })
+      const res = await apiFetch(`/projects/${projectId}/door-list/apply`, { method: 'POST', body: JSON.stringify({ doors: adding }) })
+      showToast(`${res.added} door${res.added !== 1 ? 's' : ''} confirmed${res.skipped.length ? `, ${res.skipped.length} already were` : ''}`, 'success')
+      onDone(res)
     } catch (err) { showToast(err.message, 'error') }
     finally { setBusy(false) }
   }
 
   return (
     <>
-      <Topbar crumbs={crumbs} onNavigate={onNavigate} crumbsRight={
-        <>
-          <button className="btn btn-ghost back-jobs" onClick={() => onNavigate('job', { id: projectId })}><IconLeft size={16} /> Back to job</button>
-          <button className="btn" onClick={onAnother}>Read other files</button>
-        </>
-      } />
+      <Topbar crumbs={[...crumbs, { label: data.name }]} onNavigate={onNavigate} crumbsRight={
+        <button className="btn btn-ghost back-jobs" onClick={onBack}><IconLeft size={16} /> Back to the plans</button>} />
       {confirmModal}
       <div className="page-wrap wide">
         <div className="pr-head">
           <div className="pv-stats">
-            <div className="pv-stat"><div className="num">{adding.length}</div><div className="lbl">Doors to add</div></div>
+            <div className="pv-stat"><div className="num">{adding.length}</div><div className="lbl">To confirm</div></div>
             <div className={`pv-stat${open.length ? ' pr-stat-amber' : ''}`}><div className="num">{open.length}<span className="of">/{toCheck.length}</span></div><div className="lbl">Still to look at</div></div>
-            {onJob > 0 && <div className="pv-stat"><div className="num">{onJob}</div><div className="lbl">Already on job</div></div>}
+            {onJob > 0 && <div className="pv-stat"><div className="num">{onJob}</div><div className="lbl">Already confirmed</div></div>}
           </div>
           <div className="pr-style card-panel">
             <div className="pr-style-head"><h2 className="card-title">{data.name}</h2></div>
@@ -817,21 +815,21 @@ function DoorListReview({ data, projectId, job, target, setTarget, crumbs, onNav
             {tab === 'check' && toCheck.length === 0 && <p className="muted pr-empty"><IconCheck size={16} /> Nothing to look at. Every row read cleanly.</p>}
             {shown.length > 0 && (
               <table className="ledger dl-table">
-                <thead><tr><th className="dl-tick">Add</th><th>Door</th><th>Floor</th><th>Room</th><th>Fire rating</th><th>Row</th><th></th></tr></thead>
+                <thead><tr><th className="dl-tick">Confirm</th><th>Door</th><th>Floor</th><th>Room</th><th>Fire rating</th><th>Row</th><th></th></tr></thead>
                 <tbody>
                   {shown.slice(0, 1500).map(d => {
                     const inn = isIn(d), undecided = d.status === 'amber' && !d.on_job && pick[d.id] === undefined
                     return (
                       <tr key={d.id} className={`${d.on_job ? 'dl-job' : !inn ? 'dl-out' : ''}${undecided ? ' dl-open' : ''}`}>
                         <td className="dl-tick"><input type="checkbox" checked={inn} disabled={d.on_job}
-                                                       onChange={e => setPick(p => ({ ...p, [d.id]: e.target.checked }))} aria-label={`Add ${d.ref}`} /></td>
+                                                       onChange={e => setPick(p => ({ ...p, [d.id]: e.target.checked }))} aria-label={`Confirm ${d.ref}`} /></td>
                         <td><input className="form-control dl-in dl-ref" value={val(d, 'ref')} onChange={e => set(d, 'ref', e.target.value)} disabled={d.on_job} /></td>
                         <td><input className="form-control dl-in" value={val(d, 'floor')} placeholder="Floor" onChange={e => set(d, 'floor', e.target.value)} disabled={d.on_job} /></td>
                         <td className="dl-room">{d.room}</td>
                         <td>{d.fire}</td>
                         <td className="muted dl-row">{d.row}</td>
                         <td className="dl-why">
-                          {d.on_job ? <span className="muted">Already on the job</span>
+                          {d.on_job ? <span className="muted">Already confirmed</span>
                             : d.status === 'amber' ? <>
                                 <span className="dl-reason"><IconWarn size={13} /> {d.reasons.join('. ')}</span>
                                 {undecided && <span className="dl-acts">
@@ -849,15 +847,10 @@ function DoorListReview({ data, projectId, job, target, setTarget, crumbs, onNav
           </section>
           <aside className="pr-side card-panel dl-side">
             <div className="pr-foot">
-              <label>Set for these doors
-                <select className="form-control" value={target} onChange={e => setTarget(e.target.value)}>
-                  <option value="">Choose later</option>
-                  {(job?.sets || []).map(js => <option key={js.set.id} value={js.set.id}>{js.set.code} · {js.set.name}</option>)}
-                </select>
-              </label>
               <p className="muted dl-note">Room and fire rating go into each door's note.</p>
-              <button className="btn btn-primary wide" onClick={apply} disabled={!adding.length || busy}>
-                {busy ? <span className="spinner" /> : `Add ${adding.length} door${adding.length !== 1 ? 's' : ''} to the job`}
+              {theirs && <p className="muted dl-note">{theirs} has this job. Only they can confirm doors on it.</p>}
+              <button className="btn btn-primary wide" onClick={apply} disabled={!adding.length || busy || !!theirs}>
+                {busy ? <span className="spinner" /> : `Confirm ${adding.length} door${adding.length !== 1 ? 's' : ''}`}
               </button>
             </div>
           </aside>

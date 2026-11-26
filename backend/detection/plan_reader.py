@@ -31,7 +31,7 @@ try:
 except ImportError:          # older installs
     import fitz
 
-from detection.doors import floor_from_name
+from detection.floors import floor_from_name
 
 MAX_LABEL = 18               # longer words are sentences, not tags
 NEAR_DOOR = 1.6              # a tag counts as at a door within this many door widths

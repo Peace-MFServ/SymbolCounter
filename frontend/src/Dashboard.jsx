@@ -4,11 +4,11 @@ import { apiFetch } from './api'
 import { showToast } from './toast'
 import { useAuth } from './auth'
 import logo from './assets/mf-logo.jpeg'
-import { IconRight, IconPlus, IconSearch, IconChevron, IconBars, IconUpload } from './icons'
+import { IconRight, IconPlus, IconSearch, IconBars } from './icons'
 import { useLeaveGuard } from './unsaved'
 import { useConfirm } from './confirm'
 
-export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projects', compact = false, crumbsRight = null }) {
+export function Topbar({ crumbs = [], onNavigate, right = null, active = 'jobs', compact = false, crumbsRight = null }) {
   const { user, logout } = useAuth()
   const handleLogout = () => { logout(); onNavigate && onNavigate('login') }
   const initials = (user?.name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase()
@@ -17,13 +17,12 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
       <div id="topbar">
         <a className="logo" onClick={() => onNavigate && onNavigate('dashboard')}>
           <img src={logo} alt="MF Services" />
-          <span className="logo-words"><strong>MF Services</strong><span>Door Schedules</span></span>
+          <span className="logo-words"><strong>MF Services</strong><span>Door Reader</span></span>
         </a>
         {user && onNavigate && !compact && (
           <nav className="topnav">
-            <a className={active === 'projects' ? 'on' : ''} onClick={() => onNavigate('dashboard')}>Jobs</a>
-            <a className={active === 'products' ? 'on' : ''} onClick={() => onNavigate('products')}>Products</a>
-            <a className={active === 'sets' ? 'on' : ''} onClick={() => onNavigate('sets')}>Sets</a>
+            <a className={active === 'jobs' ? 'on' : ''} onClick={() => onNavigate('dashboard')}>Jobs</a>
+            <a className={active === 'invites' ? 'on' : ''} onClick={() => onNavigate('invites')}>Architect links</a>
           </nav>
         )}
         <div className="spacer" />
@@ -53,78 +52,64 @@ export function Topbar({ crumbs = [], onNavigate, right = null, active = 'projec
   )
 }
 
-export function Dashboard({ onNavigate, q = '' }) {
+/* Time against the clock an architect was promised: "31h left", "Overdue by 3h". */
+export function clockOf(p, now = Date.now()) {
+  if (!p.due_at || p.stage === 'checked') return null
+  const h = (new Date(p.due_at).getTime() - now) / 3600000
+  if (h < 0) return { text: `Overdue by ${fmtHours(-h)}`, cls: 'late' }
+  return { text: `${fmtHours(h)} left`, cls: h < 12 ? 'soon' : '' }
+}
+const fmtHours = h => (h < 1 ? `${Math.max(1, Math.round(h * 60))}m` : h < 48 ? `${Math.floor(h)}h` : `${Math.floor(h / 24)}d ${Math.floor(h % 24)}h`)
+export const ago = iso => {
+  if (!iso) return ''
+  const m = (Date.now() - new Date(iso).getTime()) / 60000
+  if (m < 1) return 'just now'
+  if (m < 60) return `${Math.round(m)} min ago`
+  if (m < 48 * 60) return `${Math.round(m / 60)}h ago`
+  return new Date(iso).toLocaleDateString('en-IE', { day: 'numeric', month: 'short' })
+}
+const stageText = p => {
+  if (p.stage === 'checked') return { text: `Checked${p.owner_name ? ` by ${p.owner_name}` : ''}`, cls: 'done' }
+  if (p.source === 'portal' && !p.owner_id) return { text: 'Waiting', cls: 'wait' }
+  if (p.source === 'portal') return { text: `${p.owner_name} has it`, cls: 'mine' }
+  return { text: 'Made here', cls: '' }
+}
+
+export function Dashboard({ onNavigate }) {
   const { user } = useAuth()
   const [projects, setProjects] = useState([])
-  const [loading,  setLoading]  = useState(true)
-  const [showNew,  setShowNew]  = useState(false)
-  const [view,     setView]     = useState('owner')     // 'owner' | 'all'
-  const [search,   setSearch]   = useState(q)
-  const [collapsed, setCollapsed] = useState({})        // owner key -> hidden
+  const [loading, setLoading] = useState(true)
+  const [showNew, setShowNew] = useState(false)
+  const [search, setSearch] = useState('')
+  const [now, setNow] = useState(Date.now())
   const { ask, modal: confirmModal } = useConfirm()
 
-  const loadJobs = () =>
-    apiFetch('/projects')
-      .then(p => {
-        const list = p || []
-        setProjects(list)
-        // a long list starts folded away so no one owner fills the page
-        const n = {}
-        for (const x of list) { const k = ownerKey(x); n[k] = (n[k] || 0) + 1 }
-        setCollapsed(c => ({ ...Object.fromEntries(Object.entries(n).filter(([, c]) => c > 10).map(([k]) => [k, true])), ...c }))
-        setLoading(false)
-        return list
-      })
-      .catch(() => setLoading(false))
-  useEffect(() => { loadJobs() }, [])
+  const load = () => apiFetch('/projects').then(p => setProjects(p || [])).catch(err => showToast(err.message, 'error')).finally(() => setLoading(false))
+  useEffect(() => {
+    load()
+    // the clocks move, and new jobs come in while the page is open
+    const t = setInterval(() => { setNow(Date.now()); load() }, 60000)
+    return () => clearInterval(t)
+  }, [])
 
-  // An Intec schedule PDF becomes a job: its doors on its sets, which stay on
-  // that job. Back on this list afterwards, with the new job showing.
-  const intecRef = useRef()
-  const [importing, setImporting] = useState(false)
-  const importIntec = async files => {
-    const pdfs = Array.from(files || []).filter(f => f.name.toLowerCase().endsWith('.pdf'))
-    if (!pdfs.length) return
-    setImporting(true)
-    const done = []
-    for (const f of pdfs) {
-      const form = new FormData(); form.append('file', f)
-      try {
-        const r = await apiFetch('/projects/import-intec', { method: 'POST', body: form })
-        done.push(r)
-        const sets = (r.sets_job || 0) + (r.sets_library || 0)
-        showToast(`${r.project_name || f.name} imported: ${r.doors} door${r.doors !== 1 ? 's' : ''} on ${sets} set${sets !== 1 ? 's' : ''}`, 'success')
-      } catch (err) { showToast(`${f.name}: ${err.message}`, 'error') }
-    }
-    setImporting(false)
-    if (done.length) {
-      setSearch(''); setView('owner')
-      setCollapsed(c => ({ ...c, [String(user?.id)]: false }))     // the importer's own jobs, open
-      await loadJobs()
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    }
-  }
+  const incoming = useMemo(() => projects.filter(p => p.source === 'portal' && p.stage !== 'checked')
+    .sort((a, b) => new Date(a.due_at) - new Date(b.due_at)), [projects])
+  const shown = useMemo(() => {
+    const n = search.trim().toLowerCase()
+    return !n ? projects : projects.filter(p => [p.name, p.client, p.site, p.quote_no, p.owner_name].filter(Boolean).join(' ').toLowerCase().includes(n))
+  }, [projects, search])
 
-  const duplicateProject = async p => {
+  const open = p => onNavigate('plan-reader', { id: p.id })
+  const take = async p => {
     try {
-      const c = await apiFetch(`/projects/${p.id}/duplicate`, { method: 'POST' })
-      showToast(p.drawing_count ? `Copied as ${c.name}. Drawings are not copied.` : `Copied as ${c.name}`, 'success')
-      // the copy sits straight under the job it came from, not off at the top
-      setProjects(ps => {
-        const i = ps.findIndex(x => x.id === p.id)
-        return i < 0 ? [c, ...ps] : [...ps.slice(0, i + 1), c, ...ps.slice(i + 1)]
-      })
-    } catch (err) { showToast(err.message, 'error') }
+      const t = await apiFetch(`/projects/${p.id}/take`, { method: 'POST' })
+      setProjects(ps => ps.map(x => (x.id === p.id ? { ...x, ...t } : x)))
+      open(t)
+    } catch (err) { showToast(err.message, 'error'); load() }
   }
-
+  const canDelete = p => !p.owner_id || p.owner_id === user?.id
   const deleteProject = async p => {
-    const ok = await ask({
-      title: `Delete ${p.name}?`,
-      body: p.drawing_count
-        ? `Its ${p.drawing_count} drawing${p.drawing_count !== 1 ? 's' : ''} go with it. This cannot be undone.`
-        : 'This cannot be undone.',
-      confirm: 'Delete job', danger: true,
-    })
+    const ok = await ask({ title: `Delete ${p.name}?`, body: 'Its plans and the doors confirmed on it go with it. This cannot be undone.', confirm: 'Delete job', danger: true })
     if (!ok) return
     try {
       await apiFetch(`/projects/${p.id}`, { method: 'DELETE' })
@@ -132,29 +117,8 @@ export function Dashboard({ onNavigate, q = '' }) {
       showToast(`${p.name} deleted`, 'info')
     } catch (err) { showToast(err.message, 'error') }
   }
-
-  const shown = useMemo(() => {
-    const n = search.trim().toLowerCase()
-    if (!n) return projects
-    return projects.filter(p => [p.name, p.client, p.site, p.quote_no, p.owner_name]
-      .filter(Boolean).join(' ').toLowerCase().includes(n))
-  }, [projects, search])
-
-  // one card per owner, in the order the jobs come back
-  const groups = useMemo(() => {
-    const by = new Map()
-    for (const p of shown) {
-      const key = ownerKey(p)
-      if (!by.has(key)) by.set(key, { key, name: p.owner_name || 'No owner', items: [] })
-      by.get(key).items.push(p)
-    }
-    return [...by.values()]
-  }, [shown])
-
-  const open = p => onNavigate(openView(p), { id: p.id })
-  const canDelete = p => !p.owner_id || p.owner_id === user?.id
-  const drawings = shown.reduce((s, p) => s + (p.drawing_count || 0), 0)
-  const verified = shown.reduce((s, p) => s + (p.verified_count || 0), 0)
+  const late = incoming.filter(p => clockOf(p, now)?.cls === 'late').length
+  const waiting = incoming.filter(p => !p.owner_id).length
 
   return (
     <>
@@ -166,145 +130,125 @@ export function Dashboard({ onNavigate, q = '' }) {
             <div className="jobs-head">
               <div>
                 <h1>Jobs</h1>
-                <p className="lede">Every job in the office, in one list.</p>
+                <p className="lede">Plans sent in by architects arrive in Incoming with the clock running. Take one, check its doors, mark it checked.</p>
               </div>
-              <input ref={intecRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { importIntec(e.target.files); e.target.value = '' }} />
-              <button className="btn btn-line jobs-import" onClick={() => intecRef.current.click()} disabled={importing}
-                      title="Print the job's schedule to PDF in Intec, then pick the PDF here. Several at once is fine.">
-                {importing ? <><span className="spinner" /> Reading the schedule…</> : <><IconUpload size={16} /> Import a job from Intec</>}
-              </button>
             </div>
 
-            {!loading && projects.length > 0 && (
-              <div className="jobs-controls">
-                <div className="seg">
-                  <button className={view === 'owner' ? 'on' : ''} onClick={() => setView('owner')}>By owner</button>
-                  <button className={view === 'all' ? 'on' : ''} onClick={() => setView('all')}>All projects</button>
+            {!loading && (
+              <div className="owner-card in-card">
+                <div className="in-head">
+                  <h2>Incoming</h2>
+                  <span className="muted">{incoming.length ? `${incoming.length} to check${waiting ? `, ${waiting} not taken yet` : ''}` : 'Nothing waiting'}</span>
                 </div>
-                <label className="jobs-search">
-                  <IconSearch size={17} />
-                  <input value={search} onChange={e => setSearch(e.target.value)}
-                         placeholder="Search jobs, quotes, or clients..." />
-                </label>
+                {incoming.length === 0 ? (
+                  <p className="jobs-none">When an architect sends plans through their link, the job appears here.</p>
+                ) : (
+                  <div className="job-table-scroll">
+                    <table className="job-table in-table">
+                      <thead><tr><th>Project</th><th>Sent in</th><th>Time left</th><th className="num">Doors read</th><th className="num">Who</th></tr></thead>
+                      <tbody>
+                        {incoming.map(p => {
+                          const c = clockOf(p, now)
+                          return (
+                            <tr key={p.id} {...rowOpen(() => open(p))}>
+                              <td><div className="job-name">{p.name}</div><div className="job-meta">{[p.client, p.site].filter(Boolean).join(' · ')}</div></td>
+                              <td className="muted">{ago(p.received_at)}</td>
+                              <td>{c && <span className={`in-clock ${c.cls}`}>{c.text}</span>}</td>
+                              <td className="num job-num">
+                                {p.draft?.green != null ? <>{p.draft.green}{p.draft.amber > 0 && <span className="of"> {p.draft.amber} to look at</span>}
+                                  {p.draft.unreadable > 0 && <span className="of"> {p.draft.unreadable} sheet{p.draft.unreadable !== 1 ? 's' : ''} cannot be read</span>}</> : <span className="muted">Reading...</span>}
+                              </td>
+                              <td className="num" onClick={e => e.stopPropagation()}>
+                                {p.owner_id ? <span className="in-who">{p.owner_id === user?.id ? 'You' : p.owner_name}</span>
+                                  : <button className="btn btn-sm btn-primary" onClick={() => take(p)}>Take it</button>}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 
+            <div className="jobs-controls">
+              <h2 className="all-title">All jobs</h2>
+              {projects.length > 0 && (
+                <label className="jobs-search">
+                  <IconSearch size={17} />
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search jobs, clients or who has them" />
+                </label>
+              )}
+            </div>
             {loading ? (
               <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner spinner-lg" /></div>
             ) : projects.length === 0 ? (
               <div className="empty-state">
-                <h2>No projects yet.</h2>
-                <p>Create a job to start its door schedule.</p>
-                <button className="btn btn-primary" onClick={() => setShowNew(true)}>Create your first project</button>
+                <h2>No jobs yet.</h2>
+                <p>Send an architect a link, or make a job here and upload the plans yourself.</p>
+                <button className="btn btn-primary" onClick={() => setShowNew(true)}>New job</button>
               </div>
             ) : shown.length === 0 ? (
               <div className="owner-card"><p className="jobs-none">No jobs match “{search}”.</p></div>
-            ) : view === 'all' ? (
+            ) : (
               <div className="owner-card">
-                <JobTable rows={shown} showOwner onOpen={open} canDelete={canDelete}
-                          onDelete={deleteProject} onDuplicate={duplicateProject} />
-              </div>
-            ) : groups.map(g => (
-              <div className="owner-card" key={g.key}>
-                <div className="owner-head" onClick={() => setCollapsed(c => ({ ...c, [g.key]: !c[g.key] }))}>
-                  <span className="owner-avatar" style={avatarStyle(g.name)}>{initials(g.name)}</span>
-                  <div className="owner-who">
-                    <strong>{g.name}</strong>
-                    <span>{g.items.length} project{g.items.length !== 1 ? 's' : ''}</span>
-                  </div>
-                  <button className="owner-toggle" aria-label={collapsed[g.key] ? 'Show projects' : 'Hide projects'}>
-                    <IconChevron size={18} style={{ transform: collapsed[g.key] ? 'none' : 'rotate(180deg)' }} />
-                  </button>
-                </div>
-                {!collapsed[g.key] && (
-                  <JobTable rows={g.items} onOpen={open} canDelete={canDelete}
-                            onDelete={deleteProject} onDuplicate={duplicateProject} />
-                )}
-              </div>
-            ))}
-          </div>
-
-          <aside className="jobs-rail">
-            <button className="btn btn-primary btn-lg jobs-new" onClick={() => setShowNew(true)}>
-              <IconPlus size={16} /> New job
-            </button>
-
-            <div className="glance-card">
-              <h3><IconBars size={18} /> At a glance</h3>
-              <div className="glance-row"><span>Projects</span><strong>{shown.length}</strong></div>
-              <div className="glance-row"><span>Drawings</span><strong>{drawings}</strong></div>
-              <div className="glance-row"><span>Verified</span><strong>{verified}</strong></div>
-            </div>
-            {projects.some(p => p.kind === 'symbols') && (
-              <div className="glance-card">
-                <h3>Device counting</h3>
-                <div className="rail-links">
-                  <a onClick={() => onNavigate('accuracy')}>Accuracy scoreboard</a>
-                  <a onClick={() => onNavigate('templates')}>Template library</a>
+                <div className="job-table-scroll">
+                  <table className="job-table">
+                    <colgroup><col style={{ width: '44%' }} /><col style={{ width: '22%' }} /><col style={{ width: '14%' }} /><col /></colgroup>
+                    <thead><tr><th>Job</th><th>Where it is</th><th className="num">Doors confirmed</th><th className="num">Actions</th></tr></thead>
+                    <tbody>
+                      {shown.map(p => {
+                        const st = stageText(p)
+                        return (
+                          <tr key={p.id} {...rowOpen(() => open(p))}>
+                            <td>
+                              <div className="job-name">{p.name}</div>
+                              <div className="job-meta">{[p.source === 'portal' ? 'Sent in by the architect' : null, p.client, p.site, p.quote_no && `Quote ${p.quote_no}`].filter(Boolean).join(' · ') || 'No client or site set'}</div>
+                            </td>
+                            <td><span className={`stage-pill ${st.cls}`}>{st.text}</span></td>
+                            <td className="num job-num">{p.door_count || <span className="muted">—</span>}</td>
+                            <td className="num">
+                              <RowMenu onOpen={() => open(p)} onDelete={canDelete(p) ? () => deleteProject(p) : null} />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
+          </div>
+
+          <aside className="jobs-rail">
+            <button className="btn btn-primary btn-lg jobs-new" onClick={() => onNavigate('invites')}>
+              <IconPlus size={16} /> Send an architect a link
+            </button>
+            <button className="btn btn-lg jobs-new" onClick={() => setShowNew(true)}>New job from plans I have</button>
+            <div className="glance-card">
+              <h3><IconBars size={18} /> At a glance</h3>
+              <div className="glance-row"><span>To check</span><strong>{incoming.length}</strong></div>
+              <div className="glance-row"><span>Not taken yet</span><strong>{waiting}</strong></div>
+              <div className="glance-row"><span>Overdue</span><strong className={late ? 'warn-num' : ''}>{late}</strong></div>
+              <div className="glance-row"><span>Jobs</span><strong>{projects.length}</strong></div>
+            </div>
           </aside>
         </div>
       </div>
 
       {showNew && (
-        <NewProjectModal
-          onClose={() => setShowNew(false)}
-          onCreated={p => {
-            setProjects(ps => [p, ...ps])
-            setShowNew(false)
-            onNavigate(openView(p), { id: p.id })
-          }}
-        />
+        <NewProjectModal onClose={() => setShowNew(false)}
+                         onCreated={p => { setProjects(ps => [p, ...ps]); setShowNew(false); open(p) }} />
       )}
     </>
   )
 }
 
-/* The project table that sits inside every owner card. */
-function JobTable({ rows, showOwner = false, onOpen, canDelete, onDelete, onDuplicate }) {
-  return (
-    <div className="job-table-scroll">
-      <table className="job-table">
-        <colgroup><col style={{ width: '40%' }} /><col style={{ width: '20%' }} /><col style={{ width: '13%' }} />
-                  <col style={{ width: '13%' }} /><col /></colgroup>
-        <thead>
-          <tr><th>Project</th><th>Kind</th><th className="num">Drawings</th><th className="num">Doors</th><th className="num">Actions</th></tr>
-        </thead>
-        <tbody>
-          {rows.map(p => (
-            <tr key={p.id} {...rowOpen(() => onOpen(p))}>
-              <td>
-                <div className="job-name">{p.name}</div>
-                <div className="job-meta">
-                  {[p.quote_no && `Quote ${p.quote_no}`, p.client, p.site, showOwner ? p.owner_name : '']
-                    .filter(Boolean).join(' · ') || 'No client or site set'}
-                </div>
-              </td>
-              <td><span className={`kind-pill ${p.kind === 'doors' ? 'doors' : 'devices'}`}>{p.kind !== 'doors' ? 'Device count' : p.sets_only ? 'Sets only' : 'Door schedule'}</span></td>
-              <td className="num job-num">{p.drawing_count ?? 0}</td>
-              <td className="num job-num">
-                {p.door_count || <span className="muted">—</span>}
-                {p.door_types_to_decide > 0 && <span className="of" title="Door types still to decide"> {p.door_types_to_decide} to decide</span>}
-              </td>
-              <td className="num">
-                <RowMenu onOpen={() => onOpen(p)}
-                         onDuplicate={canDelete(p) ? () => onDuplicate(p) : null}
-                         onDelete={canDelete(p) ? () => onDelete(p) : null} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function RowMenu({ onOpen, onDuplicate, onDelete }) {
-  const [at, setAt] = useState(null)          // where to draw it, or null when shut
-  const ref = useRef()          // the dots button
-  const pop = useRef()          // the menu, drawn on top of the page
+function RowMenu({ onOpen, onDelete }) {
+  const [at, setAt] = useState(null)
+  const ref = useRef()
+  const pop = useRef()
   useEffect(() => {
     if (!at) return
     const away = e => {
@@ -312,7 +256,7 @@ function RowMenu({ onOpen, onDuplicate, onDelete }) {
       if (!inside) setAt(null)
     }
     const key = e => { if (e.key === 'Escape') setAt(null) }
-    const follow = () => { if (ref.current) setAt(place(ref.current)) }   // stay with the row while the page moves
+    const follow = () => { if (ref.current) setAt(place(ref.current)) }
     document.addEventListener('mousedown', away); document.addEventListener('keydown', key)
     window.addEventListener('scroll', follow, true); window.addEventListener('resize', follow)
     return () => {
@@ -329,14 +273,12 @@ function RowMenu({ onOpen, onDuplicate, onDelete }) {
         <div className="menu-list row-menu-pop" role="menu" ref={pop}
              style={{ position: 'fixed', top: at.top, bottom: at.bottom, right: at.right }} onClick={e => e.stopPropagation()}>
           <button role="menuitem" onClick={pick(onOpen)}>Open</button>
-          {onDuplicate && <button role="menuitem" onClick={pick(onDuplicate)}>Duplicate</button>}
           {onDelete && <button role="menuitem" className="danger" onClick={pick(onDelete)}>Delete</button>}
         </div>, document.body)}
     </div>
   )
 }
 
-const ownerKey = p => String(p.owner_id ?? `n:${p.owner_name || ''}`)
 /* A row opens on click, but not when the click was really someone picking out
    text to copy: a drag across it, or a double click on a word. */
 let downAt = { x: 0, y: 0 }
@@ -349,55 +291,32 @@ export const rowOpen = fn => ({
   },
 })
 
-// Where a row's menu opens: under its button, or above it when the button is
-// near the bottom of the window and the menu would be cut off.
-export const place = (el, height = 180) => {
+// Where a row's menu opens: under its button, or above it near the bottom of the window
+export const place = (el, height = 120) => {
   const r = el.getBoundingClientRect()
   const right = Math.max(8, window.innerWidth - r.right)
   if (r.bottom + 4 + height > window.innerHeight && r.top - 4 - height > 0)
     return { top: 'auto', bottom: window.innerHeight - r.top + 4, right }
   return { top: r.bottom + 4, bottom: 'auto', right }
 }
-const initials = name => (name || '?').split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
-const AVATARS = [['#DCE6F5', '#12366E'], ['#DCEBE1', '#134A2C'], ['#E8DDF2', '#3B2358'], ['#F6E2D3', '#5E2D0C'], ['#DFE7EC', '#1F3743']]
-const avatarStyle = name => {
-  let h = 0
-  for (const ch of name || '') h = (h * 31 + ch.charCodeAt(0)) % 997
-  const [bg, fg] = AVATARS[h % AVATARS.length]
-  return { background: bg, color: fg }
-}
-
-// a door schedule job whose floor plans have been read opens on them
-const openView = p => (p.kind === 'doors' ? (p.plan_read ? 'plan-reader' : 'job') : 'project')
 
 function NewProjectModal({ onClose, onCreated }) {
-  const [kind,   setKind]   = useState('doors')
-  const [setsOnly, setSetsOnly] = useState(false)
-  const [name,   setName]   = useState('')
+  const [name, setName] = useState('')
   const [client, setClient] = useState('')
-  const [site,   setSite]   = useState('')
-  const [firm,   setFirm]   = useState('')
-  const [quote,  setQuote]  = useState('')
-  const [busy,   setBusy]   = useState(false)
-  const typed = !!(name || client || site || firm || quote)
+  const [site, setSite] = useState('')
+  const [quote, setQuote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const typed = !!(name || client || site || quote)
 
   const submit = async e => {
     e?.preventDefault?.()
     setBusy(true)
     let ok = true
     try {
-      const p = await apiFetch('/projects', {
-        method: 'POST',
-        body: JSON.stringify({ name, client, site, drawing_firm: firm, quote_no: quote, kind, sets_only: kind === 'doors' && setsOnly }),
-      })
-      showToast('Project created', 'success')
+      const p = await apiFetch('/projects', { method: 'POST', body: JSON.stringify({ name, client, site, quote_no: quote }) })
       onCreated(p)
-    } catch (err) {
-      showToast(err.message, 'error')
-      ok = false
-    } finally {
-      setBusy(false)
-    }
+    } catch (err) { showToast(err.message, 'error'); ok = false }
+    finally { setBusy(false) }
     return ok
   }
   const { guard, modal: leaveModal } = useLeaveGuard({ dirty: typed, onSave: submit, what: 'new job' })
@@ -408,61 +327,29 @@ function NewProjectModal({ onClose, onCreated }) {
       {leaveModal}
       <div className="modal new-job-modal">
         <h2>New job</h2>
+        <p className="muted" style={{ margin: '6px 0 18px' }}>For plans you already have. You upload them on the next page.</p>
         <form onSubmit={submit}>
-          <div className="kind-pick">
-            <button type="button" className={kind === 'doors' && !setsOnly ? 'on' : ''} onClick={() => { setKind('doors'); setSetsOnly(false) }}>
-              <strong>Door schedule</strong>
-              <span>Sets on doors, with the door references. Plans can be read in if you have them.</span>
-            </button>
-            <button type="button" className={kind === 'doors' && setsOnly ? 'on' : ''} onClick={() => { setKind('doors'); setSetsOnly(true) }}>
-              <strong>Ironmongery sets</strong>
-              <span>Sets and how many of each. No door references.</span>
-            </button>
-            <button type="button" className={kind === 'symbols' ? 'on' : ''} onClick={() => setKind('symbols')}>
-              <strong>Device count</strong>
-              <span>Fire and security drawings in, symbol counts out.</span>
-            </button>
-          </div>
           <div className="form-group">
-            <label>Project Name *</label>
-            <input className="form-control" placeholder="e.g. Ford Site, Cork"
-                   value={name} onChange={e => setName(e.target.value)} required />
+            <label>Project name *</label>
+            <input className="form-control" placeholder="e.g. Ford Site, Cork" value={name} onChange={e => setName(e.target.value)} required autoFocus />
           </div>
-          <div className="form-grid" style={{ gridTemplateColumns: kind === 'doors' ? '1fr 140px' : '1fr' }}>
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr 140px' }}>
             <div className="form-group">
               <label>Client</label>
-              <input className="form-control" placeholder="e.g. Glenveagh Homes"
-                     value={client} onChange={e => setClient(e.target.value)} />
+              <input className="form-control" placeholder="e.g. Glenveagh Homes" value={client} onChange={e => setClient(e.target.value)} />
             </div>
-            {kind === 'doors' && (
-              <div className="form-group">
-                <label>Quote no</label>
-                <input className="form-control" placeholder="33301" value={quote} onChange={e => setQuote(e.target.value)} />
-              </div>
-            )}
+            <div className="form-group">
+              <label>Quote no</label>
+              <input className="form-control" placeholder="33301" value={quote} onChange={e => setQuote(e.target.value)} />
+            </div>
           </div>
           <div className="form-group">
-            <label>Site / Address</label>
-            <input className="form-control" placeholder="e.g. Centre Park Road, Cork"
-                   value={site} onChange={e => setSite(e.target.value)} />
+            <label>Site / address</label>
+            <input className="form-control" placeholder="e.g. Centre Park Road, Cork" value={site} onChange={e => setSite(e.target.value)} />
           </div>
-          {kind === 'symbols' && (
-            <div className="form-group">
-              <label>
-                Drawing Firm{' '}
-                <span style={{ color: 'var(--text3)', fontWeight: 400 }}>
-                  (optional, improves detection for this firm's drawing style)
-                </span>
-              </label>
-              <input className="form-control" placeholder="e.g. O'Mahony Pike, EDC Engineers"
-                     value={firm} onChange={e => setFirm(e.target.value)} />
-            </div>
-          )}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" className="btn btn-ghost" onClick={close}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={busy}>
-              {busy ? <span className="spinner" /> : 'Create job'}
-            </button>
+            <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? <span className="spinner" /> : 'Create job'}</button>
           </div>
         </form>
       </div>

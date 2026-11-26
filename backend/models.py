@@ -1,28 +1,17 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, UniqueConstraint
+"""
+What the reader keeps: the team's logins, the jobs, the doors confirmed on each
+job, and the invites that let an architect send plans in.
+
+The database on the server still holds the tables of the old door schedule and
+device counting tools (sets, products, drawings). Nothing here reads them; they
+are left where they are, untouched.
+"""
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
 
 
-# ── Default symbol types ───────────────────────────────────────────────────────
-DEFAULT_SYMBOL_TYPES = [
-    # Security
-    {"name": "Audio Intercom",       "code": "AIS",        "color": "#22c55e", "sort_order": 0},
-    {"name": "CCTV Dome Camera",     "code": "CCTV_Dome",  "color": "#3b82f6", "sort_order": 1},
-    {"name": "CCTV Fixed Camera",    "code": "CCTV_Fixed", "color": "#60a5fa", "sort_order": 2},
-    {"name": "Access Control Door",  "code": "AC",         "color": "#f97316", "sort_order": 3},
-    {"name": "Input/Output Device",  "code": "I/O",        "color": "#a78bfa", "sort_order": 4},
-    # Fire alarm
-    {"name": "Smoke Detector",             "code": "S",    "color": "#e11d48", "sort_order": 5},
-    {"name": "Heat Detector",              "code": "H",    "color": "#b91c1c", "sort_order": 6},
-    {"name": "Manual Call Point",          "code": "MCP",  "color": "#dc2626", "sort_order": 7},
-    {"name": "Fire Alarm Sounder",         "code": "SND",  "color": "#d97706", "sort_order": 8},
-    {"name": "Fire Alarm Panel",           "code": "FAP",  "color": "#7c2d12", "sort_order": 9},
-    {"name": "Fire Alarm Repeater Panel",  "code": "FARP", "color": "#a16207", "sort_order": 10},
-]
-
-
-# ── User ──────────────────────────────────────────────────────────────────────
 class User(Base):
     __tablename__ = "users"
     id               = Column(Integer, primary_key=True, index=True)
@@ -32,100 +21,10 @@ class User(Base):
     is_active        = Column(Boolean, default=True)
     created_at       = Column(DateTime(timezone=True), server_default=func.now())
     projects         = relationship("Project", back_populates="owner")
-    templates        = relationship("GlobalTemplate", back_populates="created_by_user")
-
-
-# ── Global template library ───────────────────────────────────────────────────
-class GlobalTemplate(Base):
-    """
-    A single cropped example image of a symbol, stored globally.
-    Multiple instances per symbol code = better matching accuracy.
-    """
-    __tablename__ = "global_templates"
-    id                   = Column(Integer, primary_key=True, index=True)
-    symbol_code          = Column(String, nullable=False, index=True)
-    symbol_name          = Column(String, default="")
-    image_path           = Column(String, nullable=False)
-    image_width          = Column(Integer, default=0)
-    image_height         = Column(Integer, default=0)
-    # Feedback stats — updated as users verify detections
-    use_count            = Column(Integer, default=0)
-    confirm_count        = Column(Integer, default=0)
-    reject_count         = Column(Integer, default=0)
-    # Context for prioritisation
-    drawing_firm         = Column(String, default="")
-    drawing_scale        = Column(String, default="")
-    source_project_id    = Column(Integer, ForeignKey("projects.id"), nullable=True)
-    created_by_id        = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at           = Column(DateTime(timezone=True), server_default=func.now())
-    # Relationships
-    created_by_user      = relationship("User", back_populates="templates")
-    feedbacks            = relationship("DetectionFeedback", back_populates="template")
-
-    @property
-    def effective_threshold(self) -> float:
-        """Adaptive confidence threshold based on feedback history."""
-        base = 0.65  # lowered from 0.75 — new templates need a generous starting threshold
-        total = (self.confirm_count or 0) + (self.reject_count or 0)
-        if total < 5:
-            return base
-        precision = (self.confirm_count or 0) / total
-        if precision > 0.9:
-            return max(0.55, base - 0.08)   # high precision → find more
-        elif precision < 0.6:
-            return min(0.82, base + 0.08)   # low precision → be stricter
-        return base
-
-    @property
-    def quality_score(self) -> float:
-        """Score used to rank templates; untested templates get neutral 0.5."""
-        if not self.use_count:
-            return 0.5
-        return (self.confirm_count or 0) / max(self.use_count, 1)
-
-
-# ── Detection feedback ────────────────────────────────────────────────────────
-class DetectionFeedback(Base):
-    """
-    Records every correction made during verification.
-    - 'confirm'       : auto-detected and user kept it (true positive)
-    - 'false_positive': auto-detected and user deleted it
-    - 'missed'        : user manually added it (was not auto-detected)
-    - 'wrong_type'    : detected as one type, user corrected to another
-    """
-    __tablename__ = "detection_feedback"
-    id                  = Column(Integer, primary_key=True, index=True)
-    symbol_code         = Column(String, nullable=False, index=True)
-    feedback_type       = Column(String, nullable=False)
-    image_path          = Column(String, default="")
-    img_x               = Column(Float, default=0.0)
-    img_y               = Column(Float, default=0.0)
-    original_confidence = Column(Float, nullable=True)
-    original_method     = Column(String, default="")
-    corrected_code      = Column(String, nullable=True)
-    drawing_firm        = Column(String, default="")
-    drawing_scale       = Column(String, default="")
-    template_id         = Column(Integer, ForeignKey("global_templates.id"), nullable=True)
-    drawing_id          = Column(Integer, ForeignKey("drawings.id"), nullable=True)
-    page_number         = Column(Integer, default=1)
-    created_at          = Column(DateTime(timezone=True), server_default=func.now())
-    template            = relationship("GlobalTemplate", back_populates="feedbacks")
-
-
-# ── Project ───────────────────────────────────────────────────────────────────
-class ProjectSymbolType(Base):
-    __tablename__ = "project_symbol_types"
-    __table_args__ = (UniqueConstraint("project_id", "code", name="uq_project_code"),)
-    id           = Column(Integer, primary_key=True, index=True)
-    name         = Column(String, nullable=False)
-    code         = Column(String, nullable=False)
-    color        = Column(String, default="#8892a8")
-    sort_order   = Column(Integer, default=0)
-    project_id   = Column(Integer, ForeignKey("projects.id"))
-    project      = relationship("Project", back_populates="symbol_types")
 
 
 class Project(Base):
+    """A job: the floor plans of one project, read for its doors."""
     __tablename__ = "projects"
     id            = Column(Integer, primary_key=True, index=True)
     name          = Column(String, nullable=False)
@@ -135,208 +34,50 @@ class Project(Base):
     drawing_firm  = Column(String, default="")
     quote_no      = Column(String, default="")
     rep           = Column(String, default="")
-    kind          = Column(String, default="symbols")   # "symbols" (device counting) | "doors" (ironmongery schedule)
-    notes         = Column(Text, default="")           # the estimator's notes, printed on the schedule's Notes page
-    revision      = Column(Integer, default=1)          # goes up each time the architect sends the schedule back
-    sets_only     = Column(Boolean, default=False)      # sets and quantities, no door references
+    kind          = Column(String, default="doors")     # old device counting jobs say "symbols" and are not shown
+    notes         = Column(Text, default="")
+    # sent in by an architect through the portal
+    source        = Column(String, default="")          # "" made here | "portal"
+    stage         = Column(String, default="")          # portal jobs: new | taken | checked
+    brief         = Column(Text, default="")            # the architect's own words about the project
+    contact       = Column(Text, default="")            # JSON: company, name, email, phone
+    received_at   = Column(DateTime(timezone=True), nullable=True)
+    due_at        = Column(DateTime(timezone=True), nullable=True)
+    checked_at    = Column(DateTime(timezone=True), nullable=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
     owner_id      = Column(Integer, ForeignKey("users.id"))
     owner         = relationship("User", back_populates="projects")
-    drawings      = relationship("Drawing", back_populates="project", cascade="all, delete-orphan")
-    symbol_types  = relationship("ProjectSymbolType", back_populates="project",
-                                 cascade="all, delete-orphan", order_by="ProjectSymbolType.sort_order")
-
-
-# ── Drawing ───────────────────────────────────────────────────────────────────
-class Drawing(Base):
-    __tablename__ = "drawings"
-    id             = Column(Integer, primary_key=True, index=True)
-    filename       = Column(String, nullable=False)
-    original_name  = Column(String, nullable=False)
-    block          = Column(String, default="")
-    level          = Column(String, default="")
-    revision       = Column(String, default="")
-    total_pages    = Column(Integer, default=1)
-    # Status: uploaded → processing → detected → verified → approved
-    status         = Column(String, default="uploaded")
-    error_message  = Column(Text, nullable=True)   # populated when status == "error"
-    verified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    verified_at    = Column(DateTime(timezone=True), nullable=True)
-    approved_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    approved_at    = Column(DateTime(timezone=True), nullable=True)
-    created_at     = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at     = Column(DateTime(timezone=True), onupdate=func.now())
-    project_id     = Column(Integer, ForeignKey("projects.id"))
-    project        = relationship("Project", back_populates="drawings")
-    pages          = relationship("DrawingPage", back_populates="drawing", cascade="all, delete-orphan")
-
-    @property
-    def total_counts(self):
-        counts = {}
-        for page in self.pages:
-            for det in (page.detections or []):
-                t = det.get("type", "")
-                counts[t] = counts.get(t, 0) + 1
-        return counts
-
-
-class DrawingPage(Base):
-    __tablename__ = "drawing_pages"
-    id                  = Column(Integer, primary_key=True, index=True)
-    page_number         = Column(Integer, nullable=False)
-    image_path          = Column(String, nullable=False)
-    detections          = Column(JSON, default=list)           # user-verified
-    original_detections = Column(JSON, default=list)           # immutable auto-detected copy
-    verified            = Column(Boolean, default=False)
-    drawing_id          = Column(Integer, ForeignKey("drawings.id"))
-    drawing             = relationship("Drawing", back_populates="pages")
-
-
-# ── Ironmongery scheduling ────────────────────────────────────────────────────
-class Product(Base):
-    """One catalogue line, loaded from the Cin7 price list export."""
-    __tablename__ = "products"
-    id          = Column(Integer, primary_key=True, index=True)
-    sku         = Column(String, unique=True, index=True, nullable=False)
-    name        = Column(String, nullable=False)
-    category    = Column(String, default="Other")
-    unit        = Column(String, default="EACH")
-    cost        = Column(Float, nullable=True)        # Cin7 average cost
-    sell        = Column(Float, nullable=True)        # quoted price, when one exists
-    intec_code  = Column(String, default="")          # the code Intec used for the same item
-    product_type = Column(String, default="")         # "01" hinges … "07" accessories (Intec's order on a set)
-    brand       = Column(String, default="")
-    image_path  = Column(String, default="")
-    notes       = Column(Text, default="")
-    active      = Column(Boolean, default=True)
-    source      = Column(String, default="cin7")
-    created_at  = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at  = Column(DateTime(timezone=True), onupdate=func.now())
-    set_items   = relationship("SetItem", back_populates="product")
-
-
-class Document(Base):
-    """A datasheet or certificate PDF, stored once and shared by every product it covers."""
-    __tablename__ = "documents"
-    id            = Column(Integer, primary_key=True, index=True)
-    sha1          = Column(String, unique=True, index=True, nullable=False)   # the same file twice is one document
-    filename      = Column(String, nullable=False)          # where it sits under uploads/documents
-    original_name = Column(String, default="")
-    title         = Column(String, default="")
-    kind          = Column(String, default="datasheet")     # datasheet | certificate
-    pages         = Column(Integer, default=0)
-    codes         = Column(Text, default="")            # product codes printed inside it, as read
-    has_text      = Column(Boolean, nullable=True)      # None: not read yet; False: a scan, nothing to read
-    created_at    = Column(DateTime(timezone=True), server_default=func.now())
-    products      = relationship("ProductDocument", back_populates="document", cascade="all, delete-orphan")
-
-
-class ProductDocument(Base):
-    __tablename__ = "product_documents"
-    __table_args__ = (UniqueConstraint("product_id", "document_id", name="uq_product_document"),)
-    id          = Column(Integer, primary_key=True)
-    product_id  = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
-    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False, index=True)
-    confirmed   = Column(Boolean, default=False)     # a person put it here or said it belongs
-    document    = relationship("Document", back_populates="products")
-    product     = relationship("Product")
-
-
-class HardwareSet(Base):
-    """A named bundle of products with quantities per door, reused across jobs."""
-    __tablename__ = "hardware_sets"
-    id             = Column(Integer, primary_key=True, index=True)
-    code           = Column(String, nullable=False, index=True)   # "MF 04"
-    name           = Column(String, nullable=False)               # "Int Sgl Apartment Entrance FR"
-    description    = Column(Text, default="")
-    fire_rated     = Column(Boolean, default=False)
-    notes          = Column(Text, default="")
-    archived       = Column(Boolean, default=False)
-    copied_from_id = Column(Integer, ForeignKey("hardware_sets.id"), nullable=True)
-    project_id     = Column(Integer, ForeignKey("projects.id"), nullable=True)  # None = standard library; set = this job only
-    locked_by_id   = Column(Integer, ForeignKey("users.id"), nullable=True)     # who has the editor open
-    locked_at      = Column(DateTime(timezone=True), nullable=True)
-    created_by_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at     = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at     = Column(DateTime(timezone=True), onupdate=func.now())
-    items          = relationship("SetItem", back_populates="hardware_set",
-                                  cascade="all, delete-orphan", order_by="SetItem.sort_order")
-    locked_by      = relationship("User", foreign_keys=[locked_by_id])
-
-
-class JobPrice(Base):
-    """Per-job pricing for one product: the estimator's cost/sell/discounts on this quote.
-    Blank cost or sell means 'use the product file'. Intec's Cost Summary in a table."""
-    __tablename__ = "job_prices"
-    id         = Column(Integer, primary_key=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
-    cost       = Column(Float, nullable=True)
-    sell       = Column(Float, nullable=True)
-    disc_a     = Column(Float, default=0.0)
-    disc_b     = Column(Float, default=0.0)
-    product    = relationship("Product")
-
-
-class ProjectSet(Base):
-    """A set placed on a job, even before it has doors (Intec keeps sets with 0 doors)."""
-    __tablename__ = "project_sets"
-    id         = Column(Integer, primary_key=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
-    set_id     = Column(Integer, ForeignKey("hardware_sets.id"), nullable=False, index=True)
-    sort_order = Column(Integer, default=0)
-
-
-PRODUCT_TYPES = [("01", "Hinges and pivots"), ("02", "Door closers"), ("03", "Locks and cylinders"),
-                 ("04", "Door handles"), ("05", "Signage"), ("06", "Door protection"), ("07", "Accessories")]
-
-
-class SetItem(Base):
-    __tablename__ = "set_items"
-    id            = Column(Integer, primary_key=True, index=True)
-    set_id        = Column(Integer, ForeignKey("hardware_sets.id"), nullable=False)
-    product_id    = Column(Integer, ForeignKey("products.id"), nullable=False)
-    qty           = Column(Integer, default=1)
-    sort_order    = Column(Integer, default=0)
-    hardware_set  = relationship("HardwareSet", back_populates="items")
-    product       = relationship("Product", back_populates="set_items")
-
-
-class DoorType(Base):
-    """A kind of door on a project (DT-01 Room Entrance Door), which gets one set."""
-    __tablename__ = "door_types"
-    id           = Column(Integer, primary_key=True, index=True)
-    project_id   = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
-    code         = Column(String, nullable=False)          # "DT-01"
-    description  = Column(String, default="")              # "Room Entrance Door"
-    fire_rating  = Column(String, default="")              # "FD30s"
-    acoustic     = Column(String, default="")              # "37dB Rw"
-    width        = Column(Integer, nullable=True)
-    height       = Column(Integer, nullable=True)
-    spec_text    = Column(Text, default="")                # architect's ironmongery list
-    status       = Column(String, default="decide")        # decide | assigned | excluded
-    set_id       = Column(Integer, ForeignKey("hardware_sets.id"), nullable=True)
-    sort_order   = Column(Integer, default=0)
-    hardware_set = relationship("HardwareSet")
-    project      = relationship("Project")
-    doors        = relationship("Door", back_populates="door_type")
 
 
 class Door(Base):
-    """One door on a project: found on a plan, imported from a schedule, or typed."""
+    """A door confirmed on a job: read off the plans, from a door list, or added by hand.
+    (The table has more columns from the old schedule tool; they are not used.)"""
     __tablename__ = "doors"
     id            = Column(Integer, primary_key=True, index=True)
     project_id    = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
-    door_type_id  = Column(Integer, ForeignKey("door_types.id"), nullable=True)
-    ref           = Column(String, default="")             # "D01-001" or generated
+    ref           = Column(String, default="")
     floor         = Column(String, default="")
-    handed        = Column(Boolean, default=False)
-    drawing_id    = Column(Integer, ForeignKey("drawings.id"), nullable=True)
-    page_number   = Column(Integer, default=1)
-    x             = Column(Float, nullable=True)            # normalised position on the page
-    y             = Column(Float, nullable=True)
-    set_id        = Column(Integer, ForeignKey("hardware_sets.id"), nullable=True)  # per-door override
-    source        = Column(String, default="plan")          # plan | schedule | manual
+    source        = Column(String, default="plan")          # plans | schedule
     note          = Column(String, default="")
-    door_type     = relationship("DoorType", back_populates="doors")
+
+
+class Invite(Base):
+    """A link and PIN given to an architect so they can send one project's plans in."""
+    __tablename__ = "invites"
+    id            = Column(Integer, primary_key=True, index=True)
+    token         = Column(String, unique=True, index=True, nullable=False)   # in the link, after the #
+    pin_hash      = Column(String, nullable=False)
+    firm          = Column(String, default="")
+    email         = Column(String, default="")
+    project_hint  = Column(String, default="")
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at    = Column(DateTime(timezone=True), nullable=False)
+    status        = Column(String, default="open")       # open | sent | closed
+    failed        = Column(Integer, default=0)           # wrong PINs in a row
+    locked        = Column(Boolean, default=False)
+    session_ver   = Column(Integer, default=1)           # goes up to end every open session on it
+    project_id    = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    sent_at       = Column(DateTime(timezone=True), nullable=True)
+    created_by    = relationship("User")

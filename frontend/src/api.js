@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react'
 // All API calls use relative URLs — no hardcoded localhost
 // In development Vite proxies /api → http://localhost:8000
 // In production FastAPI serves the built dist directly
@@ -78,4 +79,30 @@ export async function openBlob(path) {
     if (win) win.close()
     throw err
   }
+}
+
+// A picture the server only gives to someone logged in, as an address an <img> can show
+export function useAuthImage(imageUrl) {
+  const [objectUrl, setObjectUrl] = useState(null)
+  const urlRef = useRef(null)
+  useEffect(() => {
+    if (!imageUrl) return
+    let cancelled = false
+    const token = localStorage.getItem('token')
+    fetch(imageUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(r => (r.ok ? r.blob() : Promise.reject(new Error('bad'))))
+      .then(blob => {
+        if (cancelled) return
+        const url = URL.createObjectURL(blob)
+        setObjectUrl(url)
+        if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+        urlRef.current = url
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null }
+    }
+  }, [imageUrl])
+  return objectUrl
 }

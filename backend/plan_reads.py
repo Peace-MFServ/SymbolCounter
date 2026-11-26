@@ -1,5 +1,5 @@
 """
-Reading the doors off a job's floor plans: upload, look over, add to the job.
+Reading the doors off a job's floor plans: upload, look over, confirm.
 
 A reading is kept on disk under uploads/plan_reads/<job>/<reading>: the PDFs
 as they came, and which door tag styles the person settled on. The doors are
@@ -23,7 +23,7 @@ from database import get_db
 
 router = APIRouter(prefix="/api", tags=["plan-reads"])
 ROOT = Path("uploads") / "plan_reads"
-MAX_FILES = 20
+MAX_FILES = 40
 
 
 def _dir(pid: int, rid: str) -> Path:
@@ -93,13 +93,12 @@ def _reading(pid: int, rid: str, d: Path, meta: dict) -> dict:
     return {"id": rid, "project_id": pid, "names": meta["names"], **r}
 
 
-def _with_job(db: Session, pid: int, r: dict) -> dict:
-    """Mark doors whose reference is already on the job, and send the job's doors
-    with their sets so the page can show and change them."""
-    from schedule import _effective_set_id
+def with_job(db: Session, pid: int, r: dict) -> dict:
+    """Mark doors whose reference is already confirmed on the job, and send the
+    job's confirmed doors so the page can show them."""
     job = {}
     for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
-        job[(d.ref or "").upper()] = {"id": d.id, "set_id": _effective_set_id(d)}
+        job[(d.ref or "").upper()] = {"id": d.id}
     for d in r["doors"]:
         d["on_job"] = d["ref"].upper() in job
     r["job_doors"] = job
@@ -118,20 +117,20 @@ def latest_reading(pid: int) -> str:
 @router.get("/projects/{pid}/plan-reads")
 def job_reading(pid: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """The job's plans as last read, so the page opens on them. {id: ''} when there are none."""
-    from schedule import _own_project
+    from jobs import own_project as _own_project
     _own_project(pid, db, cu)
     rid = latest_reading(pid)
     if not rid:
         return {"id": ""}
     d = _dir(pid, rid)
-    return _with_job(db, pid, _reading(pid, rid, d, _meta(d)))
+    return with_job(db, pid, _reading(pid, rid, d, _meta(d)))
 
 
 @router.post("/projects/{pid}/plan-reads/{rid}/files")
 async def add_plans(pid: int, rid: str, files: list[UploadFile] = File(...),
                     db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """More plans for the same job: they join the ones already read."""
-    from schedule import _edit_project
+    from jobs import edit_project as _edit_project
     _edit_project(pid, db, cu)
     d = _dir(pid, rid)
     meta = _meta(d)
@@ -150,14 +149,32 @@ async def add_plans(pid: int, rid: str, files: list[UploadFile] = File(...),
     if not meta.get("picked"):
         meta["chosen"] = None            # read afresh, so a new architect's sheet gets its own door numbers
     (d / "meta.json").write_text(json.dumps(meta))
-    return _with_job(db, pid, _reading(pid, rid, d, meta))
+    return with_job(db, pid, _reading(pid, rid, d, meta))
+
+
+def new_reading(pid: int, pdfs: list[tuple[str, bytes]], by: Optional[int] = None) -> tuple[str, Path, dict]:
+    """The plans of a job kept for reading: (reading id, its folder, its meta)."""
+    rid = secrets.token_hex(6)
+    d = ROOT / str(pid) / rid
+    d.mkdir(parents=True, exist_ok=True)
+    for i, (_, data) in enumerate(pdfs):
+        (d / f"{i}.pdf").write_bytes(data)
+    meta = {"names": [n for n, _ in pdfs], "chosen": None, "by": by}
+    (d / "meta.json").write_text(json.dumps(meta))
+    return rid, d, meta
+
+
+def read_now(pid: int, rid: str):
+    """Read a reading's plans and keep the result, so the page opens on it at once."""
+    d = _dir(pid, rid)
+    _reading(pid, rid, d, _meta(d))
 
 
 @router.post("/projects/{pid}/plan-reads")
 async def start_reading(pid: int, files: list[UploadFile] = File(...),
                         db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Upload the floor plans of a job; the door tags on them are read straight away."""
-    from schedule import _edit_project
+    from jobs import edit_project as _edit_project
     _edit_project(pid, db, cu)
     pdfs = []
     for f in files[:MAX_FILES]:
@@ -166,22 +183,16 @@ async def start_reading(pid: int, files: list[UploadFile] = File(...),
             pdfs.append((Path(f.filename or "plan.pdf").name, data))
     if not pdfs:
         raise HTTPException(400, "Upload the floor plans as PDF files")
-    rid = secrets.token_hex(6)
-    d = ROOT / str(pid) / rid
-    d.mkdir(parents=True, exist_ok=True)
-    for i, (_, data) in enumerate(pdfs):
-        (d / f"{i}.pdf").write_bytes(data)
-    meta = {"names": [n for n, _ in pdfs], "chosen": None, "by": cu.id}
-    (d / "meta.json").write_text(json.dumps(meta))
-    return _with_job(db, pid, _reading(pid, rid, d, meta))
+    rid, d, meta = new_reading(pid, pdfs, cu.id)
+    return with_job(db, pid, _reading(pid, rid, d, meta))
 
 
 @router.get("/projects/{pid}/plan-reads/{rid}")
 def get_reading(pid: int, rid: str, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    from schedule import _own_project
+    from jobs import own_project as _own_project
     _own_project(pid, db, cu)
     d = _dir(pid, rid)
-    return _with_job(db, pid, _reading(pid, rid, d, _meta(d)))
+    return with_job(db, pid, _reading(pid, rid, d, _meta(d)))
 
 
 class StylesIn(BaseModel):
@@ -191,7 +202,7 @@ class StylesIn(BaseModel):
 @router.put("/projects/{pid}/plan-reads/{rid}/styles")
 def set_styles(pid: int, rid: str, payload: StylesIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Use these door tag styles: the doors are read again with them."""
-    from schedule import _edit_project
+    from jobs import edit_project as _edit_project
     _edit_project(pid, db, cu)
     d = _dir(pid, rid)
     meta = _meta(d)
@@ -201,14 +212,14 @@ def set_styles(pid: int, rid: str, payload: StylesIn, db: Session = Depends(get_
     meta["chosen"] = keys
     meta["picked"] = True                # a person chose: more plans added later do not undo it
     (d / "meta.json").write_text(json.dumps(meta))
-    return _with_job(db, pid, _reading(pid, rid, d, meta))
+    return with_job(db, pid, _reading(pid, rid, d, meta))
 
 
 @router.get("/projects/{pid}/plan-reads/{rid}/labels")
 def sheet_labels(pid: int, rid: str, file: int = 0, page: int = 1,
                  db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """Every label on one sheet, so a person can point at a door tag to teach the style."""
-    from schedule import _own_project
+    from jobs import own_project as _own_project
     from detection.plan_reader import labels_at
     _own_project(pid, db, cu)
     d = _dir(pid, rid)
@@ -222,7 +233,7 @@ def sheet_labels(pid: int, rid: str, file: int = 0, page: int = 1,
 def sheet_image(pid: int, rid: str, file: int, page: int, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """One sheet as a picture, about 2400 pixels across, made once and kept."""
     import pymupdf
-    from schedule import _own_project
+    from jobs import own_project as _own_project
     _own_project(pid, db, cu)
     d = _dir(pid, rid)
     meta = _meta(d)
@@ -250,7 +261,7 @@ class ManualIn(BaseModel):
 @router.post("/projects/{pid}/plan-reads/{rid}/manual")
 def add_door_by_hand(pid: int, rid: str, payload: ManualIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """A door the reader missed: its number, and where it is on the plan."""
-    from schedule import _edit_project
+    from jobs import edit_project as _edit_project
     _edit_project(pid, db, cu)
     d = _dir(pid, rid)
     meta = _meta(d)
@@ -267,48 +278,54 @@ def add_door_by_hand(pid: int, rid: str, payload: ManualIn, db: Session = Depend
     mid = "m." + secrets.token_hex(4)
     manual.append({"id": mid, "ref": ref, "file": payload.file, "page": payload.page, "x": payload.x, "y": payload.y})
     (d / "meta.json").write_text(json.dumps(meta))
-    return {"added": mid, **_with_job(db, pid, _reading(pid, rid, d, meta))}
+    return {"added": mid, **with_job(db, pid, _reading(pid, rid, d, meta))}
 
 
 @router.delete("/projects/{pid}/plan-reads/{rid}/manual/{mid}")
 def remove_door_by_hand(pid: int, rid: str, mid: str, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    from schedule import _edit_project
+    from jobs import edit_project as _edit_project
     _edit_project(pid, db, cu)
     d = _dir(pid, rid)
     meta = _meta(d)
     meta["manual"] = [m for m in meta.get("manual") or [] if m["id"] != mid]
     (d / "meta.json").write_text(json.dumps(meta))
-    return _with_job(db, pid, _reading(pid, rid, d, meta))
+    return with_job(db, pid, _reading(pid, rid, d, meta))
 
 
 class DoorIn(BaseModel):
     ref: str
     floor: str = ""
     note: str = ""
-    set_id: Optional[int] = None      # this door's own set; without one it takes the set given for them all
 
 
 class ApplyIn(BaseModel):
     doors: list[DoorIn] = []
-    set_id: Optional[int] = None
 
 
 @router.post("/projects/{pid}/plan-reads/{rid}/apply")
 def add_doors(pid: int, rid: str, payload: ApplyIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    """The doors a person has looked over go onto the job. References already on it are left alone."""
+    """The doors a person has looked over are confirmed on the job. References already confirmed are left alone."""
     _dir(pid, rid)
-    return _add_doors(pid, payload, db, cu, source="plans", note="Read from the floor plans")
+    return _add_doors(pid, payload, db, cu, source="plans")
 
 
-def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str, note: str) -> dict:
-    """The doors a person has looked over go onto the job. References already on it are left alone."""
-    from schedule import _edit_project, _link_set, _usable_set
-    p = _edit_project(pid, db, cu)
-    # a library set or this job's own, never another job's
-    for sid in {payload.set_id} | {d.set_id for d in payload.doors[:5000]}:
-        if sid:
-            _usable_set(db, pid, sid)
-    used = set()
+@router.post("/projects/{pid}/doors/remove")
+def remove_doors(pid: int, payload: ApplyIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
+    """Doors confirmed by mistake: no longer on the job."""
+    from jobs import edit_project
+    edit_project(pid, db, cu)
+    refs = {" ".join(d.ref.split()).upper() for d in payload.doors[:5000]}
+    gone = 0
+    for d in db.query(models.Door).filter(models.Door.project_id == pid).all():
+        if (d.ref or "").upper() in refs:
+            db.delete(d); gone += 1
+    db.commit()
+    return {"removed": gone, "job_doors": with_job(db, pid, {"doors": []})["job_doors"]}
+
+
+def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str) -> dict:
+    from jobs import edit_project
+    p = edit_project(pid, db, cu)
     have = {(x or "").upper() for (x,) in db.query(models.Door.ref).filter(models.Door.project_id == pid).all()}
     added, skipped = 0, []
     for dr in payload.doors[:5000]:
@@ -317,18 +334,15 @@ def _add_doors(pid: int, payload: ApplyIn, db: Session, cu, source: str, note: s
             continue
         if ref.upper() in have:
             skipped.append(ref); continue
-        sid = dr.set_id or payload.set_id or None
-        db.add(models.Door(project_id=pid, ref=ref, floor=dr.floor.strip()[:60], set_id=sid,
-                           source=source, note=(dr.note.strip() or note)[:500]))
+        db.add(models.Door(project_id=pid, ref=ref, floor=dr.floor.strip()[:60], source=source, note=dr.note.strip()[:500]))
         have.add(ref.upper()); added += 1
-        if sid:
-            used.add(sid)
-    for sid in sorted(used):
-        _link_set(db, pid, sid)
-        db.flush()
+    if added and p.owner_id is None:
+        p.owner_id = cu.id                      # whoever confirms the doors of a job sent in has taken it
+        if p.stage in ("", "new"):
+            p.stage = "taken" if p.source == "portal" else p.stage
     db.commit()
     return {"added": added, "skipped": skipped, "project": p.name,
-            "job_doors": _with_job(db, pid, {"doors": []})["job_doors"]}
+            "job_doors": with_job(db, pid, {"doors": []})["job_doors"]}
 
 
 # ── A door list from the architect's spreadsheet ─────────────────────────────
@@ -339,7 +353,7 @@ SHEET_TYPES = (".xlsx", ".xlsm", ".csv")
 async def read_door_list_file(pid: int, file: UploadFile = File(...),
                               db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
     """An architect's door schedule as a spreadsheet: the doors in it, to look over before they are added."""
-    from schedule import _edit_project
+    from jobs import edit_project as _edit_project
     from detection.door_list import read_door_list
     _edit_project(pid, db, cu)
     name = Path(file.filename or "schedule.xlsx").name
@@ -350,9 +364,9 @@ async def read_door_list_file(pid: int, file: UploadFile = File(...),
         raise HTTPException(400, "That file is too big")
     r = read_door_list(name, data)
     r["name"] = name
-    return _with_job(db, pid, r)
+    return with_job(db, pid, r)
 
 
 @router.post("/projects/{pid}/door-list/apply")
 def add_listed_doors(pid: int, payload: ApplyIn, db: Session = Depends(get_db), cu=Depends(auth.get_current_user)):
-    return _add_doors(pid, payload, db, cu, source="schedule", note="From the architect's door schedule")
+    return _add_doors(pid, payload, db, cu, source="schedule")
