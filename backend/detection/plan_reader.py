@@ -809,7 +809,15 @@ def read_plans(files: list[tuple[str, bytes]], keys: list[str] | None = None) ->
             chosen += _companions(fams, chosen, {l["id"]: l for l in labels})
     out = _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems, by_shape=set(by_legend),
                  extra_items=extra_items if by_legend else [])
-    return _with_types(out, door_types)
+    out = _with_types(out, door_types)
+    # a sheet that gave no doors at all says so, rather than sitting there empty
+    counted = Counter((d["file"], d["page"]) for d in out["doors"]) + Counter((c["file"], c["page"]) for c in out["checks"])
+    for p in out["pages"]:
+        if p.get("readable") and p.get("kind") != "types" and not counted.get((p["file"], p["page"])):
+            p["note"] = ((p.get("note") or "") + " No door numbers of this job's style were found on this sheet: it looks like a "
+                         "services or other drawing, so no doors were counted from it. If it does number doors, use "
+                         "'Not the door numbers?'.").strip()
+    return out
 
 
 def _with_types(r: dict, door_types: dict) -> dict:
@@ -895,11 +903,16 @@ def _auto_choose(fams: list[dict], pages: list[dict]) -> list[str]:
     chosen = [fams[0]["key"]]
     covered = {_sheet_of(i) for i in fams[0]["members"]}
     top = fams[0]["score"]
+    # where the job's door numbers carry letters (D001), a sheet without any is not given
+    # plain numbers as its doors: those are room numbers on a services or other drawing
+    lettered = bool(re.search(r"[A-Z]", fams[0]["key"]))
     for p in pages:
         sh = (p["file"], p["page"])
         if not p.get("readable") or sh in covered:
             continue
         for f in fams[1:]:
+            if lettered and not re.search(r"[A-Z]", f["key"]):
+                continue
             on = {i for i in f["members"] if _sheet_of(i) == sh}
             if len(on) >= 5 and f["score"] >= 0.25 * top and (f["at_doors"] is None or f["at_doors"] >= 0.3):
                 if f["key"] not in chosen:
@@ -1069,7 +1082,8 @@ def _check(pages, labels, near, key_ids, fams, chosen, has_geo, problems, by_sha
     for l in labels:
         if l["id"] in taken or family_of(l["text"], chosen) or l["id"] in key_ids:
             continue
-        fixed = _near_miss(l["text"], chosen)
+        # a slip is only looked for in lettered tags: 1900 is a dimension, not a mistyped 900
+        fixed = _near_miss(l["text"], [c for c in chosen if re.search(r"[A-Za-z]", c)])
         sh = (l["file"], l["page"])
         if fixed and fixed.upper() in slips:
             continue                          # the same slip on a sheet repeated

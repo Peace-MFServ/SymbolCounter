@@ -100,7 +100,11 @@ export function PlanReaderView({ projectId, setId = null, newSet = null, onNavig
     setR(data); setRid(data.id)
     const doubtful = data.doors.some(d => d.status === 'amber' && !d.on_job) || data.checks.length > 0
     setTab(t => (rid === data.id ? t : doubtful ? 'check' : 'all'))
-    const first = data.pages.find(p => p.readable) || data.pages[0]
+    // open on the sheet with the most doors on it, not on whichever file came first
+    const per = {}
+    for (const d of data.doors) per[sheetKey(d)] = (per[sheetKey(d)] || 0) + 1
+    const first = [...data.pages].filter(p => p.readable && p.kind !== 'types').sort((a, b) => (per[sheetKey(b)] || 0) - (per[sheetKey(a)] || 0))[0]
+      || data.pages.find(p => p.readable) || data.pages[0]
     setSheet(cur => cur && data.pages.some(p => sheetKey(p) === cur) ? cur : first ? sheetKey(first) : null)
   }
 
